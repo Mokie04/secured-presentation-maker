@@ -6,9 +6,19 @@ import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle } from '../ty
 const TEXT_MODEL = "gemini-3-flash-preview";
 const IMAGE_MODEL = "gemini-2.5-flash-image";
 
-// Per instructions, assume process.env.API_KEY is available in the execution environment.
-// This single client instance will be used for all API calls.
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+// Lazy initialization of the AI client.
+// This prevents accessing process.env.API_KEY at module import time,
+// avoiding crashes if the polyfill hasn't run yet.
+let aiClient: GoogleGenAI | null = null;
+
+function getAiClient(): GoogleGenAI {
+  if (!aiClient) {
+    // We assume process.env.API_KEY is available at runtime.
+    // The polyfill in index.tsx ensures process.env exists.
+    aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  }
+  return aiClient;
+}
 
 // Helper to clean and split content
 function cleanSlideContent(content: string[]): string[] {
@@ -69,6 +79,7 @@ function cleanSlideContent(content: string[]): string[] {
 
 // PHASE 1: DEEP ANALYSIS & BLUEPRINT CREATION
 export async function createK12LessonBlueprint(content: string, format: string, language: 'EN' | 'FIL'): Promise<LessonBlueprint> {
+    const ai = getAiClient();
     const prompt = `
         You are a Master K-12 Teacher and Instructional Designer. Your task is to analyze the provided educational content and create a professional, comprehensive Lesson Blueprint for a school setting.
 
@@ -143,6 +154,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
 
 // PHASE 2: SLIDE GENERATION (PER DAY)
 export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL'): Promise<Slide[]> {
+    const ai = getAiClient();
     let prompt = "";
     const commonRules = `
     **CRITICAL DIRECTIVES:**
@@ -272,6 +284,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
 
 // K-12 SINGLE LESSON GENERATION
 export async function generateK12SingleLessonSlides(content: string, format: string, language: 'EN' | 'FIL', onProgress?: (message: string) => void): Promise<Presentation> {
+    const ai = getAiClient();
     if (onProgress) onProgress(`Structuring your complete lesson...`);
 
     let sections = "";
@@ -387,6 +400,7 @@ export async function generateK12SingleLessonSlides(content: string, format: str
 // --- COLLEGE GENERATION LOGIC ---
 
 export async function generateCollegeLectureSlides(topic: string, objectives: string, language: 'EN' | 'FIL', onProgress?: (message: string) => void): Promise<Presentation> {
+    const ai = getAiClient();
     if (onProgress) onProgress(`Structuring your lecture...`);
 
     const prompt = `
@@ -500,6 +514,7 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
 // --- IMAGE GENERATION ---
 
 export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<string> {
+    const ai = getAiClient();
     if (!prompt || style === 'none') {
         return Promise.resolve('');
     }

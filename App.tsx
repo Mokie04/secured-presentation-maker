@@ -6,7 +6,7 @@ import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
 import mammoth from 'mammoth';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
+import * as pdfjsLib from 'pdfjs-dist';
 import html2canvas from 'html2canvas';
 import { useTheme } from './contexts/ThemeContext';
 import Header from './components/Header';
@@ -14,12 +14,6 @@ import { useLanguage } from './contexts/LanguageContext';
 import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
 
-// Safely set worker path for pdf.js
-try {
-  GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
-} catch (e) {
-  console.warn("Failed to set PDF worker source", e);
-}
 
 type AppStep = 'input' | 'planning' | 'presenting';
 type TransitionDirection = 'next' | 'prev' | null;
@@ -97,6 +91,17 @@ const App: React.FC = () => {
   useEffect(() => {
     updateCounts();
   }, [updateCounts]);
+  
+  // Safely set worker path for pdf.js after mount
+  useEffect(() => {
+    try {
+      if (pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
+          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
+      }
+    } catch (e) {
+      console.warn("Failed to set PDF worker source", e);
+    }
+  }, []);
 
   const handleApiError = (e: unknown) => {
     const errorMessage = (e as Error).message;
@@ -480,7 +485,7 @@ const App: React.FC = () => {
         let text = '';
         if (fileExtension === '.pdf') {
             const arrayBuffer = await file.arrayBuffer();
-            const pdf = await getDocument({ data: arrayBuffer }).promise;
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i);
                 const content = await page.getTextContent();
