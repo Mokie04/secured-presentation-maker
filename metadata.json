@@ -1,0 +1,5 @@
+{
+  "name": "DLL-aligned Presentation Maker",
+  "description": "An application that uses AI to generate a presentation outline based on a teacher's Daily Lesson Log (DLL). Teachers can paste their DLL, and the AI will structure it into a slide-by-slide presentation format.",
+  "requestFramePermissions": []
+}

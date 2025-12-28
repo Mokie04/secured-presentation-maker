@@ -1,0 +1,1090 @@
+
+import React, { useState, useCallback, useRef, useEffect } from 'react';
+import { Presentation, LessonBlueprint, DayPlan, Slide } from './types';
+import { createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides } from './services/geminiService';
+import SlideComponent from './components/Slide';
+import Loader from './components/Loader';
+import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
+import mammoth from 'mammoth';
+import * as pdfjsLib from 'pdfjs-dist';
+import html2canvas from 'html2canvas';
+import { useTheme } from './contexts/ThemeContext';
+import Header from './components/Header';
+import { useLanguage } from './contexts/LanguageContext';
+import { translations } from './lib/translations';
+import { useUsageTracker } from './useUsageTracker';
+
+// Set worker path for pdf.js
+pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
+
+type AppStep = 'input' | 'planning' | 'presenting';
+type TransitionDirection = 'next' | 'prev' | null;
+type LessonFormat = 'K-12' | 'MATATAG' | '5Es Model' | '4As Model';
+type TeachingLevel = 'K-12' | 'College';
+type DepEdMode = 'weekly' | 'single';
+
+/**
+ * Processes a string to identify parts of chemical formulas that need subscripting.
+ * @param text The input string.
+ * @returns An array of objects, each with a `text` segment and a boolean `sub` indicating if it should be a subscript.
+ */
+function processTextForPptx(text: string): { text: string; sub: boolean }[] {
+    if (!text) return [];
+    const chemicalRegex = /([A-Z][a-z]?)(\d+)/g;
+
+    if (!chemicalRegex.test(text)) {
+        return [{ text, sub: false }];
+    }
+    chemicalRegex.lastIndex = 0;
+
+    const parts: { text: string; sub: boolean }[] = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = chemicalRegex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+            parts.push({ text: text.substring(lastIndex, match.index), sub: false });
+        }
+        const [_, element, number] = match;
+        parts.push({ text: element, sub: false });
+        parts.push({ text: number, sub: true });
+        lastIndex = chemicalRegex.lastIndex;
+    }
+
+    if (lastIndex < text.length) {
+        parts.push({ text: text.substring(lastIndex), sub: false });
+    }
+
+    return parts;
+}
+
+
+const App: React.FC = () => {
+  const [dllContent, setDllContent] = useState<string>('');
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [topicContext, setTopicContext] = useState<string>('');
+  const [objectivesContext, setObjectivesContext] = useState<string>('');
+  const [presentation, setPresentation] = useState<Presentation | null>(null);
+  const [lessonBlueprint, setLessonBlueprint] = useState<LessonBlueprint | null>(null);
+  const [currentSlide, setCurrentSlide] = useState<number>(0);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [loadingMessage, setLoadingMessage] = useState<string>('');
+  const [loadingDuration, setLoadingDuration] = useState<number>(30);
+  const [loadingProgress, setLoadingProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState<boolean>(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [appStep, setAppStep] = useState<AppStep>('input');
+  
+  const [selectedFormat, setSelectedFormat] = useState<LessonFormat>('K-12');
+  const [teachingLevel, setTeachingLevel] = useState<TeachingLevel>('K-12');
+  const [depEdMode, setDepEdMode] = useState<DepEdMode>('weekly');
+  
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [exportMessage, setExportMessage] = useState<string>('');
+  const [transitionDirection, setTransitionDirection] = useState<TransitionDirection>(null);
+  const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
+
+  const { theme } = useTheme();
+  const { language } = useLanguage();
+  const t = translations[language];
+  const { generations, images, limits, incrementCount, canGenerate, canGenerateImage, updateCounts } = useUsageTracker();
+
+  useEffect(() => {
+    updateCounts();
+  }, [updateCounts]);
+
+  const handleApiError = (e: unknown) => {
+    const errorMessage = (e as Error).message;
+    console.error(e);
+
+    // Specific check for when all keys are exhausted.
+    if (errorMessage.includes("RATE_LIMIT_EXCEEDED")) {
+        setError("The application's API usage quota has been exceeded on all available keys. Please contact the administrator or check the billing plan.");
+        return; // Important to return here to avoid fallback messages.
+    }
+    
+    if (errorMessage.includes("API key is missing")) {
+        setError("The application's API key is missing from its configuration. Please contact the administrator.");
+    } else if (errorMessage.includes('API key not valid')) {
+        setError("One of the application's API keys is invalid. Please contact the administrator.");
+    } else if (errorMessage.includes('permission') || errorMessage.includes('billing') || errorMessage.includes('quota')) {
+        setError("An API key has a permission or billing issue. Please contact the administrator.");
+    } else {
+        setError(`An unexpected error occurred: ${errorMessage}`);
+    }
+  };
+  
+  const processSlidesForTables = async (slides: Slide[]): Promise<Slide[]> => {
+    const updatedSlides = [];
+
+    const computedStyle = getComputedStyle(document.body);
+    const bgColor = computedStyle.getPropertyValue('--bg-surface').trim();
+    const textColor = computedStyle.getPropertyValue('--text-primary').trim();
+    const headerBg = computedStyle.getPropertyValue('--brand-light').trim();
+    const headerText = computedStyle.getPropertyValue('--brand').trim();
+    const borderColor = computedStyle.getPropertyValue('--border-color').trim();
+    const headerBorderBottom = computedStyle.getPropertyValue('--brand').trim();
+    
+    const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.top = '-9999px';
+    container.style.width = '1280px';
+    container.style.height = '720px';
+    container.style.backgroundColor = bgColor;
+    container.style.display = 'flex';
+    container.style.alignItems = 'center';
+    container.style.justifyContent = 'center';
+    container.style.padding = '40px';
+    document.body.appendChild(container);
+
+    for (const slide of slides) {
+        let newSlide = { ...slide };
+        let tableFound = false;
+        const newContent = [];
+
+        for (const item of slide.content) {
+            if (item.trim().startsWith('|') && item.includes('\n') && (item.includes('---|') || item.includes(':---'))) {
+                tableFound = true;
+                const lines = item.trim().split('\n');
+                let html = `<table style="width:100%; border-collapse: collapse; font-family: 'Poppins', sans-serif; font-size: 24px; color: ${textColor};">`;
+                let isHeader = true;
+
+                for (let i = 0; i < lines.length; i++) {
+                     const line = lines[i].trim();
+                     if (!line.startsWith('|')) continue;
+                     if (line.includes('---')) {
+                         isHeader = false;
+                         continue;
+                     }
+                     const cells = line.split('|').filter(c => c !== '');
+                     html += '<tr>';
+                     cells.forEach(cell => {
+                         if (isHeader) {
+                             html += `<th style="border-bottom: 3px solid ${headerBorderBottom}; padding: 16px; text-align: left; background-color: ${headerBg}; color: ${headerText}; font-weight: 600;">${cell.trim()}</th>`;
+                         } else {
+                             html += `<td style="border-bottom: 1px solid ${borderColor}; padding: 16px;">${cell.trim()}</td>`;
+                         }
+                     });
+                     html += '</tr>';
+                }
+                html += '</table>';
+                container.innerHTML = `<div style="width: 100%;">${html}</div>`;
+                
+                try {
+                    const canvas = await html2canvas(container, { backgroundColor: bgColor, scale: 1 });
+                    newSlide.imageUrl = canvas.toDataURL('image/png');
+                    newSlide.imagePrompt = '';
+                } catch (err) {
+                    console.error("Failed to convert table to image", err);
+                    newContent.push(item);
+                }
+            } else {
+                newContent.push(item);
+            }
+        }
+        if (tableFound) {
+            newSlide.content = newContent;
+        }
+        updatedSlides.push(newSlide);
+    }
+    document.body.removeChild(container);
+    return updatedSlides;
+  };
+
+  const processSlidesForImages = async (slidesWithPrompts: Slide[], language: 'EN' | 'FIL'): Promise<Slide[]> => {
+    const slidesWithImages = [];
+    let rateLimitWasHit = false;
+    
+    const imagesToGenerate = slidesWithPrompts.filter(s => s.imagePrompt && s.imagePrompt.trim() !== "" && !s.imageUrl);
+    const totalImagesToAttempt = imagesToGenerate.length;
+    let imagesAttemptedCounter = 0;
+    
+    const imagesLeftToday = Math.max(0, limits.images - images);
+    const totalImagesThatCanBeGenerated = Math.min(totalImagesToAttempt, imagesLeftToday);
+
+    if (totalImagesThatCanBeGenerated > 0) {
+        setLoadingProgress(0);
+    } else if (totalImagesToAttempt > 0) {
+        console.warn("Daily image limit reached or no prompts found. Skipping image generation.");
+    }
+    
+    for (const slide of slidesWithPrompts) {
+        let newSlide = { ...slide }; 
+        if (!newSlide.imageUrl && slide.imagePrompt && slide.imagePrompt.trim() !== "") {
+            const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
+            if (currentImageCount >= limits.images) {
+                newSlide.imageUrl = 'limit_reached';
+            } else if (canGenerateImage && !rateLimitWasHit) {
+                imagesAttemptedCounter++;
+                setLoadingMessage(t.presentation.loadingImages.replace('{current}', imagesAttemptedCounter.toString()).replace('{total}', totalImagesThatCanBeGenerated.toString()));
+                
+                if (totalImagesThatCanBeGenerated > 0) {
+                    const progress = (imagesAttemptedCounter / totalImagesThatCanBeGenerated) * 100;
+                    setLoadingProgress(progress);
+                }
+                
+                try {
+                    const imageUrl = await generateImageFromPrompt(slide.imagePrompt, slide.imageStyle, language);
+                    newSlide.imageUrl = imageUrl;
+                    incrementCount('images');
+                } catch (imgError) {
+                    console.error(`Failed to generate image for prompt: "${slide.imagePrompt}"`, imgError);
+                    if ((imgError as Error).message === 'RATE_LIMIT_EXCEEDED') {
+                        rateLimitWasHit = true;
+                        setError("Image generation quota exceeded. Please check your Google AI plan and billing details. Further image generation has been stopped.");
+                    } else {
+                        handleApiError(imgError);
+                    }
+                    newSlide.imageUrl = 'error';
+                }
+            }
+        }
+        slidesWithImages.push(newSlide);
+    }
+    return slidesWithImages;
+  };
+
+  const handleCreatePlan = useCallback(async () => {
+    setError(null);
+
+    if (!canGenerate) {
+      setError(t.presentation.errorGenerationLimit);
+      return;
+    }
+
+    setIsLoading(true);
+    incrementCount('generations');
+    const content = dllContent.trim() || topicContext.trim();
+
+    try {
+        // College Flow
+        if (teachingLevel === 'College') {
+            if (!topicContext.trim() || !objectivesContext.trim()) {
+                setError(t.presentation.errorNoCollegeTopic);
+                setIsLoading(false);
+                return;
+            }
+            setLoadingDuration(45);
+            setLoadingMessage(t.presentation.loadingLecture);
+            const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, language, (msg) => setLoadingMessage(msg));
+            setLoadingMessage(t.presentation.loadingTables);
+            const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
+            const finalSlides = await processSlidesForImages(slidesWithTables, language);
+
+            setPresentation({ ...fullPresentation, slides: finalSlides });
+            setCurrentSlide(0);
+            setAppStep('presenting');
+        } 
+        // DepEd Flows
+        else if (teachingLevel === 'K-12') {
+            if (!content) {
+                setError(t.presentation.errorNoFileOrTopic);
+                setIsLoading(false);
+                return;
+            }
+
+            // DepEd Single Lesson Flow
+            if (depEdMode === 'single') {
+                setLoadingDuration(40);
+                setLoadingMessage(t.presentation.loadingSingleLesson);
+                const fullPresentation = await generateK12SingleLessonSlides(content, selectedFormat, language, (msg) => setLoadingMessage(msg));
+                setLoadingMessage(t.presentation.loadingTables);
+                const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
+                const finalSlides = await processSlidesForImages(slidesWithTables, language);
+
+                setPresentation({ ...fullPresentation, slides: finalSlides });
+                setCurrentSlide(0);
+                setAppStep('presenting');
+            }
+            // DepEd Weekly Plan Flow (default)
+            else if (depEdMode === 'weekly') {
+                setLoadingDuration(20);
+                setLoadingMessage(t.presentation.loadingBlueprint);
+                const blueprint = await createK12LessonBlueprint(content, selectedFormat, language);
+                const blueprintWithStatus = {
+                    ...blueprint,
+                    days: blueprint.days.map(d => ({...d, generationStatus: 'pending' as const}))
+                };
+                setLessonBlueprint(blueprintWithStatus);
+                
+                const initialSlides = [
+                    {
+                        title: blueprint.mainTitle,
+                        content: [`Subject: ${blueprint.subject}`, `Grade Level: ${blueprint.gradeLevel}`, `Quarter: ${blueprint.quarter}`],
+                        speakerNotes: "Welcome the class and briefly introduce the main topic for the week."
+                    },
+                    {
+                        title: "Learning Objectives",
+                        content: blueprint.studentFacingObjectives,
+                        speakerNotes: "Read the objectives aloud. Explain what students will be able to do by the end of the week. These are the simplified goals. The full SMART objectives are in your lesson plan for reference."
+                    }
+                ];
+
+                const processedInitialSlides = await processSlidesForImages(initialSlides, language);
+
+                setPresentation({
+                    title: blueprint.mainTitle,
+                    slides: processedInitialSlides
+                });
+
+                setAppStep('planning');
+            }
+        }
+    } catch (e) {
+        handleApiError(e);
+        setAppStep('input');
+    } finally {
+        setIsLoading(false);
+        setLoadingProgress(null);
+    }
+  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, selectedFormat, language, t, canGenerate, incrementCount]);
+
+  const handleGenerateDailySlides = useCallback(async (dayIndex: number) => {
+    if (!lessonBlueprint) return;
+
+    if (!canGenerate) {
+      setError(t.presentation.errorGenerationLimit);
+      return;
+    }
+    
+    setLessonBlueprint(prev => {
+        if (!prev) return null;
+        const newDays = [...prev.days];
+        newDays[dayIndex].generationStatus = 'loading';
+        return {...prev, days: newDays};
+    });
+
+    setIsLoading(true);
+    setError(null);
+    incrementCount('generations');
+    
+    try {
+        const dayToGenerate = lessonBlueprint.days[dayIndex];
+        setLoadingMessage(t.presentation.loadingDailySlides.replace('{dayNumber}', dayToGenerate.dayNumber.toString()));
+        
+        const content = dllContent.trim() || topicContext.trim();
+        const dailySlides = await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, selectedFormat, language);
+        
+        setLoadingMessage(t.presentation.loadingTables);
+        const slidesWithTables = await processSlidesForTables(dailySlides);
+        
+        const finalSlides = await processSlidesForImages(slidesWithTables, language);
+
+        const slideIndexOfNewDay = presentation?.slides.length ?? 0;
+
+        setPresentation(prev => ({
+            title: prev?.title ?? lessonBlueprint.mainTitle,
+            slides: [...(prev?.slides ?? []), ...finalSlides]
+        }));
+        
+        setLessonBlueprint(prev => {
+            if (!prev) return null;
+            const newDays = [...prev.days];
+            newDays[dayIndex].generationStatus = 'done';
+            return {...prev, days: newDays};
+        });
+
+        setCurrentSlide(slideIndexOfNewDay);
+        setAppStep('presenting');
+
+    } catch (e) {
+        handleApiError(e);
+        setLessonBlueprint(prev => {
+            if (!prev) return null;
+            const newDays = [...prev.days];
+            newDays[dayIndex].generationStatus = 'pending';
+            return {...prev, days: newDays};
+        });
+    } finally {
+        setIsLoading(false);
+        setLoadingProgress(null);
+    }
+  }, [lessonBlueprint, dllContent, topicContext, selectedFormat, theme, presentation, language, t, canGenerate, incrementCount]);
+
+  const handleNextSlide = useCallback(() => {
+    if (presentation && currentSlide < presentation.slides.length - 1) {
+      setTransitionDirection('next');
+      setCurrentSlide(prev => prev + 1);
+    }
+  }, [presentation, currentSlide]);
+
+  const handlePrevSlide = useCallback(() => {
+    if (currentSlide > 0) {
+      setTransitionDirection('prev');
+      setCurrentSlide(prev => prev + 1);
+    }
+  }, [currentSlide]);
+  
+  useEffect(() => {
+    if (appStep !== 'presenting' || !presentation) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === 'ArrowRight' || e.key === ' ') {
+            e.preventDefault();
+            handleNextSlide();
+        } else if (e.key === 'ArrowLeft') {
+            e.preventDefault();
+            handlePrevSlide();
+        } else if (e.key === 'Escape') {
+            setIsFullScreen(false);
+        }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [appStep, presentation, handleNextSlide, handlePrevSlide]);
+  
+  const handleUpdateSpeakerNotes = (newNotes: string) => {
+    if (!presentation) return;
+    const updatedSlides = [...presentation.slides];
+    updatedSlides[currentSlide] = { ...updatedSlides[currentSlide], speakerNotes: newNotes };
+    setPresentation({ ...presentation, slides: updatedSlides });
+  };
+
+  const handleReset = () => {
+    setPresentation(null);
+    setLessonBlueprint(null);
+    setDllContent('');
+    setFileName(null);
+    setCurrentSlide(0);
+    setError(null);
+    setTopicContext('');
+    setObjectivesContext('');
+    setAppStep('input');
+    setIsFullScreen(false);
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+  };
+  
+  const readFile = async (file: File) => {
+    const fileExtension = ('.' + file.name.split('.').pop()?.toLowerCase()) || '';
+    const validExtensions = ['.txt', '.md', '.pdf', '.docx'];
+
+    if (!validExtensions.includes(fileExtension)) {
+        setError(t.presentation.errorFileUpload);
+        return;
+    }
+
+    setLoadingDuration(5);
+    setLoadingMessage('Reading your document...');
+    setIsLoading(true);
+    setError(null);
+    setFileName(file.name);
+
+    try {
+        let text = '';
+        if (fileExtension === '.pdf') {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+            for (let i = 1; i <= pdf.numPages; i++) {
+                const page = await pdf.getPage(i);
+                const content = await page.getTextContent();
+                const pageText = content.items.map(item => ('str' in item ? item.str : '')).join(' ');
+                text += pageText + '\n';
+            }
+        } else if (fileExtension === '.docx') {
+            const arrayBuffer = await file.arrayBuffer();
+            const result = await mammoth.extractRawText({ arrayBuffer });
+            text = result.value;
+        } else {
+            text = await file.text();
+        }
+        setDllContent(text);
+    } catch (err) {
+        console.error("Error parsing file:", err);
+        setError(t.presentation.errorFileRead.replace('{fileName}', file.name));
+        setFileName(null);
+        setDllContent('');
+    } finally {
+        setIsLoading(false);
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      readFile(file);
+    }
+  };
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleDragEnter = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(true); };
+  const handleDragLeave = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); setIsDragging(false); };
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => { e.preventDefault(); e.stopPropagation(); };
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      readFile(file);
+    }
+  };
+
+  const clearFile = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setDllContent('');
+    setFileName(null);
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+  };
+
+  const handleExportAsPPTX = useCallback(async () => {
+    if (!presentation) return;
+    setIsExporting(true);
+    setExportMessage(t.presentation.exportingMessage);
+    try {
+        const PptxGenJS = (await import('pptxgenjs')).default;
+        const pptx = new PptxGenJS();
+        pptx.layout = 'LAYOUT_16x9';
+        pptx.author = 'SAYUNA AI Presentation Maker';
+        pptx.title = presentation.title;
+
+        const computedStyle = getComputedStyle(document.body);
+        const backgroundColor = computedStyle.getPropertyValue('--bg-surface').trim().replace('#', '');
+        const brandColor = computedStyle.getPropertyValue('--brand').trim().replace('#', '');
+        const textColor = computedStyle.getPropertyValue('--text-primary').trim().replace('#', '');
+
+        for (let i = 0; i < presentation.slides.length; i++) {
+            setExportMessage(t.presentation.exportingSlideMessage.replace('{current}', (i + 1).toString()).replace('{total}', presentation.slides.length.toString()));
+            await new Promise(resolve => setTimeout(resolve, 10));
+            
+            const slideData = presentation.slides[i];
+            const slide = pptx.addSlide({ masterName: 'BLANK' });
+            slide.background = { color: backgroundColor };
+            
+            const hasImage = !!slideData.imageUrl && slideData.imageUrl !== 'error' && slideData.imageUrl !== 'loading' && slideData.imageUrl !== 'limit_reached';
+            const hasContent = slideData.content && slideData.content.length > 0 && slideData.content.some(c => c.trim() !== '');
+            
+            let contentForPptx: any[] = [];
+            if (hasContent) {
+                contentForPptx = slideData.content.flatMap(point => {
+                    if (!point.trim()) return [];
+
+                    const textObjects = point.split(/(\*\*.*?\*\*)/g).filter(Boolean).flatMap(part => {
+                        const isBold = part.startsWith('**') && part.endsWith('**');
+                        const content = isBold ? part.slice(2, -2) : part;
+
+                        const processedParts = processTextForPptx(content);
+
+                        return processedParts.map(p => {
+                            const baseOptions: any = {
+                                fontFace: 'Poppins',
+                                bold: isBold,
+                                color: isBold ? brandColor : textColor,
+                            };
+                            if (p.sub) {
+                                baseOptions.subscript = true;
+                            }
+                            return {
+                                text: p.text,
+                                options: baseOptions
+                            };
+                        });
+                    });
+
+                    if (textObjects.length > 0) {
+                        textObjects[0].options = {
+                            ...textObjects[0].options,
+                            bullet: !/^[A-E0-9]+\./.test(point.trim()),
+                        };
+                        textObjects[textObjects.length - 1].options = {
+                            ...textObjects[textObjects.length - 1].options,
+                            breakLine: true,
+                        };
+                    }
+                    return textObjects;
+                });
+
+                if (contentForPptx.length > 0 && contentForPptx[contentForPptx.length - 1].options) {
+                    delete contentForPptx[contentForPptx.length - 1].options.breakLine;
+                }
+            }
+
+            if (hasImage) {
+                try { 
+                    slide.addImage({ data: slideData.imageUrl, x: 0.5, y: 0.5, w: 4.3, h: 4.625 });
+                } catch (e) { 
+                    console.error("Failed to add image to PPTX slide:", e);
+                    slide.addText('Image could not be loaded.', { x: 0.5, y: 0.5, w: 4.3, h: 4.625, color: 'FF0000', align: 'center', valign: 'middle' });
+                }
+                
+                slide.addText(slideData.title, { 
+                    x: 5.2, y: 0.5, w: 4.3, h: 1.0, 
+                    fontSize: 36, bold: true, color: brandColor, 
+                    valign: 'top', fontFace: 'Poppins', fit: 'shrink'
+                });
+
+                if(hasContent) {
+                    slide.addText(contentForPptx, { 
+                        x: 5.2, y: 1.5, w: 4.3, h: 3.7, 
+                        color: textColor, valign: 'top', fontSize: 22, 
+                        lineSpacing: 33, fit: 'shrink'
+                    });
+                }
+            } else {
+                slide.addText(slideData.title, { 
+                    x: 0.5, y: 0.5, w: 9.0, h: 1.2, 
+                    fontSize: 40, bold: true, color: brandColor, 
+                    valign: 'top', fontFace: 'Poppins', fit: 'shrink'
+                });
+                
+                if (hasContent) {
+                    slide.addText(contentForPptx, { 
+                        x: 0.5, y: 1.7, w: 9.0, h: 3.6, 
+                        color: textColor, valign: 'top', 
+                        fontSize: 24, lineSpacing: 36, fit: 'shrink'
+                    });
+                }
+            }
+
+            if (slideData.speakerNotes) {
+                slide.addNotes(slideData.speakerNotes);
+            }
+        }
+        const safeTitle = presentation.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        await pptx.writeFile({ fileName: `${safeTitle}_presentation.pptx` });
+    } catch (error) {
+        console.error("Failed to generate PPTX:", error);
+        setError(t.presentation.errorPptx);
+    } finally {
+        setIsExporting(false);
+        setExportMessage('');
+    }
+  }, [presentation, theme, t]);
+
+  const handleRegenerateImage = useCallback(async (slideIndex: number, newPrompt: string) => {
+    if (!presentation) return;
+    
+    if (!canGenerateImage) {
+        alert(t.presentation.errorImageLimit.replace('{limit}', limits.images.toString()));
+        return;
+    }
+    const originalSlideStyle = presentation.slides[slideIndex].imageStyle;
+    setPresentation(prev => {
+        if (!prev) return null;
+        const updatedSlides = [...prev.slides];
+        updatedSlides[slideIndex] = { ...updatedSlides[slideIndex], imagePrompt: newPrompt, imageUrl: 'loading' };
+        return { ...prev, slides: updatedSlides };
+    });
+    try {
+        const imageUrl = await generateImageFromPrompt(newPrompt, originalSlideStyle, language);
+        incrementCount('images');
+        setPresentation(prev => {
+            if (!prev) return null;
+            const finalSlides = [...prev.slides];
+            finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: imageUrl, imagePrompt: newPrompt };
+            return { ...prev, slides: finalSlides };
+        });
+    } catch (err) {
+        console.error("Image regeneration failed:", err);
+        handleApiError(err);
+        setPresentation(prev => {
+            if (!prev) return null;
+            const finalSlides = [...prev.slides];
+            finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: 'error', imagePrompt: newPrompt };
+            return { ...prev, slides: finalSlides };
+        });
+    }
+  }, [presentation, canGenerateImage, incrementCount, limits.images, t, language]);
+
+  const handleUploadImage = useCallback((slideIndex: number, file: File) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const imageUrl = event.target?.result as string;
+        setPresentation(prev => {
+            if (!prev) return null;
+            const updatedSlides = [...prev.slides];
+            // When a user uploads an image, we set the URL and clear the AI prompt
+            // to prevent accidental regeneration with the old prompt.
+            updatedSlides[slideIndex] = { ...updatedSlides[slideIndex], imageUrl: imageUrl, imagePrompt: "" };
+            return { ...prev, slides: updatedSlides };
+        });
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  const renderWeeklyBlueprintView = () => {
+    if (!lessonBlueprint) return null;
+
+    return (
+        <div className="w-full max-w-4xl bg-surface p-8 rounded-2xl shadow-neumorphic-outset animate-fade-in">
+            <h2 className="text-3xl font-bold text-primary mb-2">{t.presentation.weeklyBlueprintTitle}</h2>
+            <p className="text-secondary mb-6">{lessonBlueprint.mainTitle}</p>
+
+            <div className="space-y-4">
+                {lessonBlueprint.days.map((day, index) => (
+                    <div key={day.dayNumber} className="flex items-center justify-between p-4 rounded-lg bg-surface border border-themed shadow-neumorphic-inset">
+                        <div className="flex items-center gap-4">
+                            <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center" style={{backgroundColor: 'var(--brand-light)'}}>
+                                <span className="text-xs font-semibold text-brand">{t.presentation.day}</span>
+                                <span className="text-xl font-bold text-brand">{day.dayNumber}</span>
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-semibold text-primary">{day.title}</h3>
+                                <p className="text-base text-secondary">{day.focus}</p>
+                            </div>
+                        </div>
+                        
+                        {day.generationStatus === 'pending' && (
+                            <button 
+                                onClick={() => handleGenerateDailySlides(index)} 
+                                disabled={!canGenerate}
+                                className="px-4 py-2 text-sm font-semibold bg-brand text-brand-contrast rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {t.presentation.generateSlidesButton}
+                            </button>
+                        )}
+                        {day.generationStatus === 'loading' && (
+                            <div className="px-4 py-2 text-sm font-semibold text-secondary flex items-center gap-2">
+                                <div className="w-4 h-4 border-2 border-t-2 border-themed border-t-brand rounded-full animate-spin"></div>
+                                {t.presentation.generatingButton}
+                            </div>
+                        )}
+                        {day.generationStatus === 'done' && (
+                            <div className="px-4 py-2 text-sm font-semibold text-emerald-500 flex items-center gap-2">
+                                <CheckCircle2Icon className="w-5 h-5" />
+                                {t.presentation.completeStatus}
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+             <div className="mt-8 flex justify-center items-center gap-4">
+                <button onClick={handleReset} className="px-6 py-3 text-base font-semibold bg-surface text-secondary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all">
+                    <RefreshCwIcon className="w-5 h-5 inline-block mr-2" />
+                    {t.presentation.startOverButton}
+                </button>
+                 <button 
+                    onClick={() => { setCurrentSlide(0); setAppStep('presenting'); }} 
+                    disabled={!presentation || presentation.slides.length === 0}
+                    className="px-6 py-3 text-base font-semibold bg-brand text-brand-contrast rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                     {t.presentation.viewPresentationButton}
+                     <ArrowRightIcon className="w-5 h-5 inline-block ml-2" />
+                </button>
+            </div>
+        </div>
+    );
+  };
+
+  const renderPresentationView = () => {
+    if (!presentation || !presentation.slides || presentation.slides.length === 0) {
+      return (
+        <div className="w-full max-w-4xl bg-surface p-8 rounded-2xl shadow-neumorphic-outset animate-fade-in text-center">
+            <h2 className="text-2xl font-bold text-primary mb-4">Presentation Error</h2>
+            <p className="text-secondary mb-6">No slides were generated. This might be due to an issue with the input provided or a temporary error.</p>
+            <button onClick={handleReset} className="px-6 py-3 text-base font-semibold bg-surface text-secondary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all">
+                <RefreshCwIcon className="w-5 h-5 inline-block mr-2" />
+                {t.presentation.startOverButton}
+            </button>
+        </div>
+      );
+    }
+
+    const isPlanViewAvailable = lessonBlueprint !== null;
+    const { slides } = presentation;
+
+    if (!slides[currentSlide]) {
+        console.error("Error: currentSlide index is out of bounds. Resetting to 0.");
+        setCurrentSlide(0);
+        return null;
+    }
+
+    return (
+      <div className={`w-full max-w-7xl mx-auto flex flex-col items-center gap-6 ${isFullScreen ? 'p-0' : 'p-4'}`}>
+        <div className={`w-full transition-all duration-300 ${isFullScreen ? 'fixed inset-0 z-[100] bg-surface' : 'relative'}`}>
+            <div className={`relative w-full ${isFullScreen ? 'h-full flex items-center justify-center' : ''}`}>
+                <div className={`${isFullScreen ? 'w-[95vw] h-auto' : 'w-full'}`}>
+                    <SlideComponent 
+                        slide={slides[currentSlide]} 
+                        slideIndex={currentSlide} 
+                        direction={transitionDirection}
+                        onRegenerateImage={handleRegenerateImage}
+                        onUploadImage={handleUploadImage}
+                    />
+                </div>
+            </div>
+        </div>
+
+        {!isFullScreen && (
+            <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="md:col-span-1 bg-surface rounded-2xl shadow-neumorphic-outset p-4 flex flex-col justify-between">
+                    <div className="flex justify-between items-center mb-4">
+                        <span className="text-sm font-semibold text-secondary">
+                            Slide {currentSlide + 1} / {slides.length}
+                        </span>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setIsFullScreen(!isFullScreen)}
+                                className="p-3 bg-surface text-primary rounded-lg shadow-neumorphic-outset-sm hover:shadow-neumorphic-inset transition-all"
+                                title={isFullScreen ? "Exit Full Screen" : "Full Screen"}
+                            >
+                                {isFullScreen ? <MinimizeIcon className="w-5 h-5" /> : <MaximizeIcon className="w-5 h-5" />}
+                            </button>
+                             <button 
+                                onClick={handleExportAsPPTX} 
+                                disabled={isExporting}
+                                className="p-3 bg-surface text-primary rounded-lg shadow-neumorphic-outset-sm hover:shadow-neumorphic-inset transition-all" 
+                                title={t.presentation.exportButton}
+                            >
+                                {isExporting ? <div className="w-5 h-5 border-2 border-t-2 border-themed border-t-brand rounded-full animate-spin"></div> : <DownloadIcon className="w-5 h-5" />}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="flex justify-center items-center gap-4">
+                        <button onClick={handlePrevSlide} disabled={currentSlide === 0} className="p-4 bg-surface text-primary rounded-full shadow-neumorphic-outset-sm hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                            <ArrowLeftIcon className="w-6 h-6" />
+                        </button>
+                        <button onClick={handleNextSlide} disabled={currentSlide === slides.length - 1} className="p-4 bg-brand text-brand-contrast rounded-full shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                            <ArrowRightIcon className="w-6 h-6" />
+                        </button>
+                    </div>
+
+                    <div className="flex justify-center items-center gap-2 mt-4 text-xs text-secondary">{isExporting && exportMessage}</div>
+                    
+                    <div className="mt-4 border-t border-themed pt-4 flex gap-2">
+                       {isPlanViewAvailable && (
+                           <button onClick={() => setAppStep('planning')} className="flex-1 px-4 py-2 text-sm font-semibold bg-surface text-secondary rounded-lg shadow-neumorphic-outset-sm hover:shadow-neumorphic-inset transition-all">
+                               <ArrowLeftIcon className="w-4 h-4 inline-block mr-1" />
+                               {t.presentation.backToPlanButton}
+                           </button>
+                       )}
+                       <button onClick={handleReset} className="flex-1 px-4 py-2 text-sm font-semibold bg-surface text-secondary rounded-lg shadow-neumorphic-outset-sm hover:shadow-neumorphic-inset transition-all">
+                           <RefreshCwIcon className="w-4 h-4 inline-block mr-1" />
+                           {t.presentation.startOverButton}
+                       </button>
+                    </div>
+                </div>
+
+                <div className="md:col-span-2 bg-surface rounded-2xl shadow-neumorphic-outset p-6">
+                    <h3 className="text-lg font-bold text-primary mb-3">{t.presentation.speakerNotesTitle}</h3>
+                    <textarea
+                        value={slides[currentSlide].speakerNotes}
+                        onChange={(e) => handleUpdateSpeakerNotes(e.target.value)}
+                        placeholder={t.presentation.speakerNotesPlaceholder}
+                        className="w-full h-48 p-4 text-base bg-surface rounded-lg shadow-neumorphic-inset outline-none focus:ring-2 focus:ring-brand transition-all custom-scrollbar"
+                    />
+                </div>
+            </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderInputView = () => {
+
+    const renderDepEdInputs = () => (
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
+          {/* Left Side: Weekly Plan */}
+          <div 
+              onClick={() => setDepEdMode('weekly')}
+              className={`p-6 rounded-2xl transition-all cursor-pointer ${depEdMode === 'weekly' ? 'shadow-neumorphic-outset bg-brand-light' : 'shadow-neumorphic-inset opacity-70 hover:opacity-100'}`}
+          >
+              <div className="flex items-center gap-3 mb-4">
+                  <CalendarDaysIcon className="w-7 h-7 text-brand" />
+                  <h3 className="text-xl font-bold text-primary">{t.main.weeklyPlanButton}</h3>
+              </div>
+              <p className="text-sm text-secondary mb-4">{t.main.weeklyPlanDescription}</p>
+              
+              {/* Content input for weekly */}
+              <div className="flex flex-col items-center">
+                  <div 
+                      onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
+                      onClick={handleUploadClick}
+                      className="w-full h-28 p-2 border-2 border-dashed border-themed rounded-xl flex flex-col items-center justify-center text-center transition-all bg-surface hover:bg-opacity-80"
+                  >
+                      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".docx,.pdf,.txt,.md" />
+                      {fileName && depEdMode === 'weekly' ? (
+                          <>
+                              <FileTextIcon className="w-8 h-8 text-brand mb-1"/>
+                              <p className="font-semibold text-primary text-sm">{fileName}</p>
+                              <button onClick={clearFile} className="mt-1 text-xs text-red-500 hover:underline">{t.main.removeFile}</button>
+                          </>
+                      ) : (
+                          <>
+                              <UploadCloudIcon className="w-8 h-8 text-secondary mb-1"/>
+                              <p className="font-semibold text-primary text-sm">{t.main.uploadPrompt}</p>
+                          </>
+                      )}
+                  </div>
+                  <div className="w-full max-w-sm mx-auto flex items-center my-4">
+                      <div className="flex-grow h-px bg-themed"></div>
+                      <span className="flex-shrink-0 bg-transparent px-2 text-xs font-semibold text-secondary uppercase">{t.main.or}</span>
+                      <div className="flex-grow h-px bg-themed"></div>
+                  </div>
+                   <textarea value={topicContext} onChange={(e) => setTopicContext(e.target.value)}
+                      placeholder={t.main.topicPlaceholderWeekly}
+                      rows={3}
+                      className="w-full p-3 text-sm bg-surface rounded-lg shadow-neumorphic-inset outline-none focus:ring-2 focus:ring-brand transition-all custom-scrollbar"
+                  />
+              </div>
+          </div>
+          
+          {/* Right Side: Single Lesson */}
+          <div 
+              onClick={() => setDepEdMode('single')}
+              className={`p-6 rounded-2xl transition-all cursor-pointer ${depEdMode === 'single' ? 'shadow-neumorphic-outset bg-brand-light' : 'shadow-neumorphic-inset opacity-70 hover:opacity-100'}`}
+          >
+              <div className="flex items-center gap-3 mb-4">
+                  <PresentationIcon className="w-7 h-7 text-brand" />
+                  <h3 className="text-xl font-bold text-primary">{t.main.singleLessonButton}</h3>
+              </div>
+              <p className="text-sm text-secondary mb-4">{t.main.singleLessonDescription}</p>
+              
+              {/* Content input for single */}
+               <div className="flex flex-col items-center">
+                  <div 
+                      onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
+                      onClick={handleUploadClick}
+                      className="w-full h-28 p-2 border-2 border-dashed border-themed rounded-xl flex flex-col items-center justify-center text-center transition-all bg-surface hover:bg-opacity-80"
+                  >
+                      <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".docx,.pdf,.txt,.md" />
+                      {fileName && depEdMode === 'single' ? (
+                          <>
+                              <FileTextIcon className="w-8 h-8 text-brand mb-1"/>
+                              <p className="font-semibold text-primary text-sm">{fileName}</p>
+                              <button onClick={clearFile} className="mt-1 text-xs text-red-500 hover:underline">{t.main.removeFile}</button>
+                          </>
+                      ) : (
+                          <>
+                              <UploadCloudIcon className="w-8 h-8 text-secondary mb-1"/>
+                              <p className="font-semibold text-primary text-sm">{t.main.uploadPrompt}</p>
+                          </>
+                      )}
+                  </div>
+                  <div className="w-full max-w-sm mx-auto flex items-center my-4">
+                      <div className="flex-grow h-px bg-themed"></div>
+                      <span className="flex-shrink-0 bg-transparent px-2 text-xs font-semibold text-secondary uppercase">{t.main.or}</span>
+                      <div className="flex-grow h-px bg-themed"></div>
+                  </div>
+                   <textarea value={topicContext} onChange={(e) => setTopicContext(e.target.value)}
+                      placeholder={t.main.topicPlaceholder}
+                      rows={3}
+                      className="w-full p-3 text-sm bg-surface rounded-lg shadow-neumorphic-inset outline-none focus:ring-2 focus:ring-brand transition-all custom-scrollbar"
+                  />
+              </div>
+          </div>
+      </div>
+    );
+
+
+    return (
+    <div className="w-full max-w-5xl mx-auto">
+        <div className="text-center mb-10">
+            <h1 className="text-5xl font-extrabold text-primary leading-tight">
+                {t.app.mainTitle} <span className="text-brand">{t.app.presentationMaker}</span>
+            </h1>
+            <p className="text-lg text-secondary mt-4 max-w-2xl mx-auto">{t.app.tagline}</p>
+        </div>
+
+        <div className="bg-surface p-8 rounded-2xl shadow-neumorphic-outset">
+            {/* Step 1: Teaching Level */}
+            <div>
+                <h3 className="text-xl font-semibold text-primary mb-4 text-center">{t.main.selectLevel}</h3>
+                <div className="flex justify-center gap-4">
+                    <button 
+                        onClick={() => setTeachingLevel('K-12')} 
+                        className={`px-6 py-3 rounded-xl font-semibold transition-all w-60 flex flex-col items-center gap-2 ${teachingLevel === 'K-12' ? 'bg-brand text-brand-contrast shadow-neumorphic-outset' : 'bg-surface text-secondary hover:shadow-neumorphic-outset-sm'}`}
+                    >
+                        <BookOpenIcon className="w-6 h-6"/>
+                        <span>{t.main.k12Button}</span>
+                    </button>
+                    <button 
+                        onClick={() => setTeachingLevel('College')}
+                        className={`px-6 py-3 rounded-xl font-semibold transition-all w-60 flex flex-col items-center gap-2 ${teachingLevel === 'College' ? 'bg-brand text-brand-contrast shadow-neumorphic-outset' : 'bg-surface text-secondary hover:shadow-neumorphic-outset-sm'}`}
+                    >
+                        <GraduationCapIcon className="w-6 h-6"/>
+                        <span>{t.main.collegeButton}</span>
+                    </button>
+                </div>
+            </div>
+            
+            {/* Step 2: Input Content */}
+            <div className="mt-8 pt-8 border-t border-themed">
+                {teachingLevel === 'K-12' && (
+                  <div className="animate-fade-in">
+                      <h3 className="text-xl font-semibold text-primary mb-4 text-center">{t.main.selectPlanType}</h3>
+                      {renderDepEdInputs()}
+                      <div className="flex justify-center gap-2 my-6 p-1 bg-surface rounded-full shadow-neumorphic-inset w-max mx-auto">
+                          {(['K-12', 'MATATAG', '5Es Model', '4As Model'] as LessonFormat[]).map(format => (
+                              <button key={format} onClick={() => setSelectedFormat(format)}
+                                  className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-all ${selectedFormat === format ? 'text-brand shadow-neumorphic-outset-sm' : 'text-secondary'}`}>
+                                  {format}
+                              </button>
+                          ))}
+                      </div>
+                  </div>
+                )}
+                
+                {teachingLevel === 'College' && (
+                  <div className="animate-fade-in">
+                      <h3 className="text-xl font-semibold text-primary mb-4 text-center">{t.main.collegeInputTitle}</h3>
+                       <div className="max-w-xl mx-auto space-y-4">
+                          <div>
+                              <label className="block text-base font-medium text-secondary mb-2">{t.main.collegeTopic}</label>
+                              <input type="text" value={topicContext} onChange={(e) => setTopicContext(e.target.value)}
+                                  placeholder={t.main.collegeTopicPlaceholder}
+                                  className="w-full px-4 py-3 text-lg rounded-xl neumorphic-input outline-none focus:ring-2 focus:ring-brand transition"
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-base font-medium text-secondary mb-2">{t.main.collegeObjectives}</label>
+                              <textarea value={objectivesContext} onChange={(e) => setObjectivesContext(e.target.value)}
+                                  placeholder={t.main.collegeObjectivesPlaceholder}
+                                  rows={4}
+                                  className="w-full px-4 py-3 text-base rounded-xl neumorphic-input outline-none focus:ring-2 focus:ring-brand transition"
+                              />
+                          </div>
+                      </div>
+                  </div>
+                )}
+                
+                {error && <p className="text-center text-red-500 bg-red-500/10 p-3 rounded-lg mt-6">{error}</p>}
+
+                {/* Generate Button */}
+                <div className="mt-8 text-center">
+                    <button onClick={handleCreatePlan} disabled={isLoading || (!dllContent && !topicContext && !objectivesContext) || !canGenerate}
+                        className="px-8 py-4 text-xl font-semibold rounded-2xl neumorphic-btn-primary"
+                    >
+                        <MagicWandIcon className="w-6 h-6 inline-block mr-3" />
+                         {teachingLevel === 'College' ? t.main.generateCollegeButton : (depEdMode === 'weekly' ? t.main.generateK12Button : t.main.generateSingleLessonButton)}
+                    </button>
+                    {!canGenerate && <p className="text-center text-yellow-600 dark:text-yellow-400 mt-4">{t.presentation.errorGenerationLimit}</p>}
+                </div>
+            </div>
+        </div>
+    </div>
+  );
+  }
+
+  const renderContent = () => {
+    if (isLoading) return <Loader customMessage={loadingMessage} estimatedDuration={loadingDuration} progress={loadingProgress} />;
+    
+    switch(appStep) {
+        case 'input': return renderInputView();
+        case 'planning': return renderWeeklyBlueprintView();
+        case 'presenting': return renderPresentationView();
+        default: return renderInputView();
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-surface">
+        <>
+          <Header usage={{ generations, images, limits }} />
+          <main className="w-full mx-auto p-4 flex justify-center items-start mt-8">
+            {renderContent()}
+          </main>
+        </>
+    </div>
+  );
+};
+
+export default App;

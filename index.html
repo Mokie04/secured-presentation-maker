@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%234f46e5' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M15 4V2'/><path d='M15 10V8'/><path d='M10 15H8'/><path d='M22 15H20'/><path d='M7 19l-4-4'/><path d='M17 9l4-4'/><path d='M2 7l4 4'/><path d='M9 17l-4 4'/><path d='m15 10-2.5 2.5a2.83 2.83 0 0 0 0 4l-2.5 2.5'/><path d='m20 15-2.5-2.5a2.83 2.83 0 0 0-4 0l-2.5 2.5'/></svg>">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SAYUNA AI - DLL-aligned Presentation Maker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <script type="importmap">
+{
+  "imports": {
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.31.0",
+    "react/": "https://aistudiocdn.com/react@^19.2.1/",
+    "react": "https://aistudiocdn.com/react@^19.2.1",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.1/",
+    "mammoth": "https://esm.sh/mammoth@1.8.0",
+    "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.4.168",
+    "jspdf": "https://esm.sh/jspdf@2.5.1",
+    "pptxgenjs": "https://esm.sh/pptxgenjs@3.12.0",
+    "html2canvas": "https://esm.sh/html2canvas@1.4.1"
+  }
+}
+</script>
+<style>
+  :root {
+    --bg-surface: #f1f5f9;
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --brand: #4f46e5;
+    --brand-contrast: #ffffff;
+    --brand-light: #e0e7ff;
+    --shadow-light: #ffffff;
+    --shadow-dark: #d1d5db;
+    --border-color: #e2e8f0;
+  }
+
+  [data-theme='dark'] {
+    --bg-surface: #1e293b;
+    --text-primary: #f1f5f9;
+    --text-secondary: #cbd5e1;
+    --brand: #818cf8;
+    --brand-contrast: #1e293b;
+    --brand-light: #312e81;
+    --shadow-light: #334155;
+    --shadow-dark: #0f172a;
+    --border-color: #334155;
+  }
+
+  body {
+    background-color: var(--bg-surface);
+    color: var(--text-primary);
+    font-family: 'Poppins', sans-serif;
+    transition: background-color 0.3s ease, color 0.3s ease;
+  }
+  
+  .neumorphic-panel {
+     box-shadow: 8px 8px 16px var(--shadow-dark), -8px -8px 16px var(--shadow-light);
+  }
+
+  .neumorphic-btn-primary {
+      background-color: var(--brand);
+      color: var(--brand-contrast);
+      box-shadow: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light);
+      transition: box-shadow 0.2s ease-out, background-color 0.2s ease-out;
+  }
+  .neumorphic-btn-primary:hover {
+      box-shadow: inset 2px 2px 4px var(--shadow-dark), inset -2px -2px 4px var(--shadow-light);
+  }
+  .neumorphic-btn-primary:disabled {
+      opacity: 0.6;
+      box-shadow: none;
+      cursor: not-allowed;
+  }
+
+  .neumorphic-input {
+      background-color: var(--bg-surface);
+      box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
+      transition: box-shadow 0.2s ease-out;
+  }
+
+  .shadow-neumorphic-outset {
+    box-shadow: 6px 6px 12px var(--shadow-dark), -6px -6px 12px var(--shadow-light);
+    transition: box-shadow 0.2s ease-out;
+  }
+  
+  .shadow-neumorphic-outset-sm {
+    box-shadow: 4px 4px 8px var(--shadow-dark), -4px -4px 8px var(--shadow-light);
+    transition: box-shadow 0.2s ease-out;
+  }
+  
+  .shadow-neumorphic-inset {
+    box-shadow: inset 4px 4px 8px var(--shadow-dark), inset -4px -4px 8px var(--shadow-light);
+    transition: box-shadow 0.2s ease-out;
+  }
+  
+  .bg-surface { background-color: var(--bg-surface); }
+  .text-primary { color: var(--text-primary); }
+  .text-secondary { color: var(--text-secondary); }
+  .text-brand { color: var(--brand); }
+  .bg-brand { background-color: var(--brand); }
+  .text-brand-contrast { color: var(--brand-contrast); }
+  .border-themed { border-color: var(--border-color); }
+
+  .progress-bar-fill {
+      background: linear-gradient(90deg, #3b31c1 0%, var(--brand) 100%);
+  }
+  .progress-bar-animated {
+      background-image: linear-gradient(
+          45deg, 
+          rgba(255, 255, 255, 0.15) 25%, 
+          transparent 25%, 
+          transparent 50%, 
+          rgba(255, 255, 255, 0.15) 50%, 
+          rgba(255, 255, 255, 0.15) 75%, 
+          transparent 75%, 
+          transparent
+      );
+      background-size: 2rem 2rem;
+      animation: progress-bar-stripes 1s linear infinite;
+  }
+
+  @keyframes progress-bar-stripes {
+      from { background-position: 2rem 0; }
+      to { background-position: 0 0; }
+  }
+
+  @keyframes slide-in-from-right {
+    0% { transform: translateX(100%); opacity: 0.5; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes slide-in-from-left {
+    0% { transform: translateX(-100%); opacity: 0.5; }
+    100% { transform: translateX(0); opacity: 1; }
+  }
+  @keyframes fade-in {
+    0% { opacity: 0; }
+    100% { opacity: 1; }
+  }
+  .animate-slide-in-from-right {
+    animation: slide-in-from-right 0.4s ease-out forwards;
+  }
+  .animate-slide-in-from-left {
+    animation: slide-in-from-left 0.4s ease-out forwards;
+  }
+  .animate-fade-in {
+    animation: fade-in 0.2s ease-out forwards;
+  }
+</style>
+</head>
+  <body class="min-h-screen">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+  </body>
+</html>
