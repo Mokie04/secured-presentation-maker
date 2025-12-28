@@ -413,7 +413,7 @@ const App: React.FC = () => {
   const handlePrevSlide = useCallback(() => {
     if (currentSlide > 0) {
       setTransitionDirection('prev');
-      setCurrentSlide(prev => prev + 1);
+      setCurrentSlide(prev => prev - 1);
     }
   }, [currentSlide]);
   
