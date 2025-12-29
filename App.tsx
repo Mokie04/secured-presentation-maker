@@ -10,6 +10,7 @@ import * as pdfjsLib from 'pdfjs-dist';
 import html2canvas from 'html2canvas';
 import { useTheme } from './contexts/ThemeContext';
 import Header from './components/Header';
+import Footer from './components/Footer';
 import { useLanguage } from './contexts/LanguageContext';
 import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
@@ -1085,13 +1086,12 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-surface">
-        <>
-          <Header usage={{ generations, images, limits }} />
-          <main className="w-full mx-auto p-4 flex justify-center items-start mt-8">
-            {renderContent()}
-          </main>
-        </>
+    <div className="min-h-screen bg-surface flex flex-col">
+        <Header usage={{ generations, images, limits }} />
+        <main className="w-full mx-auto p-4 flex justify-center items-start mt-8 flex-grow">
+        {renderContent()}
+        </main>
+        <Footer />
     </div>
   );
 };
