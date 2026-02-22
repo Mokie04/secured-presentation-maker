@@ -1,23 +1,103 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle } from '../types';
 
 // Centralize model names.
 const TEXT_MODEL = "gemini-3-flash-preview";
 const IMAGE_MODEL = "gemini-2.5-flash-image";
 
-// Lazy initialization of the AI client.
-// This prevents accessing process.env.API_KEY at module import time,
-// avoiding crashes if the polyfill hasn't run yet.
-let aiClient: GoogleGenAI | null = null;
+const JSON_SCHEMA = {
+    OBJECT: "object",
+    ARRAY: "array",
+    STRING: "string",
+    INTEGER: "integer",
+} as const;
 
-function getAiClient(): GoogleGenAI {
-  if (!aiClient) {
-    // We assume process.env.API_KEY is available at runtime.
-    // The polyfill in index.tsx ensures process.env exists.
-    aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY });
-  }
-  return aiClient;
+type GroundingChunk = {
+    web?: {
+        uri?: string;
+        title?: string;
+    };
+};
+
+type GeminiTextResponse = {
+    text?: string;
+    groundingChunks?: GroundingChunk[];
+};
+
+type GeminiImageResponse = {
+    dataUrl?: string;
+    error?: string;
+    blockReason?: string;
+    explanation?: string;
+};
+
+type GeminiProxyRequest = {
+    task: 'text' | 'image';
+    model: string;
+    contents: unknown;
+    config?: Record<string, unknown>;
+};
+
+async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
+    const configuredBaseUrl = (import.meta as ImportMeta & { env?: { VITE_GEMINI_PROXY_BASE_URL?: string } })
+        .env?.VITE_GEMINI_PROXY_BASE_URL || '';
+    const normalizedBase = configuredBaseUrl.replace(/\/$/, '');
+    const proxyUrl = `${normalizedBase}/api/gemini`;
+
+    const response = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+    });
+
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+        const errorMessage = typeof data?.error === 'string'
+            ? data.error
+            : `Gemini request failed with status ${response.status}.`;
+        throw new Error(errorMessage);
+    }
+
+    return data as T;
+}
+
+function parseJsonModelResponse<T>(text: string | undefined, label: string): T {
+    const raw = (text ?? '').trim();
+    if (!raw) {
+        throw new Error(`Gemini returned an empty response for ${label}.`);
+    }
+
+    try {
+        return JSON.parse(raw) as T;
+    } catch (error) {
+        console.error(`Failed to parse Gemini JSON for ${label}. Raw response:`, raw);
+        throw error;
+    }
+}
+
+function appendGroundingSources(slides: Slide[], groundingChunks?: GroundingChunk[]): void {
+    if (!groundingChunks || groundingChunks.length === 0) {
+        return;
+    }
+
+    const sourceContent = groundingChunks
+        .map((chunk) => chunk.web)
+        .filter((web): web is { uri: string; title: string } => Boolean(web?.uri && web?.title))
+        .flatMap((web) => [`**${web.title}**`, web.uri]);
+
+    if (sourceContent.length === 0) {
+        return;
+    }
+
+    slides.push({
+        title: "Sources",
+        content: sourceContent,
+        speakerNotes: "These are the web sources the AI consulted to generate the content for this presentation.",
+        imagePrompt: "",
+        imageStyle: "none",
+    });
 }
 
 // Helper to clean and split content
@@ -79,7 +159,6 @@ function cleanSlideContent(content: string[]): string[] {
 
 // PHASE 1: DEEP ANALYSIS & BLUEPRINT CREATION
 export async function createK12LessonBlueprint(content: string, format: string, language: 'EN' | 'FIL'): Promise<LessonBlueprint> {
-    const ai = getAiClient();
     const prompt = `
         You are a Master K-12 Teacher and Instructional Designer. Your task is to analyze the provided educational content and create a professional, comprehensive Lesson Blueprint for a school setting.
 
@@ -114,23 +193,23 @@ export async function createK12LessonBlueprint(content: string, format: string, 
     `;
 
     const responseSchema = {
-        type: Type.OBJECT,
+        type: JSON_SCHEMA.OBJECT,
         properties: {
-            mainTitle: { type: Type.STRING },
-            subject: { type: Type.STRING },
-            gradeLevel: { type: Type.STRING },
-            quarter: { type: Type.STRING },
-            learningCompetency: { type: Type.STRING },
-            smartObjectives: { type: Type.ARRAY, items: { type: Type.STRING } },
-            studentFacingObjectives: { type: Type.ARRAY, items: { type: Type.STRING } },
+            mainTitle: { type: JSON_SCHEMA.STRING },
+            subject: { type: JSON_SCHEMA.STRING },
+            gradeLevel: { type: JSON_SCHEMA.STRING },
+            quarter: { type: JSON_SCHEMA.STRING },
+            learningCompetency: { type: JSON_SCHEMA.STRING },
+            smartObjectives: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+            studentFacingObjectives: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
             days: {
-                type: Type.ARRAY,
+                type: JSON_SCHEMA.ARRAY,
                 items: {
-                    type: Type.OBJECT,
+                    type: JSON_SCHEMA.OBJECT,
                     properties: {
-                        dayNumber: { type: Type.INTEGER },
-                        title: { type: Type.STRING },
-                        focus: { type: Type.STRING }
+                        dayNumber: { type: JSON_SCHEMA.INTEGER },
+                        title: { type: JSON_SCHEMA.STRING },
+                        focus: { type: JSON_SCHEMA.STRING }
                     },
                     required: ["dayNumber", "title", "focus"]
                 }
@@ -139,22 +218,23 @@ export async function createK12LessonBlueprint(content: string, format: string, 
         required: ["mainTitle", "subject", "learningCompetency", "smartObjectives", "studentFacingObjectives", "days"]
     };
     
-    const response = await ai.models.generateContent({
+    const response = await callGeminiProxy<GeminiTextResponse>({
+        task: 'text',
         model: TEXT_MODEL,
         contents: prompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: responseSchema,
+            responseSchema,
             temperature: 0.3,
         },
     });
-    return JSON.parse((response.text ?? '').trim()) as LessonBlueprint;
+
+    return parseJsonModelResponse<LessonBlueprint>(response.text, 'lesson blueprint generation');
 }
 
 
 // PHASE 2: SLIDE GENERATION (PER DAY)
 export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL'): Promise<Slide[]> {
-    const ai = getAiClient();
     let prompt = "";
     const commonRules = `
     **CRITICAL DIRECTIVES:**
@@ -217,18 +297,18 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
     `;
 
     const responseSchema = {
-        type: Type.OBJECT,
+        type: JSON_SCHEMA.OBJECT,
         properties: {
             slides: {
-                type: Type.ARRAY,
+                type: JSON_SCHEMA.ARRAY,
                 items: {
-                    type: Type.OBJECT,
+                    type: JSON_SCHEMA.OBJECT,
                     properties: {
-                        title: { type: Type.STRING },
-                        content: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        speakerNotes: { type: Type.STRING },
-                        imagePrompt: { type: Type.STRING },
-                        imageStyle: { type: Type.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] }
+                        title: { type: JSON_SCHEMA.STRING },
+                        content: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                        speakerNotes: { type: JSON_SCHEMA.STRING },
+                        imagePrompt: { type: JSON_SCHEMA.STRING },
+                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] }
                     },
                     required: ["title", "content", "speakerNotes", "imagePrompt", "imageStyle"] 
                 }
@@ -238,40 +318,24 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
     };
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await callGeminiProxy<GeminiTextResponse>({
+            task: 'text',
             model: TEXT_MODEL,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
-                responseSchema: responseSchema,
+                responseSchema,
                 temperature: 0.4,
-                tools: [{googleSearch: {}}],
+                tools: [{ googleSearch: {} }],
             },
         });
-        const data = JSON.parse((response.text ?? '').trim());
+        const data = parseJsonModelResponse<{ slides: Slide[] }>(response.text, `day ${day.dayNumber} slide generation`);
         const slides = data.slides.map((s: any) => ({ 
             ...s, 
             content: cleanSlideContent(s.content),
         }));
-        
-        const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-        if (sources && sources.length > 0) {
-            const sourceContent = sources
-                .map((chunk: any) => chunk.web)
-                .filter((web: any) => web && web.uri && web.title)
-                .flatMap((web: any) => [`**${web.title}**`, web.uri]);
 
-            if (sourceContent.length > 0) {
-                const sourcesSlide: Slide = {
-                    title: "Sources",
-                    content: sourceContent,
-                    speakerNotes: "These are the web sources the AI consulted to generate the content for this presentation.",
-                    imagePrompt: "",
-                    imageStyle: "none"
-                };
-                slides.push(sourcesSlide);
-            }
-        }
+        appendGroundingSources(slides, response.groundingChunks);
         
         return slides;
 
@@ -284,7 +348,6 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
 
 // K-12 SINGLE LESSON GENERATION
 export async function generateK12SingleLessonSlides(content: string, format: string, language: 'EN' | 'FIL', onProgress?: (message: string) => void): Promise<Presentation> {
-    const ai = getAiClient();
     if (onProgress) onProgress(`Structuring your complete lesson...`);
 
     let sections = "";
@@ -333,19 +396,19 @@ export async function generateK12SingleLessonSlides(content: string, format: str
     `;
 
     const responseSchema = {
-        type: Type.OBJECT,
+        type: JSON_SCHEMA.OBJECT,
         properties: {
-            title: { type: Type.STRING },
+            title: { type: JSON_SCHEMA.STRING },
             slides: {
-                type: Type.ARRAY,
+                type: JSON_SCHEMA.ARRAY,
                 items: {
-                    type: Type.OBJECT,
+                    type: JSON_SCHEMA.OBJECT,
                     properties: {
-                        title: { type: Type.STRING },
-                        content: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        speakerNotes: { type: Type.STRING },
-                        imagePrompt: { type: Type.STRING },
-                        imageStyle: { type: Type.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] }
+                        title: { type: JSON_SCHEMA.STRING },
+                        content: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                        speakerNotes: { type: JSON_SCHEMA.STRING },
+                        imagePrompt: { type: JSON_SCHEMA.STRING },
+                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] }
                     },
                     required: ["title", "content", "speakerNotes", "imagePrompt", "imageStyle"]
                 }
@@ -355,40 +418,23 @@ export async function generateK12SingleLessonSlides(content: string, format: str
     };
 
     if (onProgress) onProgress(`Generating slide content...`);
-    const response = await ai.models.generateContent({
+    const response = await callGeminiProxy<GeminiTextResponse>({
+        task: 'text',
         model: TEXT_MODEL,
         contents: prompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: responseSchema,
+            responseSchema,
             temperature: 0.4,
-            tools: [{googleSearch: {}}],
+            tools: [{ googleSearch: {} }],
         },
     });
-    const data = JSON.parse((response.text ?? '').trim());
+    const data = parseJsonModelResponse<{ title: string; slides: Slide[] }>(response.text, 'single lesson generation');
     const slides = data.slides.map((s: any) => ({
          ...s,
          content: cleanSlideContent(s.content),
     }));
-
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    if (sources && sources.length > 0) {
-        const sourceContent = sources
-            .map((chunk: any) => chunk.web)
-            .filter((web: any) => web && web.uri && web.title)
-            .flatMap((web: any) => [`**${web.title}**`, web.uri]);
-
-        if (sourceContent.length > 0) {
-            const sourcesSlide: Slide = {
-                title: "Sources",
-                content: sourceContent,
-                speakerNotes: "These are the web sources the AI consulted to generate the content for this presentation.",
-                imagePrompt: "",
-                imageStyle: "none"
-            };
-            slides.push(sourcesSlide);
-        }
-    }
+    appendGroundingSources(slides, response.groundingChunks);
 
     return {
         title: data.title,
@@ -400,7 +446,6 @@ export async function generateK12SingleLessonSlides(content: string, format: str
 // --- COLLEGE GENERATION LOGIC ---
 
 export async function generateCollegeLectureSlides(topic: string, objectives: string, language: 'EN' | 'FIL', onProgress?: (message: string) => void): Promise<Presentation> {
-    const ai = getAiClient();
     if (onProgress) onProgress(`Structuring your lecture...`);
 
     const prompt = `
@@ -447,19 +492,19 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
     `;
 
      const responseSchema = {
-        type: Type.OBJECT,
+        type: JSON_SCHEMA.OBJECT,
         properties: {
-            title: { type: Type.STRING },
+            title: { type: JSON_SCHEMA.STRING },
             slides: {
-                type: Type.ARRAY,
+                type: JSON_SCHEMA.ARRAY,
                 items: {
-                    type: Type.OBJECT,
+                    type: JSON_SCHEMA.OBJECT,
                     properties: {
-                        title: { type: Type.STRING },
-                        content: { type: Type.ARRAY, items: { type: Type.STRING } },
-                        speakerNotes: { type: Type.STRING },
-                        imagePrompt: { type: Type.STRING },
-                        imageStyle: { type: Type.STRING, enum: ["photorealistic", "infographic", "diagram", "historical photo", "none"] }
+                        title: { type: JSON_SCHEMA.STRING },
+                        content: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                        speakerNotes: { type: JSON_SCHEMA.STRING },
+                        imagePrompt: { type: JSON_SCHEMA.STRING },
+                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "diagram", "historical photo", "none"] }
                     },
                     required: ["title", "content", "speakerNotes", "imagePrompt", "imageStyle"]
                 }
@@ -469,40 +514,23 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
     };
 
     if (onProgress) onProgress(`Generating slide content...`);
-    const response = await ai.models.generateContent({
+    const response = await callGeminiProxy<GeminiTextResponse>({
+        task: 'text',
         model: TEXT_MODEL,
         contents: prompt,
         config: {
             responseMimeType: "application/json",
-            responseSchema: responseSchema,
+            responseSchema,
             temperature: 0.5,
-            tools: [{googleSearch: {}}],
+            tools: [{ googleSearch: {} }],
         },
     });
-    const data = JSON.parse((response.text ?? '').trim());
+    const data = parseJsonModelResponse<{ title: string; slides: Slide[] }>(response.text, 'college lecture generation');
     const slides = data.slides.map((s: any) => ({
          ...s,
          content: cleanSlideContent(s.content),
     }));
-
-    const sources = response.candidates?.[0]?.groundingMetadata?.groundingChunks;
-    if (sources && sources.length > 0) {
-        const sourceContent = sources
-            .map((chunk: any) => chunk.web)
-            .filter((web: any) => web && web.uri && web.title)
-            .flatMap((web: any) => [`**${web.title}**`, web.uri]);
-
-        if (sourceContent.length > 0) {
-            const sourcesSlide: Slide = {
-                title: "Sources",
-                content: sourceContent,
-                speakerNotes: "These are the web sources the AI consulted to generate the content for this presentation.",
-                imagePrompt: "",
-                imageStyle: "none"
-            };
-            slides.push(sourcesSlide);
-        }
-    }
+    appendGroundingSources(slides, response.groundingChunks);
 
     return {
         title: data.title,
@@ -514,7 +542,6 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
 // --- IMAGE GENERATION ---
 
 export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<string> {
-    const ai = getAiClient();
     if (!prompt || style === 'none') {
         return Promise.resolve('');
     }
@@ -544,7 +571,8 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
     const finalPrompt = `${styleInstructions} The image should depict: "${prompt}"`;
 
     try {
-        const response = await ai.models.generateContent({
+        const response = await callGeminiProxy<GeminiImageResponse>({
+            task: 'image',
             model: IMAGE_MODEL,
             contents: {
                 parts: [{ text: finalPrompt }],
@@ -556,32 +584,20 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
             },
         });
 
-        if (!response.candidates || response.candidates.length === 0) {
-            let errorMessage = "Image generation failed: No candidates returned from the API.";
-            if (response.promptFeedback?.blockReason) {
-                errorMessage = `Image generation was blocked. Reason: ${response.promptFeedback.blockReason}`;
-            }
-            console.error("Image generation failure details:", response.promptFeedback);
-            throw new Error(errorMessage);
+        if (response.dataUrl) {
+            return response.dataUrl;
         }
 
-        const candidate = response.candidates[0];
-
-        for (const part of candidate.content.parts) {
-            if (part.inlineData) {
-                const base64EncodeString: string = part.inlineData.data;
-                return `data:${part.inlineData.mimeType};base64,${base64EncodeString}`;
-            }
+        if (response.blockReason) {
+            throw new Error(`Image generation was blocked. Reason: ${response.blockReason}`);
         }
-        
-        const textParts = candidate.content.parts.filter(p => p.text).map(p => p.text);
-        if (textParts.length > 0) {
-            const explanation = textParts.join(' ');
-            console.warn(`Model returned text instead of an image for prompt "${prompt}": ${explanation}`);
+
+        if (response.explanation) {
+            console.warn(`Model returned text instead of an image for prompt "${prompt}": ${response.explanation}`);
             throw new Error(`The model returned text instead of an image.`);
         }
-        
-        throw new Error("No image data found in the response, and no explanation was provided.");
+
+        throw new Error(response.error || "No image data found in the response.");
     } catch (error) {
         console.error(`Error generating image with Gemini for prompt: "${prompt}".`, error);
         throw error;

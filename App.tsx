@@ -114,7 +114,7 @@ const App: React.FC = () => {
         return; // Important to return here to avoid fallback messages.
     }
     
-    if (errorMessage.includes("API key is missing")) {
+    if (errorMessage.includes("API key is missing") || errorMessage.includes("GEMINI_API_KEY")) {
         setError("The application's API key is missing from its configuration. Please contact the administrator.");
     } else if (errorMessage.includes('API key not valid')) {
         setError("One of the application's API keys is invalid. Please contact the administrator.");

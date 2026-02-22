@@ -2,19 +2,41 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# DLL-aligned Presentation Maker
 
-This contains everything you need to run your app locally.
+This app is now structured for Vercel deployment with server-side Gemini access:
+- Frontend: Vite + React static site
+- Backend: Vercel serverless function at `/api/gemini`
+- Secret handling: Gemini API key stays server-side (`GEMINI_API_KEY`)
 
-View your app in AI Studio: https://ai.studio/apps/drive/1bJsHumMFUrtFfMOeqXk-fcuoOwlXEGI7
+## Environment Variables
 
-## Run Locally
+Create `.env.local` for local/full-stack runs:
 
-**Prerequisites:**  Node.js
+```bash
+GEMINI_API_KEY=your_real_key_here
+```
 
+Optional:
+
+```bash
+VITE_GEMINI_PROXY_BASE_URL=https://your-vercel-domain.vercel.app
+```
+
+Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere else and needs to call a remote `/api/gemini`.
+
+## Local Development
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+2. Run full stack locally (recommended):
+   `npx vercel dev`
+3. Open the local URL printed by Vercel Dev.
+
+## Deploy to Vercel
+
+1. Import this repository into Vercel.
+2. Set `GEMINI_API_KEY` in Project Settings -> Environment Variables.
+3. Deploy.
+
+Vercel will build the Vite app and host `/api/gemini` as a serverless function.
