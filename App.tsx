@@ -301,6 +301,7 @@ const App: React.FC = () => {
   const handleCreatePlan = useCallback(async () => {
     setError(null);
     const content = dllContent.trim() || topicContext.trim();
+    const shouldConsumeGeneration = teachingLevel === 'College' || (teachingLevel === 'K-12' && depEdMode === 'single');
 
     if (teachingLevel === 'College' && (!topicContext.trim() || !objectivesContext.trim())) {
       setError(t.presentation.errorNoCollegeTopic);
@@ -312,14 +313,16 @@ const App: React.FC = () => {
       return;
     }
 
-    const hasQuota = tryIncrementCount('generations');
-    if (!hasQuota) {
-      setError(t.presentation.errorGenerationLimit);
-      return;
+    if (shouldConsumeGeneration) {
+      const hasQuota = tryIncrementCount('generations');
+      if (!hasQuota) {
+        setError(t.presentation.errorGenerationLimit);
+        return;
+      }
     }
 
     setIsLoading(true);
-    let shouldRollbackGeneration = true;
+    let shouldRollbackGeneration = shouldConsumeGeneration;
 
     try {
         // College Flow
@@ -1056,6 +1059,7 @@ const App: React.FC = () => {
   };
 
   const renderInputView = () => {
+    const shouldRequireGenerationQuota = teachingLevel === 'College' || (teachingLevel === 'K-12' && depEdMode === 'single');
 
     const renderDepEdInputs = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
@@ -1243,13 +1247,13 @@ const App: React.FC = () => {
 
                 {/* Generate Button */}
                 <div className="mt-8 text-center">
-                    <button onClick={handleCreatePlan} disabled={isLoading || (!dllContent && !topicContext && !objectivesContext) || !canGenerate}
+                    <button onClick={handleCreatePlan} disabled={isLoading || (!dllContent && !topicContext && !objectivesContext) || (shouldRequireGenerationQuota && !canGenerate)}
                         className="px-8 py-4 text-xl font-semibold rounded-3xl neumorphic-btn-primary"
                     >
                         <MagicWandIcon className="w-6 h-6 inline-block mr-3" />
                          {teachingLevel === 'College' ? t.main.generateCollegeButton : (depEdMode === 'weekly' ? t.main.generateK12Button : t.main.generateSingleLessonButton)}
                     </button>
-                    {!canGenerate && <p className="text-center text-yellow-600 dark:text-yellow-400 mt-4">{t.presentation.errorGenerationLimit}</p>}
+                    {shouldRequireGenerationQuota && !canGenerate && <p className="text-center text-yellow-600 dark:text-yellow-400 mt-4">{t.presentation.errorGenerationLimit}</p>}
                 </div>
             </div>
         </div>
