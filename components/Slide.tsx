@@ -45,6 +45,7 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
 
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const imageStageRef = useRef<HTMLDivElement>(null);
+  const dragMovedRef = useRef(false);
 
   const { language } = useLanguage();
   const t = translations[language].presentation;
@@ -197,10 +198,12 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
     setSelectedOverlayId(overlayId);
     setEditingOverlayId(null);
 
+    dragMovedRef.current = false;
     let moved = false;
 
     const onMove = (moveEvent: PointerEvent) => {
       moved = true;
+      dragMovedRef.current = true;
       const { x, y } = getRelativePercentFromClient(moveEvent.clientX, moveEvent.clientY);
       setOverlayPosition(overlayId, x, y);
     };
@@ -213,6 +216,10 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
       if (moved) {
         setEditingOverlayId(null);
       }
+
+      window.setTimeout(() => {
+        dragMovedRef.current = false;
+      }, 0);
     };
 
     window.addEventListener('pointermove', onMove);
@@ -331,6 +338,13 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
                     onClick={(event) => {
                       event.stopPropagation();
                       if (!isEditingLabels) return;
+                      if (dragMovedRef.current) {
+                        return;
+                      }
+                      if (selectedOverlayId === overlay.id) {
+                        setEditingOverlayId(overlay.id);
+                        return;
+                      }
                       setSelectedOverlayId(overlay.id);
                     }}
                     onDoubleClick={(event) => {
@@ -468,23 +482,23 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
           )}
 
           {!isEditingLabels && (
-            <div className="absolute inset-0 bg-[color:var(--shadow-dark)] opacity-0 group-hover:opacity-80 transition-opacity flex items-center justify-center gap-4">
+            <div className="absolute top-3 right-3 z-20 flex flex-col sm:flex-row gap-2">
               <button
                 onClick={() => setIsEditingPrompt(true)}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-primary rounded-lg shadow-neumorphic-outset bg-surface transition-all hover:shadow-neumorphic-inset"
+                className="flex items-center justify-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-primary rounded-lg shadow-neumorphic-outset bg-surface/95 transition-all hover:shadow-neumorphic-inset"
               >
                 <RefreshCwIcon className="w-4 h-4" /> Regenerate
               </button>
               <button
                 onClick={handleUploadClick}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-primary rounded-lg shadow-neumorphic-outset bg-surface transition-all hover:shadow-neumorphic-inset"
+                className="flex items-center justify-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-primary rounded-lg shadow-neumorphic-outset bg-surface/95 transition-all hover:shadow-neumorphic-inset"
               >
                 <UploadCloudIcon className="w-4 h-4" /> Replace
               </button>
               <button
                 onClick={openLabelsEditor}
                 disabled={!renderableImage}
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-primary rounded-lg shadow-neumorphic-outset bg-surface transition-all hover:shadow-neumorphic-inset disabled:opacity-50 disabled:cursor-not-allowed"
+                className="flex items-center justify-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-primary rounded-lg shadow-neumorphic-outset bg-surface/95 transition-all hover:shadow-neumorphic-inset disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <FileTextIcon className="w-4 h-4" /> Labels
               </button>

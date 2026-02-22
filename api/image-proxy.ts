@@ -1,3 +1,5 @@
+import { requireSession } from '../lib/sessionAuth';
+
 const ALLOWED_HOST_SUFFIXES = [
   '.wikimedia.org',
   '.si.edu',
@@ -32,6 +34,10 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).send('Method not allowed');
+  }
+
+  if (!requireSession(req, res)) {
+    return;
   }
 
   const imageUrl = typeof req.query?.u === 'string' ? req.query.u : '';

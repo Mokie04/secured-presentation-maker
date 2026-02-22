@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel } from './types';
-import { createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, findOpenEducationalImage } from './services/geminiService';
+import { AI_IMAGE_FALLBACK_ENABLED, createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, findOpenEducationalImage } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
@@ -21,6 +21,7 @@ type TransitionDirection = 'next' | 'prev' | null;
 type LessonFormat = 'K-12' | 'MATATAG' | '5Es Model' | '4As Model';
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
+type AuthState = 'checking' | 'authorized' | 'unauthorized';
 const MIN_OPEN_IMAGE_CONFIDENCE = 0.52;
 
 /**
@@ -84,10 +85,13 @@ const App: React.FC = () => {
   const [exportMessage, setExportMessage] = useState<string>('');
   const [transitionDirection, setTransitionDirection] = useState<TransitionDirection>(null);
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
+  const [authState, setAuthState] = useState<AuthState>('checking');
+  const [authError, setAuthError] = useState<string>('');
 
   const { theme } = useTheme();
   const { language } = useLanguage();
   const t = translations[language];
+  const appStoreUrl = ((import.meta as ImportMeta & { env?: { VITE_APPSTORE_URL?: string } }).env?.VITE_APPSTORE_URL || '').trim();
   const {
     generations,
     images,
@@ -103,6 +107,53 @@ const App: React.FC = () => {
   useEffect(() => {
     updateCounts();
   }, [updateCounts]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const checkSession = async () => {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const access = params.get('access');
+        const endpoint = access
+          ? `/api/session?access=${encodeURIComponent(access)}`
+          : '/api/session';
+
+        const response = await fetch(endpoint, {
+          method: 'GET',
+          credentials: 'include',
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (access) {
+          params.delete('access');
+          const nextQuery = params.toString();
+          const cleanUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ''}${window.location.hash}`;
+          window.history.replaceState({}, '', cleanUrl);
+        }
+
+        if (cancelled) return;
+
+        if (response.ok && payload?.authenticated) {
+          setAuthState('authorized');
+          setAuthError('');
+          return;
+        }
+
+        setAuthState('unauthorized');
+        setAuthError(payload?.error || 'Unauthorized access. Please open this tool from your app store account.');
+      } catch {
+        if (cancelled) return;
+        setAuthState('unauthorized');
+        setAuthError('Unable to validate your secure session. Please reopen this tool from your app store.');
+      }
+    };
+
+    checkSession();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   
   // Safely set worker path for pdf.js after mount
   useEffect(() => {
@@ -123,6 +174,12 @@ const App: React.FC = () => {
     if (errorMessage.includes("RATE_LIMIT_EXCEEDED")) {
         setError("The application's API usage quota has been exceeded on all available keys. Please contact the administrator or check the billing plan.");
         return; // Important to return here to avoid fallback messages.
+    }
+
+    if (errorMessage.includes('Unauthorized') || errorMessage.includes('401')) {
+        setAuthState('unauthorized');
+        setAuthError('Your secure session expired. Please reopen this tool from your app store.');
+        return;
     }
     
     if (errorMessage.includes("API key is missing") || errorMessage.includes("GEMINI_API_KEY")) {
@@ -232,6 +289,7 @@ const App: React.FC = () => {
   const processSlidesForImages = async (slidesWithPrompts: Slide[], language: 'EN' | 'FIL'): Promise<Slide[]> => {
     const slidesWithImages = [];
     let rateLimitWasHit = false;
+    let costSaverSkips = 0;
     
     const imagesToGenerate = slidesWithPrompts.filter(s => s.imagePrompt && s.imagePrompt.trim() !== "" && !s.imageUrl);
     const totalImagesToAttempt = imagesToGenerate.length;
@@ -266,6 +324,12 @@ const App: React.FC = () => {
                 console.warn(`Open image lookup failed for prompt: "${slide.imagePrompt}"`, openImageError);
             }
 
+            if (!AI_IMAGE_FALLBACK_ENABLED) {
+                costSaverSkips++;
+                slidesWithImages.push(newSlide);
+                continue;
+            }
+
             const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
             if (currentImageCount >= limits.images) {
                 newSlide.imageUrl = 'limit_reached';
@@ -296,6 +360,11 @@ const App: React.FC = () => {
         }
         slidesWithImages.push(newSlide);
     }
+
+    if (costSaverSkips > 0) {
+        console.info(`Cost saver mode skipped paid AI image generation for ${costSaverSkips} slide(s).`);
+    }
+
     return slidesWithImages;
   };
 
@@ -835,6 +904,17 @@ const App: React.FC = () => {
             return;
         }
 
+        if (!AI_IMAGE_FALLBACK_ENABLED) {
+            alert("Cost saver mode is ON. Paid AI image generation is disabled. Try another open-source prompt or upload an image.");
+            setPresentation(prev => {
+                if (!prev) return null;
+                const finalSlides = [...prev.slides];
+                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: undefined, imagePrompt: newPrompt };
+                return { ...prev, slides: finalSlides };
+            });
+            return;
+        }
+
         if (!canGenerateImage) {
             alert(t.presentation.errorImageLimit.replace('{limit}', limits.images.toString()));
             setPresentation(prev => {
@@ -1265,6 +1345,29 @@ const App: React.FC = () => {
   }
 
   const renderContent = () => {
+    if (authState === 'checking') {
+      return <Loader customMessage="Verifying secure access..." estimatedDuration={6} progress={null} />;
+    }
+
+    if (authState === 'unauthorized') {
+      return (
+        <div className="w-full max-w-2xl bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed animate-fade-in text-center">
+          <h2 className="text-2xl md:text-3xl font-extrabold text-primary mb-4">Secure Access Required</h2>
+          <p className="text-secondary text-base md:text-lg mb-6">
+            {authError || 'This link is protected. Please open this tool from your signed-in app store account.'}
+          </p>
+          {appStoreUrl && (
+            <a
+              href={appStoreUrl}
+              className="inline-flex items-center px-5 py-3 rounded-xl bg-brand text-brand-contrast font-semibold shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all"
+            >
+              Return to App Store
+            </a>
+          )}
+        </div>
+      );
+    }
+
     if (isLoading) return <Loader customMessage={loadingMessage} estimatedDuration={loadingDuration} progress={loadingProgress} />;
     
     switch(appStep) {

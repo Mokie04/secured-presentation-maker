@@ -1,3 +1,5 @@
+import { requireSession } from '../lib/sessionAuth';
+
 type ImageSource = 'wikimedia' | 'nasa' | 'openverse';
 
 type OpenImageCandidate = {
@@ -531,6 +533,10 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
     return res.status(405).json({ error: 'Method not allowed. Use GET.' });
+  }
+
+  if (!requireSession(req, res)) {
+    return;
   }
 
   const rawQuery = typeof req.query?.q === 'string' ? req.query.q : '';

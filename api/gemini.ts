@@ -1,4 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
+import { requireSession } from "../lib/sessionAuth";
 
 type GeminiProxyRequest = {
   task?: 'text' | 'image';
@@ -98,6 +99,10 @@ export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });
+  }
+
+  if (!requireSession(req, res)) {
+    return;
   }
 
   const apiKey = process.env.GEMINI_API_KEY;

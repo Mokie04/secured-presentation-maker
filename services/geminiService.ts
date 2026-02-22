@@ -5,6 +5,7 @@ type ClientEnv = {
     VITE_GEMINI_PROXY_BASE_URL?: string;
     VITE_GEMINI_TEXT_MODEL?: string;
     VITE_GEMINI_IMAGE_MODEL?: string;
+    VITE_ENABLE_AI_IMAGE_FALLBACK?: string;
 };
 
 const ENV = (import.meta as ImportMeta & { env?: ClientEnv }).env ?? {};
@@ -19,21 +20,28 @@ function uniqueNonEmpty(values: Array<string | undefined>): string[] {
     );
 }
 
+function parseBooleanEnv(value: string | undefined, defaultValue: boolean): boolean {
+    if (typeof value !== 'string') return defaultValue;
+    const normalized = value.trim().toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
+    if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
+    return defaultValue;
+}
+
 // Prefer low-cost models first, with safe fallback.
 const TEXT_MODELS = uniqueNonEmpty([
     ENV.VITE_GEMINI_TEXT_MODEL,
     "gemini-2.0-flash-lite",
     "gemini-2.5-flash-lite",
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-3-flash-preview",
 ]);
 
 const IMAGE_MODELS = uniqueNonEmpty([
     ENV.VITE_GEMINI_IMAGE_MODEL,
     "gemini-2.0-flash-image",
-    "gemini-2.5-flash-image",
 ]);
+
+// Cost-saver default: open-source images first, no paid AI-image fallback unless explicitly enabled.
+export const AI_IMAGE_FALLBACK_ENABLED = parseBooleanEnv(ENV.VITE_ENABLE_AI_IMAGE_FALLBACK, false);
 
 const JSON_SCHEMA = {
     OBJECT: "object",
@@ -130,6 +138,7 @@ async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
         try {
             const response = await fetch(proxyUrl, {
                 method: 'POST',
+                credentials: 'include',
                 headers: {
                     'Content-Type': 'application/json',
                 },
@@ -172,7 +181,9 @@ export async function findOpenEducationalImage(prompt: string, language: 'EN' | 
 
     const query = encodeURIComponent(normalizedPrompt);
     const lang = encodeURIComponent(language);
-    const response = await fetch(`${getProxyBaseUrl()}/api/open-images?q=${query}&lang=${lang}`);
+    const response = await fetch(`${getProxyBaseUrl()}/api/open-images?q=${query}&lang=${lang}`, {
+        credentials: 'include',
+    });
 
     if (!response.ok) {
         return null;
