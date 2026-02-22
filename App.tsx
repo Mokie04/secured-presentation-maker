@@ -722,8 +722,10 @@ const App: React.FC = () => {
                         const normalizedX = Math.max(0, Math.min(100, overlay.x));
                         const normalizedY = Math.max(0, Math.min(100, overlay.y));
                         const labelText = overlay.text.trim();
-                        const labelW = Math.max(1.0, Math.min(2.2, 0.09 * labelText.length + 0.6));
-                        const labelH = 0.36;
+                        const uiFontSize = Math.max(12, Math.min(42, Math.round(overlay.fontSize ?? 16)));
+                        const pptFontSize = Math.max(10, Math.min(28, Math.round(uiFontSize * 0.78)));
+                        const labelW = Math.max(1.0, Math.min(2.8, (0.058 * (uiFontSize / 16) * labelText.length) + 0.72));
+                        const labelH = Math.max(0.36, Math.min(0.9, 0.12 + (uiFontSize * 0.018)));
                         const imageX = 0.5;
                         const imageY = 0.5;
                         const imageW = 4.3;
@@ -747,7 +749,7 @@ const App: React.FC = () => {
                             y: boxY + 0.01,
                             w: Math.max(0.1, labelW - 0.06),
                             h: Math.max(0.1, labelH - 0.02),
-                            fontSize: 11,
+                            fontSize: pptFontSize,
                             bold: true,
                             color: 'FFFFFF',
                             align: 'center',

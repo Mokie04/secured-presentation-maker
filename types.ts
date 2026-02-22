@@ -7,6 +7,7 @@ export interface ImageOverlayLabel {
   text: string;
   x: number; // Percentage from left (0-100)
   y: number; // Percentage from top (0-100)
+  fontSize?: number; // Label text size in px for on-slide editing.
 }
 
 export interface Slide {
