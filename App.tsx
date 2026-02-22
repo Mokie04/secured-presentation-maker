@@ -775,13 +775,16 @@ const App: React.FC = () => {
     if (!lessonBlueprint) return null;
 
     return (
-        <div className="w-full max-w-4xl bg-surface p-8 rounded-2xl shadow-neumorphic-outset animate-fade-in">
-            <h2 className="text-3xl font-bold text-primary mb-2">{t.presentation.weeklyBlueprintTitle}</h2>
-            <p className="text-secondary mb-6">{lessonBlueprint.mainTitle}</p>
+        <div className="w-full max-w-5xl bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed animate-fade-in">
+            <div className="mb-7">
+              <p className="text-xs uppercase tracking-[0.2em] text-secondary font-bold mb-2">Weekly Workflow</p>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-primary mb-2">{t.presentation.weeklyBlueprintTitle}</h2>
+              <p className="text-secondary text-base md:text-lg">{lessonBlueprint.mainTitle}</p>
+            </div>
 
             <div className="space-y-4">
                 {lessonBlueprint.days.map((day, index) => (
-                    <div key={day.dayNumber} className="flex items-center justify-between p-4 rounded-lg bg-surface border border-themed shadow-neumorphic-inset">
+                    <div key={day.dayNumber} className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-surface border border-themed shadow-neumorphic-inset">
                         <div className="flex items-center gap-4">
                             <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center" style={{backgroundColor: 'var(--brand-light)'}}>
                                 <span className="text-xs font-semibold text-brand">{t.presentation.day}</span>
@@ -817,7 +820,7 @@ const App: React.FC = () => {
                     </div>
                 ))}
             </div>
-             <div className="mt-8 flex justify-center items-center gap-4">
+             <div className="mt-8 flex flex-wrap justify-center items-center gap-4">
                 <button onClick={handleReset} className="px-6 py-3 text-base font-semibold bg-surface text-secondary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all">
                     <RefreshCwIcon className="w-5 h-5 inline-block mr-2" />
                     {t.presentation.startOverButton}
@@ -859,7 +862,7 @@ const App: React.FC = () => {
     }
 
     return (
-      <div className={`w-full max-w-7xl mx-auto flex flex-col items-center gap-6 ${isFullScreen ? 'p-0' : 'p-4'}`}>
+      <div className={`w-full max-w-7xl mx-auto flex flex-col items-center gap-6 ${isFullScreen ? 'p-0' : 'p-2 md:p-4'}`}>
         <div className={`w-full transition-all duration-300 ${isFullScreen ? 'fixed inset-0 z-[100] bg-surface' : 'relative'}`}>
             <div className={`relative w-full ${isFullScreen ? 'h-full flex items-center justify-center' : ''}`}>
                 <div className={`${isFullScreen ? 'w-[95vw] h-auto' : 'w-full'}`}>
@@ -876,9 +879,12 @@ const App: React.FC = () => {
 
         {!isFullScreen && (
             <div className="w-full grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="md:col-span-1 bg-surface rounded-2xl shadow-neumorphic-outset p-4 flex flex-col justify-between">
+                <div className="md:col-span-1 bg-surface rounded-3xl shadow-neumorphic-outset border border-themed p-5 flex flex-col justify-between">
+                    <div className="mb-3">
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-secondary font-bold">Presenter Console</p>
+                    </div>
                     <div className="flex justify-between items-center mb-4">
-                        <span className="text-sm font-semibold text-secondary">
+                        <span className="text-sm font-semibold text-secondary bg-surface px-3 py-1.5 rounded-full shadow-neumorphic-inset">
                             Slide {currentSlide + 1} / {slides.length}
                         </span>
                         <div className="flex gap-2">
@@ -900,7 +906,7 @@ const App: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="flex justify-center items-center gap-4">
+                    <div className="flex justify-center items-center gap-4 py-2">
                         <button onClick={handlePrevSlide} disabled={currentSlide === 0} className="p-4 bg-surface text-primary rounded-full shadow-neumorphic-outset-sm hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                             <ArrowLeftIcon className="w-6 h-6" />
                         </button>
@@ -925,8 +931,11 @@ const App: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="md:col-span-2 bg-surface rounded-2xl shadow-neumorphic-outset p-6">
-                    <h3 className="text-lg font-bold text-primary mb-3">{t.presentation.speakerNotesTitle}</h3>
+                <div className="md:col-span-2 bg-surface rounded-3xl shadow-neumorphic-outset border border-themed p-6 md:p-7">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-xl font-extrabold text-primary">{t.presentation.speakerNotesTitle}</h3>
+                      <span className="text-xs uppercase tracking-[0.15em] text-secondary font-bold">Live Notes</span>
+                    </div>
                     <textarea
                         value={slides[currentSlide].speakerNotes}
                         onChange={(e) => handleUpdateSpeakerNotes(e.target.value)}
@@ -947,7 +956,7 @@ const App: React.FC = () => {
           {/* Left Side: Weekly Plan */}
           <div 
               onClick={() => setDepEdMode('weekly')}
-              className={`p-6 rounded-2xl transition-all cursor-pointer ${depEdMode === 'weekly' ? 'shadow-neumorphic-outset bg-brand-light' : 'shadow-neumorphic-inset opacity-70 hover:opacity-100'}`}
+              className={`p-6 rounded-3xl transition-all cursor-pointer border border-themed ${depEdMode === 'weekly' ? 'shadow-neumorphic-outset bg-brand-light' : 'shadow-neumorphic-inset opacity-80 hover:opacity-100'}`}
           >
               <div className="flex items-center gap-3 mb-4">
                   <CalendarDaysIcon className="w-7 h-7 text-brand" />
@@ -960,7 +969,7 @@ const App: React.FC = () => {
                   <div 
                       onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
                       onClick={handleUploadClick}
-                      className="w-full h-28 p-2 border-2 border-dashed border-themed rounded-xl flex flex-col items-center justify-center text-center transition-all bg-surface hover:bg-opacity-80"
+                      className="w-full h-28 p-2 border-2 border-dashed border-themed rounded-2xl flex flex-col items-center justify-center text-center transition-all bg-surface hover:bg-opacity-80 shadow-neumorphic-inset"
                   >
                       <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".docx,.pdf,.txt,.md" />
                       {fileName && depEdMode === 'weekly' ? (
@@ -984,7 +993,7 @@ const App: React.FC = () => {
                    <textarea value={topicContext} onChange={(e) => setTopicContext(e.target.value)}
                       placeholder={t.main.topicPlaceholderWeekly}
                       rows={3}
-                      className="w-full p-3 text-sm bg-surface rounded-lg shadow-neumorphic-inset outline-none focus:ring-2 focus:ring-brand transition-all custom-scrollbar"
+                      className="w-full p-3 text-sm bg-surface rounded-2xl shadow-neumorphic-inset outline-none focus:ring-2 focus:ring-brand transition-all custom-scrollbar"
                   />
               </div>
           </div>
@@ -992,7 +1001,7 @@ const App: React.FC = () => {
           {/* Right Side: Single Lesson */}
           <div 
               onClick={() => setDepEdMode('single')}
-              className={`p-6 rounded-2xl transition-all cursor-pointer ${depEdMode === 'single' ? 'shadow-neumorphic-outset bg-brand-light' : 'shadow-neumorphic-inset opacity-70 hover:opacity-100'}`}
+              className={`p-6 rounded-3xl transition-all cursor-pointer border border-themed ${depEdMode === 'single' ? 'shadow-neumorphic-outset bg-brand-light' : 'shadow-neumorphic-inset opacity-80 hover:opacity-100'}`}
           >
               <div className="flex items-center gap-3 mb-4">
                   <PresentationIcon className="w-7 h-7 text-brand" />
@@ -1005,7 +1014,7 @@ const App: React.FC = () => {
                   <div 
                       onDragEnter={handleDragEnter} onDragLeave={handleDragLeave} onDragOver={handleDragOver} onDrop={handleDrop}
                       onClick={handleUploadClick}
-                      className="w-full h-28 p-2 border-2 border-dashed border-themed rounded-xl flex flex-col items-center justify-center text-center transition-all bg-surface hover:bg-opacity-80"
+                      className="w-full h-28 p-2 border-2 border-dashed border-themed rounded-2xl flex flex-col items-center justify-center text-center transition-all bg-surface hover:bg-opacity-80 shadow-neumorphic-inset"
                   >
                       <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".docx,.pdf,.txt,.md" />
                       {fileName && depEdMode === 'single' ? (
@@ -1029,7 +1038,7 @@ const App: React.FC = () => {
                    <textarea value={topicContext} onChange={(e) => setTopicContext(e.target.value)}
                       placeholder={t.main.topicPlaceholder}
                       rows={3}
-                      className="w-full p-3 text-sm bg-surface rounded-lg shadow-neumorphic-inset outline-none focus:ring-2 focus:ring-brand transition-all custom-scrollbar"
+                      className="w-full p-3 text-sm bg-surface rounded-2xl shadow-neumorphic-inset outline-none focus:ring-2 focus:ring-brand transition-all custom-scrollbar"
                   />
               </div>
           </div>
@@ -1038,29 +1047,45 @@ const App: React.FC = () => {
 
 
     return (
-    <div className="w-full max-w-5xl mx-auto">
-        <div className="text-center mb-10">
-            <h1 className="text-5xl font-extrabold text-primary leading-tight">
-                {t.app.mainTitle} <span className="text-brand">{t.app.presentationMaker}</span>
-            </h1>
-            <p className="text-lg text-secondary mt-4 max-w-2xl mx-auto">{t.app.tagline}</p>
+    <div className="w-full max-w-6xl mx-auto">
+        <div className="bg-surface rounded-3xl shadow-neumorphic-outset border border-themed p-7 md:p-10 mb-8 relative overflow-hidden">
+            <div className="absolute -top-20 -right-20 w-64 h-64 rounded-full opacity-30" style={{ background: 'radial-gradient(circle, var(--brand-light) 0%, transparent 70%)' }} />
+            <div className="absolute -bottom-20 -left-10 w-52 h-52 rounded-full opacity-20" style={{ background: 'radial-gradient(circle, var(--brand) 0%, transparent 70%)' }} />
+            <div className="relative">
+                <p className="text-xs uppercase tracking-[0.22em] text-secondary font-bold mb-3">Neumorphic Studio</p>
+                <h1 className="text-4xl md:text-5xl font-extrabold text-primary leading-tight">
+                    {t.app.mainTitle} <span className="text-brand">{t.app.presentationMaker}</span>
+                </h1>
+                <p className="text-base md:text-lg text-secondary mt-4 max-w-3xl">{t.app.tagline}</p>
+                <div className="flex flex-wrap gap-3 mt-6">
+                    <div className="px-4 py-2 rounded-2xl bg-surface shadow-neumorphic-inset text-sm font-semibold text-secondary">
+                        Generations: <span className="text-brand">{generations}/{limits.generations}</span>
+                    </div>
+                    <div className="px-4 py-2 rounded-2xl bg-surface shadow-neumorphic-inset text-sm font-semibold text-secondary">
+                        Images: <span className="text-brand">{images}/{limits.images}</span>
+                    </div>
+                    <div className="px-4 py-2 rounded-2xl bg-surface shadow-neumorphic-inset text-sm font-semibold text-secondary">
+                        Active Mode: <span className="text-brand">{teachingLevel}</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
-        <div className="bg-surface p-8 rounded-2xl shadow-neumorphic-outset">
+        <div className="bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed">
             {/* Step 1: Teaching Level */}
             <div>
-                <h3 className="text-xl font-semibold text-primary mb-4 text-center">{t.main.selectLevel}</h3>
-                <div className="flex justify-center gap-4">
+                <h3 className="text-xl font-semibold text-primary mb-5 text-center">{t.main.selectLevel}</h3>
+                <div className="flex justify-center gap-4 flex-wrap">
                     <button 
                         onClick={() => setTeachingLevel('K-12')} 
-                        className={`px-6 py-3 rounded-xl font-semibold transition-all w-60 flex flex-col items-center gap-2 ${teachingLevel === 'K-12' ? 'bg-brand text-brand-contrast shadow-neumorphic-outset' : 'bg-surface text-secondary hover:shadow-neumorphic-outset-sm'}`}
+                        className={`px-6 py-3 rounded-2xl font-semibold transition-all w-64 flex flex-col items-center gap-2 border border-themed ${teachingLevel === 'K-12' ? 'bg-brand text-brand-contrast shadow-neumorphic-outset' : 'bg-surface text-secondary hover:shadow-neumorphic-outset-sm'}`}
                     >
                         <BookOpenIcon className="w-6 h-6"/>
                         <span>{t.main.k12Button}</span>
                     </button>
                     <button 
                         onClick={() => setTeachingLevel('College')}
-                        className={`px-6 py-3 rounded-xl font-semibold transition-all w-60 flex flex-col items-center gap-2 ${teachingLevel === 'College' ? 'bg-brand text-brand-contrast shadow-neumorphic-outset' : 'bg-surface text-secondary hover:shadow-neumorphic-outset-sm'}`}
+                        className={`px-6 py-3 rounded-2xl font-semibold transition-all w-64 flex flex-col items-center gap-2 border border-themed ${teachingLevel === 'College' ? 'bg-brand text-brand-contrast shadow-neumorphic-outset' : 'bg-surface text-secondary hover:shadow-neumorphic-outset-sm'}`}
                     >
                         <GraduationCapIcon className="w-6 h-6"/>
                         <span>{t.main.collegeButton}</span>
@@ -1072,9 +1097,9 @@ const App: React.FC = () => {
             <div className="mt-8 pt-8 border-t border-themed">
                 {teachingLevel === 'K-12' && (
                   <div className="animate-fade-in">
-                      <h3 className="text-xl font-semibold text-primary mb-4 text-center">{t.main.selectPlanType}</h3>
+                      <h3 className="text-xl font-semibold text-primary mb-5 text-center">{t.main.selectPlanType}</h3>
                       {renderDepEdInputs()}
-                      <div className="flex justify-center gap-2 my-6 p-1 bg-surface rounded-full shadow-neumorphic-inset w-max mx-auto">
+                      <div className="flex justify-center gap-2 my-7 p-1 bg-surface rounded-full shadow-neumorphic-inset w-max mx-auto flex-wrap">
                           {(['K-12', 'MATATAG', '5Es Model', '4As Model'] as LessonFormat[]).map(format => (
                               <button key={format} onClick={() => setSelectedFormat(format)}
                                   className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-all ${selectedFormat === format ? 'text-brand shadow-neumorphic-outset-sm' : 'text-secondary'}`}>
@@ -1087,13 +1112,13 @@ const App: React.FC = () => {
                 
                 {teachingLevel === 'College' && (
                   <div className="animate-fade-in">
-                      <h3 className="text-xl font-semibold text-primary mb-4 text-center">{t.main.collegeInputTitle}</h3>
+                      <h3 className="text-xl font-semibold text-primary mb-5 text-center">{t.main.collegeInputTitle}</h3>
                        <div className="max-w-xl mx-auto space-y-4">
                           <div>
                               <label className="block text-base font-medium text-secondary mb-2">{t.main.collegeTopic}</label>
                               <input type="text" value={topicContext} onChange={(e) => setTopicContext(e.target.value)}
                                   placeholder={t.main.collegeTopicPlaceholder}
-                                  className="w-full px-4 py-3 text-lg rounded-xl neumorphic-input outline-none focus:ring-2 focus:ring-brand transition"
+                                  className="w-full px-4 py-3 text-lg rounded-2xl neumorphic-input outline-none focus:ring-2 focus:ring-brand transition"
                               />
                           </div>
                           <div>
@@ -1101,7 +1126,7 @@ const App: React.FC = () => {
                               <textarea value={objectivesContext} onChange={(e) => setObjectivesContext(e.target.value)}
                                   placeholder={t.main.collegeObjectivesPlaceholder}
                                   rows={4}
-                                  className="w-full px-4 py-3 text-base rounded-xl neumorphic-input outline-none focus:ring-2 focus:ring-brand transition"
+                                  className="w-full px-4 py-3 text-base rounded-2xl neumorphic-input outline-none focus:ring-2 focus:ring-brand transition"
                               />
                           </div>
                       </div>
@@ -1113,7 +1138,7 @@ const App: React.FC = () => {
                 {/* Generate Button */}
                 <div className="mt-8 text-center">
                     <button onClick={handleCreatePlan} disabled={isLoading || (!dllContent && !topicContext && !objectivesContext) || !canGenerate}
-                        className="px-8 py-4 text-xl font-semibold rounded-2xl neumorphic-btn-primary"
+                        className="px-8 py-4 text-xl font-semibold rounded-3xl neumorphic-btn-primary"
                     >
                         <MagicWandIcon className="w-6 h-6 inline-block mr-3" />
                          {teachingLevel === 'College' ? t.main.generateCollegeButton : (depEdMode === 'weekly' ? t.main.generateK12Button : t.main.generateSingleLessonButton)}
@@ -1138,10 +1163,15 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-surface flex flex-col">
+    <div className="min-h-screen bg-surface flex flex-col relative overflow-hidden">
+        <div className="pointer-events-none absolute inset-0">
+          <div className="absolute -top-28 left-[-8rem] w-[28rem] h-[28rem] rounded-full opacity-20" style={{ background: 'radial-gradient(circle, var(--brand) 0%, transparent 68%)' }} />
+          <div className="absolute top-1/4 right-[-9rem] w-[26rem] h-[26rem] rounded-full opacity-20" style={{ background: 'radial-gradient(circle, var(--brand-light) 0%, transparent 72%)' }} />
+          <div className="absolute bottom-[-8rem] left-1/3 w-[22rem] h-[22rem] rounded-full opacity-15" style={{ background: 'radial-gradient(circle, var(--shadow-dark) 0%, transparent 72%)' }} />
+        </div>
         <Header usage={{ generations, images, limits }} />
-        <main className="w-full mx-auto p-4 flex justify-center items-start mt-8 flex-grow">
-        {renderContent()}
+        <main className="w-full max-w-7xl mx-auto px-4 md:px-6 pb-6 pt-6 flex justify-center items-start flex-grow relative z-10">
+          {renderContent()}
         </main>
         <Footer />
     </div>

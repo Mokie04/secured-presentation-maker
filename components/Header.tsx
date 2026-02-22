@@ -44,20 +44,25 @@ const Header: React.FC<HeaderProps> = ({ usage }) => {
   const t = translations[language].header;
 
   return (
-    <header className="sticky top-0 z-50 w-full flex justify-center pt-4">
-      <div className="w-full max-w-7xl bg-surface rounded-2xl shadow-neumorphic-outset-sm flex items-center justify-between p-4">
+    <header className="sticky top-0 z-50 w-full flex justify-center px-4 pt-4 md:px-6">
+      <div className="w-full max-w-7xl bg-surface backdrop-blur-sm rounded-3xl shadow-neumorphic-outset-sm border border-themed flex flex-col gap-3 p-4 md:flex-row md:items-center md:justify-between md:p-5">
         {/* Left Side: Logo */}
-        <div className="flex items-center gap-2">
-            <div className="p-2 bg-surface rounded-full shadow-neumorphic-outset-sm">
+        <div className="flex items-center gap-3 min-w-0">
+            <div className="p-2.5 bg-surface rounded-2xl shadow-neumorphic-outset-sm">
                 <MagicWandIcon className="w-5 h-5 text-brand" />
             </div>
-            <span className="font-bold text-primary tracking-tight hidden sm:block text-2xl">
-              SAYUNA AI-POWERED <span className="text-brand">PRESENTATION MAKER</span>
-            </span>
+            <div className="min-w-0">
+              <span className="font-extrabold text-primary tracking-tight block text-lg md:text-2xl truncate">
+                SAYUNA <span className="text-brand">PRESENTATION MAKER</span>
+              </span>
+              <span className="text-xs text-secondary font-semibold tracking-wider uppercase block">
+                AI-Driven Classroom Workflow
+              </span>
+            </div>
         </div>
 
         {/* Right Side: Controls */}
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
           <QuotaIndicator
               icon={<BookOpenIcon className="w-4 h-4 text-brand" />}
               label={t.generationsQuota}
