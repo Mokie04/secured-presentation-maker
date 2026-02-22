@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 
 type GeminiProxyRequest = {
   task?: 'text' | 'image';
-  model?: string;
+  model?: string | string[];
   contents?: unknown;
   config?: Record<string, unknown>;
 };
@@ -43,13 +43,41 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Request must include model and contents.' });
   }
 
+  const modelCandidates = Array.isArray(model)
+    ? model
+      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0)
+      .map((candidate) => candidate.trim())
+    : [model]
+      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0)
+      .map((candidate) => candidate.trim());
+
+  if (modelCandidates.length === 0) {
+    return res.status(400).json({ error: 'Request model list is empty.' });
+  }
+
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const response = await ai.models.generateContent({
-      model,
-      contents,
-      config: requestConfig,
-    });
+    let response: any = null;
+    let lastError: unknown = null;
+    let modelUsed: string | null = null;
+
+    for (const candidateModel of modelCandidates) {
+      try {
+        response = await ai.models.generateContent({
+          model: candidateModel,
+          contents,
+          config: requestConfig,
+        });
+        modelUsed = candidateModel;
+        break;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    if (!response) {
+      throw lastError || new Error('All candidate models failed.');
+    }
 
     if (task === 'image') {
       const candidate = response.candidates?.[0];
@@ -59,6 +87,7 @@ export default async function handler(req: any, res: any) {
         if (part.inlineData?.data && part.inlineData?.mimeType) {
           return res.status(200).json({
             dataUrl: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
+            modelUsed,
           });
         }
       }
@@ -85,6 +114,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       text: response.text ?? '',
       groundingChunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [],
+      modelUsed,
     });
   } catch (error) {
     const status = typeof (error as any)?.status === 'number'

@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Presentation, LessonBlueprint, DayPlan, Slide } from './types';
-import { createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides } from './services/geminiService';
+import { createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, findOpenEducationalImage } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
@@ -203,6 +203,19 @@ const App: React.FC = () => {
     return updatedSlides;
   };
 
+  const appendImageAttribution = useCallback((speakerNotes: string, attribution: string): string => {
+    if (!attribution.trim()) {
+      return speakerNotes;
+    }
+
+    const attributionLine = `Image credit: ${attribution}`;
+    if (speakerNotes.includes(attributionLine)) {
+      return speakerNotes;
+    }
+
+    return `${speakerNotes.trim()}\n\n${attributionLine}`.trim();
+  }, []);
+
   const processSlidesForImages = async (slidesWithPrompts: Slide[], language: 'EN' | 'FIL'): Promise<Slide[]> => {
     const slidesWithImages = [];
     let rateLimitWasHit = false;
@@ -223,6 +236,22 @@ const App: React.FC = () => {
     for (const slide of slidesWithPrompts) {
         let newSlide = { ...slide }; 
         if (!newSlide.imageUrl && slide.imagePrompt && slide.imagePrompt.trim() !== "") {
+            setLoadingMessage(`Finding a high-match open educational image...`);
+
+            try {
+                const openImage = await findOpenEducationalImage(slide.imagePrompt, language);
+                if (openImage && openImage.url && openImage.confidence >= 0.75) {
+                    newSlide.imageUrl = openImage.url;
+                    if (openImage.attribution) {
+                        newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
+                    }
+                    slidesWithImages.push(newSlide);
+                    continue;
+                }
+            } catch (openImageError) {
+                console.warn(`Open image lookup failed for prompt: "${slide.imagePrompt}"`, openImageError);
+            }
+
             const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
             if (currentImageCount >= limits.images) {
                 newSlide.imageUrl = 'limit_reached';
@@ -670,11 +699,7 @@ const App: React.FC = () => {
 
   const handleRegenerateImage = useCallback(async (slideIndex: number, newPrompt: string) => {
     if (!presentation) return;
-    
-    if (!canGenerateImage) {
-        alert(t.presentation.errorImageLimit.replace('{limit}', limits.images.toString()));
-        return;
-    }
+
     const originalSlideStyle = presentation.slides[slideIndex].imageStyle;
     setPresentation(prev => {
         if (!prev) return null;
@@ -682,7 +707,34 @@ const App: React.FC = () => {
         updatedSlides[slideIndex] = { ...updatedSlides[slideIndex], imagePrompt: newPrompt, imageUrl: 'loading' };
         return { ...prev, slides: updatedSlides };
     });
+
     try {
+        const openImage = await findOpenEducationalImage(newPrompt, language);
+        if (openImage && openImage.url && openImage.confidence >= 0.75) {
+            setPresentation(prev => {
+                if (!prev) return null;
+                const finalSlides = [...prev.slides];
+                const existingNotes = finalSlides[slideIndex].speakerNotes;
+                const mergedNotes = openImage.attribution
+                    ? appendImageAttribution(existingNotes, openImage.attribution)
+                    : existingNotes;
+                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: openImage.url, imagePrompt: newPrompt, speakerNotes: mergedNotes };
+                return { ...prev, slides: finalSlides };
+            });
+            return;
+        }
+
+        if (!canGenerateImage) {
+            alert(t.presentation.errorImageLimit.replace('{limit}', limits.images.toString()));
+            setPresentation(prev => {
+                if (!prev) return null;
+                const finalSlides = [...prev.slides];
+                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: 'limit_reached', imagePrompt: newPrompt };
+                return { ...prev, slides: finalSlides };
+            });
+            return;
+        }
+
         const imageUrl = await generateImageFromPrompt(newPrompt, originalSlideStyle, language);
         incrementCount('images');
         setPresentation(prev => {
@@ -701,7 +753,7 @@ const App: React.FC = () => {
             return { ...prev, slides: finalSlides };
         });
     }
-  }, [presentation, canGenerateImage, incrementCount, limits.images, t, language]);
+  }, [presentation, canGenerateImage, incrementCount, limits.images, t, language, appendImageAttribution]);
 
   const handleUploadImage = useCallback((slideIndex: number, file: File) => {
     const reader = new FileReader();

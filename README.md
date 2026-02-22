@@ -15,6 +15,9 @@ Create `.env.local` for local/full-stack runs:
 
 ```bash
 GEMINI_API_KEY=your_real_key_here
+# Optional model overrides (low-cost defaults are already applied in code):
+# VITE_GEMINI_TEXT_MODEL=gemini-2.0-flash-lite
+# VITE_GEMINI_IMAGE_MODEL=gemini-2.0-flash-image
 ```
 
 Optional:
@@ -24,6 +27,12 @@ VITE_GEMINI_PROXY_BASE_URL=https://your-vercel-domain.vercel.app
 ```
 
 Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere else and needs to call a remote `/api/gemini`.
+
+## Image Strategy (Cost + Relevance)
+
+- The app first searches open-license educational images from Openverse (`/api/open-images`).
+- Only high-confidence matches are used to keep images tightly related to the slide.
+- If no strong open image match is found, the app falls back to Gemini image generation.
 
 ## Local Development
 

@@ -1,9 +1,37 @@
 
 import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle } from '../types';
 
-// Centralize model names.
-const TEXT_MODEL = "gemini-3-flash-preview";
-const IMAGE_MODEL = "gemini-2.5-flash-image";
+type ClientEnv = {
+    VITE_GEMINI_PROXY_BASE_URL?: string;
+    VITE_GEMINI_TEXT_MODEL?: string;
+    VITE_GEMINI_IMAGE_MODEL?: string;
+};
+
+const ENV = (import.meta as ImportMeta & { env?: ClientEnv }).env ?? {};
+
+function uniqueNonEmpty(values: Array<string | undefined>): string[] {
+    return Array.from(
+        new Set(
+            values
+                .map((value) => value?.trim())
+                .filter((value): value is string => Boolean(value))
+        )
+    );
+}
+
+// Prefer low-cost models first, with safe fallback.
+const TEXT_MODELS = uniqueNonEmpty([
+    ENV.VITE_GEMINI_TEXT_MODEL,
+    "gemini-2.0-flash-lite",
+    "gemini-2.5-flash-lite",
+    "gemini-3-flash-preview",
+]);
+
+const IMAGE_MODELS = uniqueNonEmpty([
+    ENV.VITE_GEMINI_IMAGE_MODEL,
+    "gemini-2.0-flash-image",
+    "gemini-2.5-flash-image",
+]);
 
 const JSON_SCHEMA = {
     OBJECT: "object",
@@ -33,16 +61,28 @@ type GeminiImageResponse = {
 
 type GeminiProxyRequest = {
     task: 'text' | 'image';
-    model: string;
+    model: string | string[];
     contents: unknown;
     config?: Record<string, unknown>;
 };
 
+export type OpenEducationalImage = {
+    url: string;
+    title: string;
+    source: string;
+    license: string;
+    creator?: string;
+    attribution?: string;
+    confidence: number;
+};
+
+function getProxyBaseUrl(): string {
+    const normalizedBase = (ENV.VITE_GEMINI_PROXY_BASE_URL || '').replace(/\/$/, '');
+    return normalizedBase;
+}
+
 async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
-    const configuredBaseUrl = (import.meta as ImportMeta & { env?: { VITE_GEMINI_PROXY_BASE_URL?: string } })
-        .env?.VITE_GEMINI_PROXY_BASE_URL || '';
-    const normalizedBase = configuredBaseUrl.replace(/\/$/, '');
-    const proxyUrl = `${normalizedBase}/api/gemini`;
+    const proxyUrl = `${getProxyBaseUrl()}/api/gemini`;
 
     const response = await fetch(proxyUrl, {
         method: 'POST',
@@ -61,6 +101,28 @@ async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
     }
 
     return data as T;
+}
+
+export async function findOpenEducationalImage(prompt: string, language: 'EN' | 'FIL'): Promise<OpenEducationalImage | null> {
+    const normalizedPrompt = prompt.trim();
+    if (!normalizedPrompt) {
+        return null;
+    }
+
+    const query = encodeURIComponent(normalizedPrompt);
+    const lang = encodeURIComponent(language);
+    const response = await fetch(`${getProxyBaseUrl()}/api/open-images?q=${query}&lang=${lang}`);
+
+    if (!response.ok) {
+        return null;
+    }
+
+    const data = await response.json().catch(() => null) as { image?: OpenEducationalImage } | null;
+    if (!data?.image?.url) {
+        return null;
+    }
+
+    return data.image;
 }
 
 function parseJsonModelResponse<T>(text: string | undefined, label: string): T {
@@ -220,7 +282,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
     
     const response = await callGeminiProxy<GeminiTextResponse>({
         task: 'text',
-        model: TEXT_MODEL,
+        model: TEXT_MODELS,
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -320,7 +382,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
     try {
         const response = await callGeminiProxy<GeminiTextResponse>({
             task: 'text',
-            model: TEXT_MODEL,
+            model: TEXT_MODELS,
             contents: prompt,
             config: {
                 responseMimeType: "application/json",
@@ -420,7 +482,7 @@ export async function generateK12SingleLessonSlides(content: string, format: str
     if (onProgress) onProgress(`Generating slide content...`);
     const response = await callGeminiProxy<GeminiTextResponse>({
         task: 'text',
-        model: TEXT_MODEL,
+        model: TEXT_MODELS,
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -516,7 +578,7 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
     if (onProgress) onProgress(`Generating slide content...`);
     const response = await callGeminiProxy<GeminiTextResponse>({
         task: 'text',
-        model: TEXT_MODEL,
+        model: TEXT_MODELS,
         contents: prompt,
         config: {
             responseMimeType: "application/json",
@@ -573,7 +635,7 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
     try {
         const response = await callGeminiProxy<GeminiImageResponse>({
             task: 'image',
-            model: IMAGE_MODEL,
+            model: IMAGE_MODELS,
             contents: {
                 parts: [{ text: finalPrompt }],
             },
