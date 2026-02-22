@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Presentation, LessonBlueprint, DayPlan, Slide } from './types';
+import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel } from './types';
 import { createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, findOpenEducationalImage } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
@@ -242,8 +242,9 @@ const App: React.FC = () => {
 
             try {
                 const openImage = await findOpenEducationalImage(slide.imagePrompt, language);
-                if (openImage && openImage.dataUrl && openImage.confidence >= 0.65) {
-                    newSlide.imageUrl = openImage.dataUrl;
+                const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
+                if (openImage && openImageUrl && openImage.confidence >= 0.65) {
+                    newSlide.imageUrl = openImageUrl;
                     if (openImage.attribution) {
                         newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
                     }
@@ -482,6 +483,18 @@ const App: React.FC = () => {
     setPresentation({ ...presentation, slides: updatedSlides });
   };
 
+  const handleUpdateImageOverlays = useCallback((slideIndex: number, overlays: ImageOverlayLabel[]) => {
+    setPresentation(prev => {
+      if (!prev) return null;
+      const updatedSlides = [...prev.slides];
+      updatedSlides[slideIndex] = {
+        ...updatedSlides[slideIndex],
+        imageOverlays: overlays,
+      };
+      return { ...prev, slides: updatedSlides };
+    });
+  }, []);
+
   const handleReset = () => {
     setPresentation(null);
     setLessonBlueprint(null);
@@ -575,6 +588,32 @@ const App: React.FC = () => {
     }
   };
 
+  const resolveImageForPptx = useCallback(async (imageUrl: string | undefined): Promise<string | null> => {
+    if (!imageUrl) return null;
+    if (imageUrl === 'error' || imageUrl === 'loading' || imageUrl === 'limit_reached') return null;
+    if (imageUrl.startsWith('data:')) return imageUrl;
+
+    try {
+      const response = await fetch(imageUrl);
+      if (!response.ok) return null;
+
+      const blob = await response.blob();
+      if (!blob.type.startsWith('image/')) return null;
+
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = () => reject(new Error('Failed to convert image blob to data URL'));
+        reader.readAsDataURL(blob);
+      });
+
+      return dataUrl;
+    } catch (error) {
+      console.warn('Failed to resolve image for PPTX export:', error);
+      return null;
+    }
+  }, []);
+
   const handleExportAsPPTX = useCallback(async () => {
     if (!presentation) return;
     setIsExporting(true);
@@ -649,7 +688,51 @@ const App: React.FC = () => {
 
             if (hasImage) {
                 try { 
-                    slide.addImage({ data: slideData.imageUrl, x: 0.5, y: 0.5, w: 4.3, h: 4.625 });
+                    const imageData = await resolveImageForPptx(slideData.imageUrl);
+                    if (!imageData) {
+                        throw new Error('No valid image data available for export.');
+                    }
+                    slide.addImage({ data: imageData, x: 0.5, y: 0.5, w: 4.3, h: 4.625 });
+
+                    const overlays = (slideData.imageOverlays || []).filter(o => o.text && o.text.trim().length > 0);
+                    for (const overlay of overlays) {
+                        const normalizedX = Math.max(0, Math.min(100, overlay.x));
+                        const normalizedY = Math.max(0, Math.min(100, overlay.y));
+                        const labelText = overlay.text.trim();
+                        const labelW = Math.max(1.0, Math.min(2.2, 0.09 * labelText.length + 0.6));
+                        const labelH = 0.36;
+                        const imageX = 0.5;
+                        const imageY = 0.5;
+                        const imageW = 4.3;
+                        const imageH = 4.625;
+
+                        let boxX = imageX + (normalizedX / 100) * imageW - (labelW / 2);
+                        let boxY = imageY + (normalizedY / 100) * imageH - (labelH / 2);
+                        boxX = Math.max(imageX, Math.min(imageX + imageW - labelW, boxX));
+                        boxY = Math.max(imageY, Math.min(imageY + imageH - labelH, boxY));
+
+                        slide.addShape(PptxGenJS.ShapeType.roundRect, {
+                            x: boxX,
+                            y: boxY,
+                            w: labelW,
+                            h: labelH,
+                            fill: { color: '111827', transparency: 20 },
+                            line: { color: '111827', transparency: 100 },
+                        });
+                        slide.addText(labelText, {
+                            x: boxX + 0.03,
+                            y: boxY + 0.01,
+                            w: Math.max(0.1, labelW - 0.06),
+                            h: Math.max(0.1, labelH - 0.02),
+                            fontSize: 11,
+                            bold: true,
+                            color: 'FFFFFF',
+                            align: 'center',
+                            valign: 'mid',
+                            fit: 'shrink',
+                            fontFace: 'Poppins',
+                        });
+                    }
                 } catch (e) { 
                     console.error("Failed to add image to PPTX slide:", e);
                     slide.addText('Image could not be loaded.', { x: 0.5, y: 0.5, w: 4.3, h: 4.625, color: 'FF0000', align: 'center', valign: 'middle' });
@@ -697,7 +780,7 @@ const App: React.FC = () => {
         setIsExporting(false);
         setExportMessage('');
     }
-  }, [presentation, theme, t]);
+  }, [presentation, theme, t, resolveImageForPptx]);
 
   const handleRegenerateImage = useCallback(async (slideIndex: number, newPrompt: string) => {
     if (!presentation) return;
@@ -712,7 +795,8 @@ const App: React.FC = () => {
 
     try {
         const openImage = await findOpenEducationalImage(newPrompt, language);
-        if (openImage && openImage.dataUrl && openImage.confidence >= 0.65) {
+        const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
+        if (openImage && openImageUrl && openImage.confidence >= 0.65) {
             setPresentation(prev => {
                 if (!prev) return null;
                 const finalSlides = [...prev.slides];
@@ -720,7 +804,7 @@ const App: React.FC = () => {
                 const mergedNotes = openImage.attribution
                     ? appendImageAttribution(existingNotes, openImage.attribution)
                     : existingNotes;
-                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: openImage.dataUrl, imagePrompt: newPrompt, speakerNotes: mergedNotes };
+                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: openImageUrl, imagePrompt: newPrompt, speakerNotes: mergedNotes };
                 return { ...prev, slides: finalSlides };
             });
             return;
@@ -874,6 +958,7 @@ const App: React.FC = () => {
                         direction={transitionDirection}
                         onRegenerateImage={handleRegenerateImage}
                         onUploadImage={handleUploadImage}
+                        onUpdateImageOverlays={handleUpdateImageOverlays}
                     />
                 </div>
             </div>

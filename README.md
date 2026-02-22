@@ -34,6 +34,8 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 - Only high-confidence matches are used to keep images tightly related to the slide.
 - Open-source matches are converted to `data:` URLs server-side for reliable slide rendering and PPTX export.
 - If no strong open image match is found, the app falls back to Gemini image generation.
+- AI-generated images are instructed to contain no text/labels.
+- Intentional labels should be added with the manual image overlay editor in the slide view.
 
 ## Local Development
 

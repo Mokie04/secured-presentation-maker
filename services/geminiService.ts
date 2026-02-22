@@ -71,6 +71,7 @@ type GeminiProxyRequest = {
 export type OpenEducationalImage = {
     url: string;
     dataUrl?: string;
+    proxyUrl?: string;
     title: string;
     source: string;
     license: string;
@@ -169,7 +170,13 @@ export async function findOpenEducationalImage(prompt: string, language: 'EN' | 
         return null;
     }
 
-    return data.image;
+    const image = data.image;
+    if (image.proxyUrl && image.proxyUrl.startsWith('/')) {
+        const base = getProxyBaseUrl();
+        image.proxyUrl = base ? `${base}${image.proxyUrl}` : image.proxyUrl;
+    }
+
+    return image;
 }
 
 function parseJsonModelResponse<T>(text: string | undefined, label: string): T {
@@ -353,7 +360,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
         - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
         - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
-    3.  **LABELING FOR DIAGRAMS/INFOGRAPHICS:** When the \`imageStyle\` is \`diagram\` or \`infographic\` and the image requires labels to be understood (e.g., parts of a flower, steps in a process), you MUST include the specific, correctly-spelled labels within the \`imagePrompt\`. The labels should be in the target language of the presentation (${language === 'FIL' ? 'Filipino' : 'English'}). Example: \`imagePrompt: "A simple diagram of a plant cell with the following labels in ${language === 'FIL' ? 'Filipino' : 'English'}: Cell Wall, Cytoplasm, Nucleus"\`.
+    3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
     4.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, you MUST provide practical, actionable speaker notes to guide the teacher. Examples: "Ask students: 'What do you notice?'", "Distribute materials.", "Emphasize the key difference is...".
     5.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must strictly follow the sections for the **${format}** model. However, slide titles must be creative and directly reflect the content, NOT the section name. For example, instead of a slide titled "Explore", a better title is "Activity: Classifying Mixtures". Generic titles like "Review" or "Assignment" are acceptable.
     6.  **CONTENT & CLARITY (CRITICAL):**
@@ -489,7 +496,7 @@ export async function generateK12SingleLessonSlides(content: string, format: str
             - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
             - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
             - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
-        3.  **LABELING FOR DIAGRAMS/INFOGRAPHICS:** When the \`imageStyle\` is \`diagram\` or \`infographic\` and the image requires labels to be understood (e.g., parts of a flower), you MUST include the specific, correctly-spelled labels within the \`imagePrompt\`. The labels should be in the target language of the presentation (${language === 'FIL' ? 'Filipino' : 'English'}). Example: \`imagePrompt: "A simple diagram of a plant cell with the following labels in ${language === 'FIL' ? 'Filipino' : 'English'}: Cell Wall, Cytoplasm, Nucleus"\`.
+        3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
         4.  **INITIAL SLIDES:** The first two slides MUST be a 'Title Slide' and a 'Learning Objectives' slide.
         5.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, you MUST provide practical, actionable speaker notes to guide the teacher.
         6.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the structure of the **${format}** model. However, slide titles must be creative and directly reflect the content, NOT the section name. For example, instead of a slide titled "Explore", a better title is "Activity: Classifying Mixtures". Generic titles like "Review" or "Assignment" are acceptable.
@@ -586,7 +593,7 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
             - **Example:** For a slide on "Quantum Superposition," a GOOD prompt is: "A diagram showing a single particle, like an electron, existing in multiple states simultaneously, represented by overlapping, semi-transparent wave functions." A BAD prompt is: "An atom."
             - **Style:** Select a professional \`imageStyle\` from ["photorealistic", "diagram", "infographic", "historical photo"].
             - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
-        3.  **LABELING FOR DIAGRAMS/INFOGRAPHICS:** When the \`imageStyle\` is \`diagram\` or \`infographic\` and the image requires labels to be understood, you MUST include the specific, correctly-spelled labels within the \`imagePrompt\`. The labels should be in the target language of the presentation (${language === 'FIL' ? 'Filipino' : 'English'}). Example: \`imagePrompt: "A scientific diagram of mitochondrial respiration with labels for the following in ${language === 'FIL' ? 'Filipino' : 'English'}: Krebs Cycle, Electron Transport Chain, ATP Synthase"\`.
+        3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
         4.  **SPEAKER NOTES:** Provide insightful speaker notes for each slide to guide the lecturer, including potential discussion points, deeper explanations, or transitions.
         5.  **CONTENT & CLARITY (CRITICAL):**
             - **Avoid Overcrowding (STRICT RULE):** Your primary goal is academic clarity. A single slide must never be a dense wall of text. As a strict rule, if a single concept requires more than 5-6 concise points or a dense paragraph, you MUST break it down into multiple, logically sequenced slides to allow for focused discussion. Use clear follow-up titles (e.g., "Topic - Part 2" or a more specific sub-topic title). Prioritize depth over density.
@@ -656,17 +663,16 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
     }
 
     let styleInstructions = '';
-    const langName = language === 'FIL' ? 'Filipino' : 'English';
 
     switch(style) {
         case 'photorealistic':
             styleInstructions = 'Create a professional, high-resolution, photorealistic image. It must look like a real photograph with accurate lighting and textures. Avoid artistic embellishments or fantastical elements. The final image must be a factually accurate representation of the subject. Under no circumstances should any text, letters, numbers, or words appear in the image.';
             break;
         case 'infographic':
-            styleInstructions = `Create a clean and modern infographic using a professional, cohesive color palette. The design should be simple and use clear icons. If the prompt includes a list of labels, you MUST render these labels clearly and accurately. The labels MUST be in ${langName} and spelled exactly as provided. Use a clean, sans-serif font. Do not add any other decorative or unnecessary text.`;
+            styleInstructions = 'Create a clean and modern infographic visual using a professional, cohesive color palette and clear icons. Do NOT render any words, labels, letters, numbers, symbols, or captions inside the image. Focus on visual structure only.';
             break;
         case 'diagram':
-             styleInstructions = `Create a clear, accurate, scientific or technical diagram. Use thin, precise lines and a clean, minimalist style. The diagram must be factually and scientifically accurate. If the prompt contains a list of labels, you MUST render these labels onto the diagram. The labels MUST be in ${langName} and spelled exactly as provided. Use a clean, legible font. Do not add any extraneous text or titles.`;
+             styleInstructions = 'Create a clear, accurate, scientific or technical diagram using thin, precise lines and a clean minimalist style. The diagram must be factually accurate, but must NOT contain any words, labels, letters, numbers, symbols, or titles.';
             break;
         case 'historical photo':
             styleInstructions = 'Create an image that looks like an authentic historical photograph from the relevant era (e.g., black and white, sepia-toned). It should have realistic grain, lighting, and focus imperfections of the period. The depiction must be historically accurate. Avoid a modern, "costumed" look. Under no circumstances should any text, letters, numbers, or words appear in the image.';

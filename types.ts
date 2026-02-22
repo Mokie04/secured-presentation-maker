@@ -2,12 +2,20 @@
 export type ImageStyle = 'photorealistic' | 'illustration' | 'infographic' | 'diagram' | 'historical photo' | 'none';
 export type TeachingLevel = 'K-12' | 'College';
 
+export interface ImageOverlayLabel {
+  id: string;
+  text: string;
+  x: number; // Percentage from left (0-100)
+  y: number; // Percentage from top (0-100)
+}
+
 export interface Slide {
   title: string;
   content: string[]; // An array of strings, where each string is a bullet point or paragraph.
   imagePrompt?: string; // A descriptive prompt for generating a relevant image.
   imageStyle?: ImageStyle; // The artistic style for the image
   imageUrl?: string; // The data URL of the generated image.
+  imageOverlays?: ImageOverlayLabel[]; // Manual label overlays rendered above the image.
   speakerNotes: string; // Notes for the teacher presenting the slide.
 }
 

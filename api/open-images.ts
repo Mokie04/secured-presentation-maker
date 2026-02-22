@@ -12,6 +12,12 @@ type OpenImage = {
   tags?: Array<{ name?: string } | string>;
 };
 
+type ResolvedImagePayload = {
+  url: string;
+  dataUrl?: string;
+  proxyUrl?: string;
+};
+
 const STOPWORDS = new Set([
   'the', 'a', 'an', 'for', 'and', 'or', 'to', 'of', 'in', 'on', 'with', 'from', 'by', 'at',
   'about', 'into', 'over', 'under', 'after', 'before', 'during', 'without', 'within', 'through',
@@ -160,6 +166,36 @@ async function convertImageToDataUrl(imageUrl: string): Promise<string | null> {
   }
 }
 
+function createProxyUrl(imageUrl: string): string {
+  return `/api/image-proxy?u=${encodeURIComponent(imageUrl)}`;
+}
+
+function getCandidateImageUrls(image: OpenImage): string[] {
+  const candidates = [image.thumbnail, image.url]
+    .filter((candidate): candidate is string => Boolean(candidate && candidate.trim()))
+    .map((candidate) => candidate.trim());
+  return Array.from(new Set(candidates));
+}
+
+async function resolveUsableImage(image: OpenImage): Promise<ResolvedImagePayload | null> {
+  const candidates = getCandidateImageUrls(image);
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  for (const candidate of candidates) {
+    const dataUrl = await convertImageToDataUrl(candidate);
+    if (dataUrl) {
+      return { url: candidate, dataUrl };
+    }
+  }
+
+  return {
+    url: candidates[0],
+    proxyUrl: createProxyUrl(candidates[0]),
+  };
+}
+
 function buildAttribution(image: OpenImage): string {
   const source = image.source || image.provider || 'open source';
   const creator = image.creator || 'Unknown creator';
@@ -214,20 +250,16 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json({ image: null });
     }
 
-    const imageUrl = best.image.url || best.image.thumbnail;
-    if (!imageUrl) {
-      return res.status(200).json({ image: null });
-    }
-
-    const dataUrl = await convertImageToDataUrl(imageUrl);
-    if (!dataUrl) {
+    const resolvedImage = await resolveUsableImage(best.image);
+    if (!resolvedImage) {
       return res.status(200).json({ image: null });
     }
 
     return res.status(200).json({
       image: {
-        url: imageUrl,
-        dataUrl,
+        url: resolvedImage.url,
+        dataUrl: resolvedImage.dataUrl || '',
+        proxyUrl: resolvedImage.proxyUrl || '',
         title: best.image.title || 'Educational image',
         source: best.image.source || best.image.provider || 'openverse',
         license: best.image.license || 'open',
