@@ -242,8 +242,8 @@ const App: React.FC = () => {
 
             try {
                 const openImage = await findOpenEducationalImage(slide.imagePrompt, language);
-                if (openImage && openImage.url && openImage.confidence >= 0.75) {
-                    newSlide.imageUrl = openImage.url;
+                if (openImage && openImage.dataUrl && openImage.confidence >= 0.65) {
+                    newSlide.imageUrl = openImage.dataUrl;
                     if (openImage.attribution) {
                         newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
                     }
@@ -712,7 +712,7 @@ const App: React.FC = () => {
 
     try {
         const openImage = await findOpenEducationalImage(newPrompt, language);
-        if (openImage && openImage.url && openImage.confidence >= 0.75) {
+        if (openImage && openImage.dataUrl && openImage.confidence >= 0.65) {
             setPresentation(prev => {
                 if (!prev) return null;
                 const finalSlides = [...prev.slides];
@@ -720,7 +720,7 @@ const App: React.FC = () => {
                 const mergedNotes = openImage.attribution
                     ? appendImageAttribution(existingNotes, openImage.attribution)
                     : existingNotes;
-                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: openImage.url, imagePrompt: newPrompt, speakerNotes: mergedNotes };
+                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: openImage.dataUrl, imagePrompt: newPrompt, speakerNotes: mergedNotes };
                 return { ...prev, slides: finalSlides };
             });
             return;
