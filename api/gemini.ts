@@ -11,6 +11,67 @@ export const config = {
   maxDuration: 60,
 };
 
+type GeminiErrorInfo = {
+  status: number;
+  code?: number;
+  message: string;
+  retryable: boolean;
+};
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
+  const fallback: GeminiErrorInfo = {
+    status: 500,
+    message: 'Unknown Gemini proxy error.',
+    retryable: false,
+  };
+
+  if (!error) {
+    return fallback;
+  }
+
+  const statusFromObject = typeof (error as any)?.status === 'number' ? (error as any).status : undefined;
+  const messageFromObject = error instanceof Error ? error.message : String(error);
+  let status = statusFromObject ?? 500;
+  let code: number | undefined;
+  let message = messageFromObject || fallback.message;
+
+  try {
+    const parsed = JSON.parse(message);
+    if (parsed?.error) {
+      const parsedStatus = parsed.error.status;
+      const parsedCode = parsed.error.code;
+      const parsedMessage = parsed.error.message;
+
+      if (typeof parsedCode === 'number') {
+        code = parsedCode;
+      }
+      if (typeof parsedCode === 'number' && !statusFromObject) {
+        status = parsedCode;
+      }
+      if (typeof parsedMessage === 'string' && parsedMessage.trim().length > 0) {
+        message = parsedMessage;
+      }
+      if (!statusFromObject && parsedStatus === 'UNAVAILABLE') {
+        status = 503;
+      }
+    }
+  } catch {
+    // Ignore parsing errors; keep original message.
+  }
+
+  const upperMessage = message.toUpperCase();
+  const retryable = [429, 500, 502, 503, 504].includes(status)
+    || upperMessage.includes('UNAVAILABLE')
+    || upperMessage.includes('HIGH DEMAND')
+    || upperMessage.includes('TRY AGAIN LATER');
+
+  return { status, code, message, retryable };
+}
+
 function normalizeBody(body: unknown): GeminiProxyRequest {
   if (typeof body === 'string') {
     try {
@@ -59,23 +120,42 @@ export default async function handler(req: any, res: any) {
     const ai = new GoogleGenAI({ apiKey });
     let response: any = null;
     let lastError: unknown = null;
+    let lastErrorInfo: GeminiErrorInfo | null = null;
     let modelUsed: string | null = null;
 
     for (const candidateModel of modelCandidates) {
-      try {
-        response = await ai.models.generateContent({
-          model: candidateModel,
-          contents,
-          config: requestConfig,
-        });
-        modelUsed = candidateModel;
+      const maxAttemptsForModel = 2;
+      for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
+        try {
+          response = await ai.models.generateContent({
+            model: candidateModel,
+            contents,
+            config: requestConfig,
+          });
+          modelUsed = candidateModel;
+          break;
+        } catch (error) {
+          lastError = error;
+          lastErrorInfo = extractGeminiErrorInfo(error);
+          const shouldRetry = lastErrorInfo.retryable && attempt < maxAttemptsForModel;
+          if (shouldRetry) {
+            await sleep(350 * attempt);
+            continue;
+          }
+        }
+      }
+
+      if (response) {
         break;
-      } catch (error) {
-        lastError = error;
       }
     }
 
     if (!response) {
+      if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
+        return res.status(503).json({
+          error: 'Gemini is temporarily experiencing high demand. Please retry in 20-60 seconds.',
+        });
+      }
       throw lastError || new Error('All candidate models failed.');
     }
 
@@ -117,10 +197,7 @@ export default async function handler(req: any, res: any) {
       modelUsed,
     });
   } catch (error) {
-    const status = typeof (error as any)?.status === 'number'
-      ? (error as any).status
-      : 500;
-    const message = error instanceof Error ? error.message : 'Unknown Gemini proxy error.';
-    return res.status(status).json({ error: message });
+    const info = extractGeminiErrorInfo(error);
+    return res.status(info.status).json({ error: info.message });
   }
 }
