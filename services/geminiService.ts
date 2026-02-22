@@ -69,16 +69,29 @@ type GeminiProxyRequest = {
 };
 
 export type OpenEducationalImage = {
+    id?: string;
     url: string;
     dataUrl?: string;
     proxyUrl?: string;
     title: string;
     source: string;
+    provider?: string;
     license: string;
     creator?: string;
     attribution?: string;
     confidence: number;
     landingUrl?: string;
+    alternatives?: Array<{
+        id: string;
+        title: string;
+        url: string;
+        thumbnail?: string;
+        source: string;
+        confidence: number;
+        license?: string;
+        creator?: string;
+        landingUrl?: string;
+    }>;
 };
 
 function getProxyBaseUrl(): string {

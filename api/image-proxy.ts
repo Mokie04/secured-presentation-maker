@@ -3,6 +3,7 @@ const ALLOWED_HOST_SUFFIXES = [
   '.si.edu',
   '.metmuseum.org',
   '.metmuseum.net',
+  '.nasa.gov',
 ];
 
 function isAllowedUrl(rawUrl: string): boolean {

@@ -21,6 +21,7 @@ type TransitionDirection = 'next' | 'prev' | null;
 type LessonFormat = 'K-12' | 'MATATAG' | '5Es Model' | '4As Model';
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
+const MIN_OPEN_IMAGE_CONFIDENCE = 0.52;
 
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.
@@ -253,7 +254,7 @@ const App: React.FC = () => {
             try {
                 const openImage = await findOpenEducationalImage(slide.imagePrompt, language);
                 const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
-                if (openImage && openImageUrl && openImage.confidence >= 0.65) {
+                if (openImage && openImageUrl && openImage.confidence >= MIN_OPEN_IMAGE_CONFIDENCE) {
                     newSlide.imageUrl = openImageUrl;
                     if (openImage.attribution) {
                         newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
@@ -750,7 +751,7 @@ const App: React.FC = () => {
                             bold: true,
                             color: 'FFFFFF',
                             align: 'center',
-                            valign: 'mid',
+                            valign: 'middle',
                             fit: 'shrink',
                             fontFace: 'Poppins',
                         });
@@ -818,7 +819,7 @@ const App: React.FC = () => {
     try {
         const openImage = await findOpenEducationalImage(newPrompt, language);
         const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
-        if (openImage && openImageUrl && openImage.confidence >= 0.65) {
+        if (openImage && openImageUrl && openImage.confidence >= MIN_OPEN_IMAGE_CONFIDENCE) {
             setPresentation(prev => {
                 if (!prev) return null;
                 const finalSlides = [...prev.slides];
