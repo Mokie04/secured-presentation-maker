@@ -22,6 +22,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function getRetryDelayMs(attempt: number): number {
+  const baseDelay = Math.min(4000, 900 * Math.pow(2, attempt - 1));
+  const jitter = Math.floor(Math.random() * 450);
+  return baseDelay + jitter;
+}
+
 function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
   const fallback: GeminiErrorInfo = {
     status: 500,
@@ -124,7 +130,7 @@ export default async function handler(req: any, res: any) {
     let modelUsed: string | null = null;
 
     for (const candidateModel of modelCandidates) {
-      const maxAttemptsForModel = 2;
+      const maxAttemptsForModel = 3;
       for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
         try {
           response = await ai.models.generateContent({
@@ -139,7 +145,7 @@ export default async function handler(req: any, res: any) {
           lastErrorInfo = extractGeminiErrorInfo(error);
           const shouldRetry = lastErrorInfo.retryable && attempt < maxAttemptsForModel;
           if (shouldRetry) {
-            await sleep(350 * attempt);
+            await sleep(getRetryDelayMs(attempt));
             continue;
           }
         }

@@ -117,7 +117,7 @@ const App: React.FC = () => {
     if (errorMessage.includes("API key is missing") || errorMessage.includes("GEMINI_API_KEY")) {
         setError("The application's API key is missing from its configuration. Please contact the administrator.");
     } else if (errorMessage.includes("high demand") || errorMessage.includes("UNAVAILABLE") || errorMessage.includes("temporarily experiencing")) {
-        setError("The AI service is temporarily busy due to high demand. Please retry in 20-60 seconds.");
+        setError("The AI service is currently under heavy load. The app retried automatically; please try again in about 1 minute.");
     } else if (errorMessage.includes('API key not valid')) {
         setError("One of the application's API keys is invalid. Please contact the administrator.");
     } else if (errorMessage.includes('permission') || errorMessage.includes('billing') || errorMessage.includes('quota')) {

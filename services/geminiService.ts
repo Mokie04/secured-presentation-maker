@@ -83,26 +83,69 @@ function getProxyBaseUrl(): string {
     return normalizedBase;
 }
 
+type ProxyError = Error & { status?: number };
+
+function shouldRetryProxyError(status: number | undefined, message: string): boolean {
+    const upperMessage = message.toUpperCase();
+    return [429, 500, 502, 503, 504].includes(status || 0)
+        || upperMessage.includes('UNAVAILABLE')
+        || upperMessage.includes('HIGH DEMAND')
+        || upperMessage.includes('TRY AGAIN LATER');
+}
+
+function getRetryDelayMs(attempt: number): number {
+    // Exponential backoff with jitter: 0.8s, 1.6s, 3.2s (+ jitter)
+    const baseDelay = Math.min(3200, 800 * Math.pow(2, attempt - 1));
+    const jitter = Math.floor(Math.random() * 350);
+    return baseDelay + jitter;
+}
+
+async function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
     const proxyUrl = `${getProxyBaseUrl()}/api/gemini`;
 
-    const response = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-    });
+    const maxAttempts = 3;
+    let lastError: ProxyError | null = null;
 
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-        const errorMessage = typeof data?.error === 'string'
-            ? data.error
-            : `Gemini request failed with status ${response.status}.`;
-        throw new Error(errorMessage);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+            const response = await fetch(proxyUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                const errorMessage = typeof data?.error === 'string'
+                    ? data.error
+                    : `Gemini request failed with status ${response.status}.`;
+                const error = new Error(errorMessage) as ProxyError;
+                error.status = response.status;
+                throw error;
+            }
+
+            return data as T;
+        } catch (error) {
+            const proxyError = error as ProxyError;
+            lastError = proxyError;
+            const retryable = shouldRetryProxyError(proxyError.status, proxyError.message || '');
+            const hasAttemptsLeft = attempt < maxAttempts;
+
+            if (!retryable || !hasAttemptsLeft) {
+                break;
+            }
+
+            await sleep(getRetryDelayMs(attempt));
+        }
     }
 
-    return data as T;
+    throw lastError || new Error('Gemini request failed.');
 }
 
 export async function findOpenEducationalImage(prompt: string, language: 'EN' | 'FIL'): Promise<OpenEducationalImage | null> {
