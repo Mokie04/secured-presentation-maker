@@ -87,7 +87,17 @@ const App: React.FC = () => {
   const { theme } = useTheme();
   const { language } = useLanguage();
   const t = translations[language];
-  const { generations, images, limits, incrementCount, canGenerate, canGenerateImage, updateCounts } = useUsageTracker();
+  const {
+    generations,
+    images,
+    limits,
+    incrementCount,
+    tryIncrementCount,
+    decrementCount,
+    canGenerate,
+    canGenerateImage,
+    updateCounts
+  } = useUsageTracker();
 
   useEffect(() => {
     updateCounts();
@@ -290,24 +300,30 @@ const App: React.FC = () => {
 
   const handleCreatePlan = useCallback(async () => {
     setError(null);
+    const content = dllContent.trim() || topicContext.trim();
 
-    if (!canGenerate) {
+    if (teachingLevel === 'College' && (!topicContext.trim() || !objectivesContext.trim())) {
+      setError(t.presentation.errorNoCollegeTopic);
+      return;
+    }
+
+    if (teachingLevel === 'K-12' && !content) {
+      setError(t.presentation.errorNoFileOrTopic);
+      return;
+    }
+
+    const hasQuota = tryIncrementCount('generations');
+    if (!hasQuota) {
       setError(t.presentation.errorGenerationLimit);
       return;
     }
 
     setIsLoading(true);
-    incrementCount('generations');
-    const content = dllContent.trim() || topicContext.trim();
+    let shouldRollbackGeneration = true;
 
     try {
         // College Flow
         if (teachingLevel === 'College') {
-            if (!topicContext.trim() || !objectivesContext.trim()) {
-                setError(t.presentation.errorNoCollegeTopic);
-                setIsLoading(false);
-                return;
-            }
             setLoadingDuration(45);
             setLoadingMessage(t.presentation.loadingLecture);
             const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, language, (msg) => setLoadingMessage(msg));
@@ -321,12 +337,6 @@ const App: React.FC = () => {
         } 
         // DepEd Flows
         else if (teachingLevel === 'K-12') {
-            if (!content) {
-                setError(t.presentation.errorNoFileOrTopic);
-                setIsLoading(false);
-                return;
-            }
-
             // DepEd Single Lesson Flow
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
@@ -374,19 +384,24 @@ const App: React.FC = () => {
                 setAppStep('planning');
             }
         }
+        shouldRollbackGeneration = false;
     } catch (e) {
+        if (shouldRollbackGeneration) {
+            decrementCount('generations');
+        }
         handleApiError(e);
         setAppStep('input');
     } finally {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, selectedFormat, language, t, canGenerate, incrementCount]);
+  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, selectedFormat, language, t, tryIncrementCount, decrementCount]);
 
   const handleGenerateDailySlides = useCallback(async (dayIndex: number) => {
     if (!lessonBlueprint) return;
 
-    if (!canGenerate) {
+    const hasQuota = tryIncrementCount('generations');
+    if (!hasQuota) {
       setError(t.presentation.errorGenerationLimit);
       return;
     }
@@ -400,7 +415,7 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
-    incrementCount('generations');
+    let shouldRollbackGeneration = true;
     
     try {
         const dayToGenerate = lessonBlueprint.days[dayIndex];
@@ -430,8 +445,12 @@ const App: React.FC = () => {
 
         setCurrentSlide(slideIndexOfNewDay);
         setAppStep('presenting');
+        shouldRollbackGeneration = false;
 
     } catch (e) {
+        if (shouldRollbackGeneration) {
+            decrementCount('generations');
+        }
         handleApiError(e);
         setLessonBlueprint(prev => {
             if (!prev) return null;
@@ -443,7 +462,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [lessonBlueprint, dllContent, topicContext, selectedFormat, theme, presentation, language, t, canGenerate, incrementCount]);
+  }, [lessonBlueprint, dllContent, topicContext, selectedFormat, theme, presentation, language, t, tryIncrementCount, decrementCount]);
 
   const handleNextSlide = useCallback(() => {
     if (presentation && currentSlide < presentation.slides.length - 1) {
