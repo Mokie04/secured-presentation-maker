@@ -279,7 +279,7 @@ async function fetchWikimediaImages(searchQuery: string): Promise<OpenImageCandi
   url.searchParams.set('gsrsearch', searchQuery);
   url.searchParams.set('gsrnamespace', '6');
   url.searchParams.set('gsrwhat', 'text');
-  url.searchParams.set('gsrlimit', '25');
+  url.searchParams.set('gsrlimit', '40');
   url.searchParams.set('prop', 'imageinfo|info|categories');
   url.searchParams.set('inprop', 'url');
   url.searchParams.set('cllimit', '10');
@@ -511,6 +511,10 @@ async function resolveUsableImage(image: OpenImageCandidate): Promise<ResolvedIm
         proxyUrl: createProxyUrl(candidate),
       };
     }
+    // Allow direct https image URL fallback when proxy host is not in allowlist
+    if (/^https?:\/\/.*\.(jpe?g|png|webp)$/i.test(candidate)) {
+      return { url: candidate };
+    }
   }
 
   return null;
@@ -573,7 +577,7 @@ export default async function handler(req: any, res: any) {
     const ranked = rankImages(merged, queryTokens)
       .filter((item) => Boolean(item.url || item.thumbnail));
 
-    const MIN_CONFIDENCE = 0.52;
+    const MIN_CONFIDENCE = 0.35; // relax threshold to increase hit rate
     const viable = ranked.filter((candidate) => candidate.confidence >= MIN_CONFIDENCE).slice(0, 8);
     if (viable.length === 0) {
       return res.status(200).json({ image: null });
