@@ -10,6 +10,7 @@ type ClientEnv = {
 };
 
 const ENV = (import.meta as ImportMeta & { env?: ClientEnv }).env ?? {};
+const PROXY_FALLBACK_URL = 'https://dll-aligned-presentation-make-nd9d03hjy-mokie2024s-projects.vercel.app';
 
 function uniqueNonEmpty(values: Array<string | undefined>): string[] {
     return Array.from(
@@ -106,8 +107,9 @@ export type OpenEducationalImage = {
 };
 
 function getProxyBaseUrl(): string {
-    const normalizedBase = (ENV.VITE_GEMINI_PROXY_BASE_URL || '').replace(/\/$/, '');
-    return normalizedBase;
+    const normalizedEnv = (ENV.VITE_GEMINI_PROXY_BASE_URL || '').replace(/\/$/, '');
+    if (normalizedEnv) return normalizedEnv;
+    return PROXY_FALLBACK_URL;
 }
 
 type ProxyError = Error & { status?: number };
