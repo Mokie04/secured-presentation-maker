@@ -118,8 +118,11 @@ export default async function handler(req: any, res: any) {
     .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
     .map((m) => m.trim())
     .map((m) => {
-      // Map older/fallback names to supported ones
+      // Map older/fallback names to supported ones for the v1beta generateContent endpoint
       if (m.startsWith('gemini-1.5-flash')) return 'gemini-1.5-flash-001';
+      if (m.startsWith('gemini-2.5-flash-image')) return 'gemini-2.5-flash-image';
+      if (m.startsWith('imagen-4.0-fast')) return 'imagen-4.0-fast';
+      if (m.startsWith('imagen-3.0-generate')) return 'imagen-3.0-generate-001';
       return m;
     });
   if (!model || !contents) {

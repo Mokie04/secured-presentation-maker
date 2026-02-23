@@ -39,9 +39,11 @@ const TEXT_MODELS = uniqueNonEmpty([
 
 const IMAGE_MODELS = uniqueNonEmpty([
     ENV.VITE_GEMINI_IMAGE_MODEL,
-    // Cheapest / widely available first
+    // User-reported available SKUs (prefer cheaper first)
+    "gemini-2.5-flash-image",
+    "imagen-4.0-fast",
+    // Legacy fallbacks
     "gemini-1.5-flash-001",
-    // Higher-fidelity Imagen 3; used if available on the key
     "imagen-3.0-generate-001",
 ]);
 
