@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel } from './types';
-import { AI_IMAGE_FALLBACK_ENABLED, IMAGES_DISABLED, createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, findOpenEducationalImage } from './services/geminiService';
+import { IMAGES_DISABLED, createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
@@ -22,8 +22,6 @@ type LessonFormat = 'K-12' | 'MATATAG' | '5Es Model' | '4As Model';
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
-const MIN_OPEN_IMAGE_CONFIDENCE = 0.15; // accept backend fallbacks when high-confidence match is unavailable
-
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.
  * @param text The input string.
@@ -273,19 +271,6 @@ const App: React.FC = () => {
     return updatedSlides;
   };
 
-  const appendImageAttribution = useCallback((speakerNotes: string, attribution: string): string => {
-    if (!attribution.trim()) {
-      return speakerNotes;
-    }
-
-    const attributionLine = `Image credit: ${attribution}`;
-    if (speakerNotes.includes(attributionLine)) {
-      return speakerNotes;
-    }
-
-    return `${speakerNotes.trim()}\n\n${attributionLine}`.trim();
-  }, []);
-
   const buildFallbackImagePrompt = useCallback((slide: Slide): string => {
     const title = (slide.title || '').trim();
     const content = Array.isArray(slide.content)
@@ -308,7 +293,6 @@ const App: React.FC = () => {
     }
     const slidesWithImages = [];
     let rateLimitWasHit = false;
-    let costSaverSkips = 0;
     
     const imagesToGenerate = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0 && !s.imageUrl);
     const totalImagesToAttempt = imagesToGenerate.length;
@@ -333,12 +317,6 @@ const App: React.FC = () => {
             }
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
             const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
-            if (!AI_IMAGE_FALLBACK_ENABLED) {
-                costSaverSkips++;
-                slidesWithImages.push(newSlide);
-                continue;
-            }
-
             if (currentImageCount >= limits.images) {
                 newSlide.imageUrl = 'limit_reached';
                 slidesWithImages.push(newSlide);
@@ -371,10 +349,6 @@ const App: React.FC = () => {
             }
         }
         slidesWithImages.push(newSlide);
-    }
-
-    if (costSaverSkips > 0) {
-        console.info(`Cost saver mode skipped paid AI image generation for ${costSaverSkips} slide(s).`);
     }
 
     return slidesWithImages;
@@ -905,33 +879,6 @@ const App: React.FC = () => {
     });
 
     try {
-        const openImage = await findOpenEducationalImage(newPrompt, language);
-        const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
-        if (openImage && openImageUrl && openImage.confidence >= MIN_OPEN_IMAGE_CONFIDENCE) {
-            setPresentation(prev => {
-                if (!prev) return null;
-                const finalSlides = [...prev.slides];
-                const existingNotes = finalSlides[slideIndex].speakerNotes;
-                const mergedNotes = openImage.attribution
-                    ? appendImageAttribution(existingNotes, openImage.attribution)
-                    : existingNotes;
-                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: openImageUrl, imagePrompt: newPrompt, speakerNotes: mergedNotes };
-                return { ...prev, slides: finalSlides };
-            });
-            return;
-        }
-
-        if (!AI_IMAGE_FALLBACK_ENABLED) {
-            alert("Cost saver mode is ON. Paid AI image generation is disabled. Try another open-source prompt or upload an image.");
-            setPresentation(prev => {
-                if (!prev) return null;
-                const finalSlides = [...prev.slides];
-                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: undefined, imagePrompt: newPrompt };
-                return { ...prev, slides: finalSlides };
-            });
-            return;
-        }
-
         if (!canGenerateImage) {
             alert(t.presentation.errorImageLimit.replace('{limit}', limits.images.toString()));
             setPresentation(prev => {
@@ -961,7 +908,7 @@ const App: React.FC = () => {
             return { ...prev, slides: finalSlides };
         });
     }
-  }, [presentation, canGenerateImage, incrementCount, limits.images, t, language, appendImageAttribution]);
+  }, [presentation, canGenerateImage, incrementCount, limits.images, t, language]);
 
   const handleUploadImage = useCallback((slideIndex: number, file: File) => {
     const reader = new FileReader();

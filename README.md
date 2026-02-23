@@ -45,7 +45,7 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 
 ## Image Strategy (Cost + Relevance)
 
-- The app first searches open-license educational images from Wikimedia + NASA (`/api/open-images`).
+- The app now generates images directly with Google Gemini / Imagen (no open-license image fetch).
 - Only high-confidence matches are used to keep images tightly related to the slide.
 - Open-source matches are proxied server-side for reliable rendering and PPTX export.
 - Cost-saver default: if no strong open image match is found, paid AI image generation is skipped unless `VITE_ENABLE_AI_IMAGE_FALLBACK=true`.
@@ -67,7 +67,7 @@ The app now supports secure session handoff from your main app store.
 ### What this protects
 
 - Shared links are blocked unless a valid signed session token is present.
-- All AI/image APIs (`/api/gemini`, `/api/open-images`, `/api/image-proxy`) require a valid session.
+- AI/image API (`/api/gemini`) requires a valid session.
 - Users who open the link directly see a secure-access screen instead of full functionality.
 
 ### Enable it in Vercel

@@ -84,32 +84,6 @@ type GeminiProxyRequest = {
     config?: Record<string, unknown>;
 };
 
-export type OpenEducationalImage = {
-    id?: string;
-    url: string;
-    dataUrl?: string;
-    proxyUrl?: string;
-    title: string;
-    source: string;
-    provider?: string;
-    license: string;
-    creator?: string;
-    attribution?: string;
-    confidence: number;
-    landingUrl?: string;
-    alternatives?: Array<{
-        id: string;
-        title: string;
-        url: string;
-        thumbnail?: string;
-        source: string;
-        confidence: number;
-        license?: string;
-        creator?: string;
-        landingUrl?: string;
-    }>;
-};
-
 function getProxyBaseUrl(): string {
     const normalizedEnv = (ENV.VITE_GEMINI_PROXY_BASE_URL || '').replace(/\/$/, '');
     if (normalizedEnv) return normalizedEnv;
@@ -180,37 +154,6 @@ async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
     }
 
     throw lastError || new Error('Gemini request failed.');
-}
-
-export async function findOpenEducationalImage(prompt: string, language: 'EN' | 'FIL'): Promise<OpenEducationalImage | null> {
-    const normalizedPrompt = prompt.trim();
-    if (!normalizedPrompt) {
-        return null;
-    }
-
-    const query = encodeURIComponent(normalizedPrompt);
-    const lang = encodeURIComponent(language);
-    const response = await fetch(`${getProxyBaseUrl()}/api/open-images?q=${query}&lang=${lang}`, {
-        credentials: 'include',
-    });
-
-    if (!response.ok) {
-        return null;
-    }
-
-    const data = await response.json().catch(() => null) as { image?: OpenEducationalImage } | null;
-    const image = data?.image;
-    const hasRenderableUrl = Boolean(image?.dataUrl || image?.proxyUrl || image?.url);
-    if (!image || !hasRenderableUrl) {
-        return null;
-    }
-
-    if (image.proxyUrl && image.proxyUrl.startsWith('/')) {
-        const base = getProxyBaseUrl();
-        image.proxyUrl = base ? `${base}${image.proxyUrl}` : image.proxyUrl;
-    }
-
-    return image;
 }
 
 function parseJsonModelResponse<T>(text: string | undefined, label: string): T {
