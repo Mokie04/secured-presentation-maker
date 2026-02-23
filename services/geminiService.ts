@@ -39,8 +39,10 @@ const TEXT_MODELS = uniqueNonEmpty([
 
 const IMAGE_MODELS = uniqueNonEmpty([
     ENV.VITE_GEMINI_IMAGE_MODEL,
-    "imagen-3.0-generate-001", // primary text-to-image
-    "gemini-1.5-flash",        // fallback that supports images
+    // Cheapest / widely available first
+    "gemini-1.5-flash-001",
+    // Higher-fidelity Imagen 3; used if available on the key
+    "imagen-3.0-generate-001",
 ]);
 
 // Default to enabled so users still see images if open-source search fails.

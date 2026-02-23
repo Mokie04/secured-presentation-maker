@@ -105,23 +105,28 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({ error: 'Server is missing GEMINI_API_KEY.' });
   }
 
   const { task = 'text', model, contents, config: requestConfig } = normalizeBody(req.body);
+
+  // Force v1 text-to-image models that are supported by @google/genai 1.42.0 (Gemini API v1beta)
+  const modelList = Array.isArray(model) ? model : [model];
+  const normalizedModels = modelList
+    .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
+    .map((m) => m.trim())
+    .map((m) => {
+      // Map older/fallback names to supported ones
+      if (m.startsWith('gemini-1.5-flash')) return 'gemini-1.5-flash-001';
+      return m;
+    });
   if (!model || !contents) {
     return res.status(400).json({ error: 'Request must include model and contents.' });
   }
 
-  const modelCandidates = Array.isArray(model)
-    ? model
-      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0)
-      .map((candidate) => candidate.trim())
-    : [model]
-      .filter((candidate): candidate is string => typeof candidate === 'string' && candidate.trim().length > 0)
-      .map((candidate) => candidate.trim());
+  const modelCandidates = normalizedModels;
 
   if (modelCandidates.length === 0) {
     return res.status(400).json({ error: 'Request model list is empty.' });
