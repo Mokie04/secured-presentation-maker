@@ -6,6 +6,7 @@ export type AppstoreSessionClaims = {
   iat?: number;
   email?: string;
   role?: string;
+  aud?: string;
 };
 
 const SESSION_COOKIE_NAME = 'spm_session';
@@ -118,6 +119,7 @@ export function verifyAppstoreAccessToken(
       iat: typeof payload.iat === 'number' ? payload.iat : undefined,
       email: typeof payload.email === 'string' ? payload.email : undefined,
       role: typeof payload.role === 'string' ? payload.role : undefined,
+      aud: typeof payload.aud === 'string' ? payload.aud : undefined,
     };
   } catch {
     return null;
@@ -164,7 +166,8 @@ export function buildClearSessionCookie(): string {
 export function getRemainingSessionSeconds(claims: AppstoreSessionClaims): number {
   const nowSec = Math.floor(Date.now() / 1000);
   const remaining = (claims.exp - nowSec) + getAllowedClockSkewSeconds();
-  return Math.max(1, Math.floor(remaining));
+  const capped = Math.min(remaining, 3600); // cap at 60 minutes for sliding session
+  return Math.max(1, Math.floor(capped));
 }
 
 export function requireSession(req: any, res: any): AppstoreSessionClaims | null {

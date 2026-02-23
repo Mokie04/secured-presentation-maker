@@ -44,8 +44,18 @@ export default async function handler(req: any, res: any) {
       });
     }
 
-    const maxAge = getRemainingSessionSeconds(claims);
-    res.setHeader('Set-Cookie', buildSessionCookie(rawAccess, maxAge));
+    const expectedAud = process.env.APPSTORE_AUDIENCE || 'presentation-maker';
+    if (claims.aud && claims.aud !== expectedAud) {
+      res.setHeader('Set-Cookie', buildClearSessionCookie());
+      return res.status(401).json({
+        authenticated: false,
+        error: 'Invalid audience for this tool.',
+      });
+    }
+
+    // Cap cookie lifetime to 60 minutes regardless of token TTL to keep users signed in
+    const sessionMax = Math.min(getRemainingSessionSeconds(claims), 3600);
+    res.setHeader('Set-Cookie', buildSessionCookie(rawAccess, sessionMax));
 
     return res.status(200).json({
       authenticated: true,

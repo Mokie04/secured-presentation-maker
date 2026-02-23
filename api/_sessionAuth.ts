@@ -6,6 +6,7 @@ export type AppstoreSessionClaims = {
   iat?: number;
   email?: string;
   role?: string;
+  aud?: string;
 };
 
 const SESSION_COOKIE_NAME = 'spm_session';
@@ -118,6 +119,7 @@ export function verifyAppstoreAccessToken(
       iat: typeof payload.iat === 'number' ? payload.iat : undefined,
       email: typeof payload.email === 'string' ? payload.email : undefined,
       role: typeof payload.role === 'string' ? payload.role : undefined,
+      aud: typeof payload.aud === 'string' ? payload.aud : undefined,
     };
   } catch {
     return null;
