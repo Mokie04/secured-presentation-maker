@@ -62,7 +62,7 @@ export function getAllowedClockSkewSeconds(): number {
 
 export function getMaxTokenTtlSeconds(): number {
   const raw = parseIntEnv(process.env.APPSTORE_MAX_TOKEN_TTL_SECONDS, 900);
-  return Math.max(30, Math.min(5400, raw)); // allow up to 90 minutes
+  return Math.max(30, Math.min(3600, raw)); // allow up to 60 minutes max
 }
 
 export function getCookieValue(cookieHeader: string | undefined, name: string): string | null {
