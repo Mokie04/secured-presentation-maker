@@ -5,7 +5,7 @@ import {
   getClaimsFromNodeRequest,
   isAppstoreAuthEnabled,
   verifyAppstoreAccessToken,
-} from '../lib/sessionAuth';
+} from './_sessionAuth';
 
 export const config = {
   maxDuration: 30,

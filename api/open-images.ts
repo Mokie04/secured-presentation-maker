@@ -1,4 +1,4 @@
-import { requireSession } from '../lib/sessionAuth';
+import { requireSession } from './_sessionAuth';
 
 type ImageSource = 'wikimedia' | 'nasa' | 'openverse';
 
