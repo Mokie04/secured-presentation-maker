@@ -146,11 +146,33 @@ export default async function handler(req: any, res: any) {
       const maxAttemptsForModel = 3;
       for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
         try {
-          response = await ai.models.generateContent({
-            model: candidateModel,
-            contents,
-            config: requestConfig,
-          });
+          if (task === 'image') {
+            const imagePrompt =
+              typeof contents === 'string'
+                ? contents
+                : (contents as any)?.parts?.[0]?.text
+                  || (contents as any)?.prompt
+                  || JSON.stringify(contents);
+
+            const imageConfig = (requestConfig as any)?.imageConfig ?? {};
+            const imgConfig = {
+              aspectRatio: imageConfig.aspectRatio || '16:9',
+              numberOfImages: 1,
+            };
+
+            response = await ai.models.generateImages({
+              model: candidateModel,
+              prompt: imagePrompt,
+              config: imgConfig,
+            });
+          } else {
+            response = await ai.models.generateContent({
+              model: candidateModel,
+              contents,
+              config: requestConfig,
+            });
+          }
+
           modelUsed = candidateModel;
           break;
         } catch (error) {
@@ -179,31 +201,21 @@ export default async function handler(req: any, res: any) {
     }
 
     if (task === 'image') {
-      const candidate = response.candidates?.[0];
-      const parts = candidate?.content?.parts || [];
-
-      for (const part of parts) {
-        if (part.inlineData?.data && part.inlineData?.mimeType) {
-          return res.status(200).json({
-            dataUrl: `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`,
-            modelUsed,
-          });
-        }
-      }
-
-      const blockReason = response.promptFeedback?.blockReason;
-      if (blockReason) {
-        return res.status(422).json({
-          error: `Image generation was blocked. Reason: ${blockReason}`,
-          blockReason,
+      const generated = response.generatedImages?.[0];
+      const inline = generated?.image?.imageBytes;
+      if (inline) {
+        const mime = generated?.image?.mimeType || 'image/png';
+        return res.status(200).json({
+          dataUrl: `data:${mime};base64,${inline}`,
+          modelUsed,
         });
       }
 
-      const explanation = parts.filter((part) => Boolean(part.text)).map((part) => part.text).join(' ').trim();
-      if (explanation) {
+      const raiReason = generated?.raiFilteredReason;
+      if (raiReason) {
         return res.status(422).json({
-          error: 'The model returned text instead of an image.',
-          explanation,
+          error: `Image generation was blocked. Reason: ${raiReason}`,
+          blockReason: raiReason,
         });
       }
 
