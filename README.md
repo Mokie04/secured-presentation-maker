@@ -23,6 +23,8 @@ APPSTORE_AUTH_ENABLED=false
 # Optional token timing hardening
 # APPSTORE_ALLOWED_CLOCK_SKEW_SECONDS=20
 # APPSTORE_MAX_TOKEN_TTL_SECONDS=120
+# Optional app session cookie max age (seconds, default 3600)
+# APPSTORE_SESSION_MAX_AGE_SECONDS=3600
 # Optional button target when session is missing
 # VITE_APPSTORE_URL=https://app.yourdomain.com
 # Optional: allow paid AI image fallback when open-source image match is not found.
@@ -78,6 +80,7 @@ APPSTORE_SHARED_SECRET=use_a_long_random_secret
 APPSTORE_COOKIE_DOMAIN=.yourdomain.com
 APPSTORE_ALLOWED_CLOCK_SKEW_SECONDS=20
 APPSTORE_MAX_TOKEN_TTL_SECONDS=120
+APPSTORE_SESSION_MAX_AGE_SECONDS=3600
 VITE_APPSTORE_URL=https://app.yourdomain.com
 ```
 

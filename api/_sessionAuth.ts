@@ -8,6 +8,7 @@ export type AppstoreSessionClaims = {
   role?: string;
   aud?: string;
   jti?: string;
+  typ?: 'access' | 'session';
 };
 
 const SESSION_COOKIE_NAME = 'spm_session';
@@ -65,6 +66,11 @@ export function getMaxTokenTtlSeconds(): number {
   return Math.max(30, Math.min(3600, raw));
 }
 
+export function getSessionMaxAgeSeconds(): number {
+  const raw = parseIntEnv(process.env.APPSTORE_SESSION_MAX_AGE_SECONDS, 3600);
+  return Math.max(300, Math.min(86400, raw));
+}
+
 export function getCookieValue(cookieHeader: string | undefined, name: string): string | null {
   if (!cookieHeader) return null;
   const parts = cookieHeader.split(';');
@@ -99,7 +105,10 @@ export function verifyAppstoreAccessToken(
 
     const nowSec = Math.floor(Date.now() / 1000);
     const skewSec = getAllowedClockSkewSeconds();
-    const maxTokenTtl = getMaxTokenTtlSeconds();
+    const tokenType: 'access' | 'session' = payload.typ === 'session' ? 'session' : 'access';
+    const maxTokenTtl = tokenType === 'session'
+      ? getSessionMaxAgeSeconds()
+      : getMaxTokenTtlSeconds();
 
     // Allow short clock drift between issuer and verifier.
     if (payload.exp + skewSec <= nowSec) return null;
@@ -121,10 +130,28 @@ export function verifyAppstoreAccessToken(
       email: typeof payload.email === 'string' ? payload.email : undefined,
       role: typeof payload.role === 'string' ? payload.role : undefined,
       aud: typeof payload.aud === 'string' ? payload.aud : undefined,
+      jti: typeof payload.jti === 'string' ? payload.jti : undefined,
+      typ: tokenType,
     };
   } catch {
     return null;
   }
+}
+
+export function createSessionToken(claims: AppstoreSessionClaims, secret: string): string {
+  const payload = {
+    sub: claims.sub,
+    email: claims.email || '',
+    role: claims.role || '',
+    aud: claims.aud || '',
+    iat: claims.iat,
+    exp: claims.exp,
+    typ: 'session' as const,
+  };
+
+  const payloadB64 = base64UrlEncode(JSON.stringify(payload));
+  const sigB64 = signPayload(payloadB64, secret);
+  return `${payloadB64}.${sigB64}`;
 }
 
 export function getClaimsFromNodeRequest(req: any): AppstoreSessionClaims | null {

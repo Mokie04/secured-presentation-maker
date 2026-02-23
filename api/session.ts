@@ -1,7 +1,9 @@
 import {
   buildClearSessionCookie,
   buildSessionCookie,
+  createSessionToken,
   getRemainingSessionSeconds,
+  getSessionMaxAgeSeconds,
   getClaimsFromNodeRequest,
   isAppstoreAuthEnabled,
   verifyAppstoreAccessToken,
@@ -65,9 +67,19 @@ export default async function handler(req: any, res: any) {
       markJtiUsed(claims.jti, Math.max(60, Math.min(5400, getRemainingSessionSeconds(claims))));
     }
 
-    // Cap cookie lifetime to 60 minutes regardless of token TTL to keep users signed in
-    const sessionMax = Math.min(getRemainingSessionSeconds(claims), 3600);
-    res.setHeader('Set-Cookie', buildSessionCookie(rawAccess, sessionMax));
+    // Exchange short-lived handoff token for a dedicated session token.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const sessionMax = getSessionMaxAgeSeconds();
+    const sessionClaims = {
+      sub: claims.sub,
+      email: claims.email || '',
+      role: claims.role || '',
+      aud: claims.aud || expectedAud,
+      iat: nowSec,
+      exp: nowSec + sessionMax,
+    };
+    const sessionToken = createSessionToken(sessionClaims, secret);
+    res.setHeader('Set-Cookie', buildSessionCookie(sessionToken, sessionMax));
 
     return res.status(200).json({
       authenticated: true,
@@ -77,7 +89,7 @@ export default async function handler(req: any, res: any) {
         email: claims.email || '',
         role: claims.role || '',
       },
-      expiresAt: claims.exp,
+      expiresAt: sessionClaims.exp,
     });
   }
 
