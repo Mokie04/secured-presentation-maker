@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel } from './types';
-import { AI_IMAGE_FALLBACK_ENABLED, createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, findOpenEducationalImage } from './services/geminiService';
+import { AI_IMAGE_FALLBACK_ENABLED, IMAGES_DISABLED, createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, findOpenEducationalImage } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
@@ -303,6 +303,9 @@ const App: React.FC = () => {
   }, [buildFallbackImagePrompt]);
 
   const processSlidesForImages = async (slidesWithPrompts: Slide[], language: 'EN' | 'FIL'): Promise<Slide[]> => {
+    if (IMAGES_DISABLED) {
+        return slidesWithPrompts.map((s) => ({ ...s, imageUrl: '', imagePrompt: '' }));
+    }
     const slidesWithImages = [];
     let rateLimitWasHit = false;
     let costSaverSkips = 0;
@@ -328,37 +331,21 @@ const App: React.FC = () => {
             if (!newSlide.imagePrompt || !newSlide.imagePrompt.trim()) {
                 newSlide.imagePrompt = promptForGeneration;
             }
-
-            setLoadingMessage(`Finding a high-match open educational image...`);
-
-            try {
-                const openImage = await findOpenEducationalImage(promptForGeneration, language);
-                const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
-                if (openImage && openImageUrl && openImage.confidence >= MIN_OPEN_IMAGE_CONFIDENCE) {
-                    newSlide.imageUrl = openImageUrl;
-                    if (openImage.attribution) {
-                        newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
-                    }
-                }
-            } catch (openImageError) {
-                console.warn(`Open image lookup failed for prompt: "${newSlide.imagePrompt}"`, openImageError);
-            }
-
-            if (newSlide.imageUrl) {
-                slidesWithImages.push(newSlide);
-                continue;
-            }
-
+            // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
+            const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
             if (!AI_IMAGE_FALLBACK_ENABLED) {
                 costSaverSkips++;
                 slidesWithImages.push(newSlide);
                 continue;
             }
 
-            const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
             if (currentImageCount >= limits.images) {
                 newSlide.imageUrl = 'limit_reached';
-            } else if (canGenerateImage && !rateLimitWasHit) {
+                slidesWithImages.push(newSlide);
+                continue;
+            }
+
+            if (canGenerateImage && !rateLimitWasHit) {
                 imagesAttemptedCounter++;
                 setLoadingMessage(t.presentation.loadingImages.replace('{current}', imagesAttemptedCounter.toString()).replace('{total}', totalImagesThatCanBeGenerated.toString()));
                 

@@ -6,6 +6,7 @@ type ClientEnv = {
     VITE_GEMINI_TEXT_MODEL?: string;
     VITE_GEMINI_IMAGE_MODEL?: string;
     VITE_ENABLE_AI_IMAGE_FALLBACK?: string;
+    VITE_DISABLE_IMAGES?: string;
 };
 
 const ENV = (import.meta as ImportMeta & { env?: ClientEnv }).env ?? {};
@@ -37,11 +38,13 @@ const TEXT_MODELS = uniqueNonEmpty([
 
 const IMAGE_MODELS = uniqueNonEmpty([
     ENV.VITE_GEMINI_IMAGE_MODEL,
+    "gemini-2.0-flash-lite",
     "gemini-2.0-flash-image",
 ]);
 
 // Default to enabled so users still see images if open-source search fails.
 export const AI_IMAGE_FALLBACK_ENABLED = parseBooleanEnv(ENV.VITE_ENABLE_AI_IMAGE_FALLBACK, true);
+export const IMAGES_DISABLED = parseBooleanEnv(ENV.VITE_DISABLE_IMAGES, false);
 
 const JSON_SCHEMA = {
     OBJECT: "object",
