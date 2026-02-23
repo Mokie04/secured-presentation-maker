@@ -286,12 +286,28 @@ const App: React.FC = () => {
     return `${speakerNotes.trim()}\n\n${attributionLine}`.trim();
   }, []);
 
+  const buildFallbackImagePrompt = useCallback((slide: Slide): string => {
+    const title = (slide.title || '').trim();
+    const content = Array.isArray(slide.content)
+      ? slide.content.filter(Boolean).slice(0, 3).join(', ').trim()
+      : '';
+    const combined = [title, content].filter(Boolean).join('. ').trim();
+    return combined.slice(0, 220);
+  }, []);
+
+  const buildImagePromptCandidates = useCallback((slide: Slide): string[] => {
+    const primary = (slide.imagePrompt || '').trim();
+    const fallback = buildFallbackImagePrompt(slide);
+    const candidates = [primary, fallback].filter(Boolean);
+    return Array.from(new Set(candidates));
+  }, [buildFallbackImagePrompt]);
+
   const processSlidesForImages = async (slidesWithPrompts: Slide[], language: 'EN' | 'FIL'): Promise<Slide[]> => {
     const slidesWithImages = [];
     let rateLimitWasHit = false;
     let costSaverSkips = 0;
     
-    const imagesToGenerate = slidesWithPrompts.filter(s => s.imagePrompt && s.imagePrompt.trim() !== "" && !s.imageUrl);
+    const imagesToGenerate = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0 && !s.imageUrl);
     const totalImagesToAttempt = imagesToGenerate.length;
     let imagesAttemptedCounter = 0;
     
@@ -306,22 +322,34 @@ const App: React.FC = () => {
     
     for (const slide of slidesWithPrompts) {
         let newSlide = { ...slide }; 
-        if (!newSlide.imageUrl && slide.imagePrompt && slide.imagePrompt.trim() !== "") {
+        const promptCandidates = buildImagePromptCandidates(newSlide);
+        if (!newSlide.imageUrl && promptCandidates.length > 0) {
+            const promptForGeneration = promptCandidates[0];
+            if (!newSlide.imagePrompt || !newSlide.imagePrompt.trim()) {
+                newSlide.imagePrompt = promptForGeneration;
+            }
+
             setLoadingMessage(`Finding a high-match open educational image...`);
 
             try {
-                const openImage = await findOpenEducationalImage(slide.imagePrompt, language);
-                const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
-                if (openImage && openImageUrl && openImage.confidence >= MIN_OPEN_IMAGE_CONFIDENCE) {
-                    newSlide.imageUrl = openImageUrl;
-                    if (openImage.attribution) {
-                        newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
+                for (const candidatePrompt of promptCandidates) {
+                    const openImage = await findOpenEducationalImage(candidatePrompt, language);
+                    const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
+                    if (openImage && openImageUrl && openImage.confidence >= MIN_OPEN_IMAGE_CONFIDENCE) {
+                        newSlide.imageUrl = openImageUrl;
+                        if (openImage.attribution) {
+                            newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
+                        }
+                        break;
                     }
-                    slidesWithImages.push(newSlide);
-                    continue;
                 }
             } catch (openImageError) {
-                console.warn(`Open image lookup failed for prompt: "${slide.imagePrompt}"`, openImageError);
+                console.warn(`Open image lookup failed for prompt: "${newSlide.imagePrompt}"`, openImageError);
+            }
+
+            if (newSlide.imageUrl) {
+                slidesWithImages.push(newSlide);
+                continue;
             }
 
             if (!AI_IMAGE_FALLBACK_ENABLED) {
@@ -343,11 +371,11 @@ const App: React.FC = () => {
                 }
                 
                 try {
-                    const imageUrl = await generateImageFromPrompt(slide.imagePrompt, slide.imageStyle, language);
+                    const imageUrl = await generateImageFromPrompt(promptForGeneration, slide.imageStyle, language);
                     newSlide.imageUrl = imageUrl;
                     incrementCount('images');
                 } catch (imgError) {
-                    console.error(`Failed to generate image for prompt: "${slide.imagePrompt}"`, imgError);
+                    console.error(`Failed to generate image for prompt: "${promptForGeneration}"`, imgError);
                     if ((imgError as Error).message === 'RATE_LIMIT_EXCEEDED') {
                         rateLimitWasHit = true;
                         setError("Image generation quota exceeded. Please check your Google AI plan and billing details. Further image generation has been stopped.");

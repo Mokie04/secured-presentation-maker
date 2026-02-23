@@ -579,18 +579,31 @@ export default async function handler(req: any, res: any) {
 
     const MIN_CONFIDENCE = 0.35; // relax threshold to increase hit rate
     const viable = ranked.filter((candidate) => candidate.confidence >= MIN_CONFIDENCE).slice(0, 8);
-    if (viable.length === 0) {
+    const candidatePool = viable.length > 0 ? viable : ranked.slice(0, 8);
+    if (candidatePool.length === 0) {
       return res.status(200).json({ image: null });
     }
 
     let best: RankedImage | null = null;
     let resolved: ResolvedImagePayload | null = null;
-    for (const candidate of viable) {
+    for (const candidate of candidatePool) {
       const maybeResolved = await resolveUsableImage(candidate);
       if (maybeResolved) {
         best = candidate;
         resolved = maybeResolved;
         break;
+      }
+    }
+
+    if (!best || !resolved) {
+      // Last resort: try unresolved merged results so we still return an image when possible.
+      for (const fallback of merged.slice(0, 10)) {
+        const maybeResolved = await resolveUsableImage(fallback);
+        if (maybeResolved) {
+          best = { ...fallback, confidence: 0.2 };
+          resolved = maybeResolved;
+          break;
+        }
       }
     }
 
