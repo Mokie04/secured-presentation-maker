@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { requireSession } from "./_sessionAuth";
+import { requireSession } from "./_sessionAuth.js";
 
 type GeminiProxyRequest = {
   task?: 'text' | 'image';
