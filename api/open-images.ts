@@ -110,7 +110,7 @@ function isAllowedProxyHost(rawUrl: string): boolean {
   }
 }
 
-async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 7000): Promise<Response> {
+async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs = 3500): Promise<Response> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -130,7 +130,7 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
 
 async function tryFetchAsDataUrl(rawUrl: string): Promise<string | null> {
   try {
-    const response = await fetchWithTimeout(rawUrl, {}, 6000);
+    const response = await fetchWithTimeout(rawUrl, {}, 3500);
     if (!response.ok) return null;
 
     const contentType = String(response.headers.get('content-type') || '').toLowerCase();
@@ -308,7 +308,7 @@ async function fetchWikimediaImages(searchQuery: string): Promise<OpenImageCandi
   url.searchParams.set('iiurlwidth', '1600');
 
   let lastStatus = 0;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= 1; attempt += 1) {
     const response = await fetchWithTimeout(url.toString());
 
     if (response.ok) {
@@ -381,7 +381,7 @@ async function fetchNasaImages(searchQuery: string): Promise<OpenImageCandidate[
   url.searchParams.set('media_type', 'image');
   url.searchParams.set('page', '1');
 
-  const response = await fetchWithTimeout(url.toString(), {}, 7500).catch(() => null);
+  const response = await fetchWithTimeout(url.toString(), {}, 3500).catch(() => null);
   if (!response || !response.ok) {
     return [];
   }
@@ -436,7 +436,7 @@ async function fetchOpenverseImages(searchQuery: string): Promise<OpenImageCandi
   openverseUrl.searchParams.set('source', 'wikimedia,smithsonian,met');
 
   let lastStatus = 0;
-  for (let attempt = 1; attempt <= 2; attempt += 1) {
+  for (let attempt = 1; attempt <= 1; attempt += 1) {
     const response = await fetchWithTimeout(openverseUrl.toString());
     if (response.ok) {
       const payload = await response.json().catch(() => ({ results: [] }));
@@ -489,7 +489,7 @@ async function resolveNasaAssetUrl(assetId: string): Promise<string | null> {
   if (!safeId) return null;
 
   const url = `https://images-api.nasa.gov/asset/${encodeURIComponent(safeId)}`;
-  const response = await fetchWithTimeout(url, {}, 7000).catch(() => null);
+  const response = await fetchWithTimeout(url, {}, 3500).catch(() => null);
   if (!response || !response.ok) return null;
 
   const payload = await response.json().catch(() => ({}));
@@ -581,18 +581,31 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const wikimediaTasks = searchCandidates.slice(0, 3).map((searchQuery) => fetchWikimediaImages(searchQuery));
-    const nasaTasks = searchCandidates.slice(0, 2).map((searchQuery) => fetchNasaImages(searchQuery));
-    const openverseTasks = searchCandidates.slice(0, 1).map((searchQuery) => fetchOpenverseImages(searchQuery));
+    // Fast path: prioritize Wikimedia first for lower latency and stable open-license results.
+    const wikimediaTasks = searchCandidates.slice(0, 2).map((searchQuery) => fetchWikimediaImages(searchQuery));
+    const settledWikimedia = await Promise.allSettled(wikimediaTasks);
+    const wikimediaResults = settledWikimedia.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
 
-    const settled = await Promise.allSettled([
-      ...wikimediaTasks,
-      ...nasaTasks,
-      ...openverseTasks,
-    ]);
+    let merged = mergeAndDedupeResults(wikimediaResults);
+    if (merged.length === 0) {
+      const isSpaceTopic = queryTokens.some((token) => SPACE_TERMS.includes(token));
+      const nasaTasks = isSpaceTopic
+        ? searchCandidates.slice(0, 1).map((searchQuery) => fetchNasaImages(searchQuery))
+        : [];
+      const openverseTasks = searchCandidates.slice(0, 1).map((searchQuery) => fetchOpenverseImages(searchQuery));
 
-    const allResults = settled.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
-    const merged = mergeAndDedupeResults(allResults);
+      const settledFallback = await Promise.allSettled([
+        ...nasaTasks,
+        ...openverseTasks,
+      ]);
+      const fallbackResults = settledFallback.flatMap((result) => (result.status === 'fulfilled' ? result.value : []));
+      merged = mergeAndDedupeResults(fallbackResults);
+    }
+
+    if (merged.length === 0) {
+      const emergencyWikimedia = await fetchWikimediaImages('education classroom teaching').catch(() => []);
+      merged = mergeAndDedupeResults(emergencyWikimedia);
+    }
 
     if (merged.length === 0) {
       return res.status(200).json({ image: null });

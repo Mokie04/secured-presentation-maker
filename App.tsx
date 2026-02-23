@@ -298,8 +298,8 @@ const App: React.FC = () => {
   const buildImagePromptCandidates = useCallback((slide: Slide): string[] => {
     const primary = (slide.imagePrompt || '').trim();
     const fallback = buildFallbackImagePrompt(slide);
-    const candidates = [primary, fallback].filter(Boolean);
-    return Array.from(new Set(candidates));
+    const bestPrompt = primary || fallback;
+    return bestPrompt ? [bestPrompt] : [];
   }, [buildFallbackImagePrompt]);
 
   const processSlidesForImages = async (slidesWithPrompts: Slide[], language: 'EN' | 'FIL'): Promise<Slide[]> => {
@@ -332,36 +332,16 @@ const App: React.FC = () => {
             setLoadingMessage(`Finding a high-match open educational image...`);
 
             try {
-                for (const candidatePrompt of promptCandidates) {
-                    const openImage = await findOpenEducationalImage(candidatePrompt, language);
-                    const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
-                    if (openImage && openImageUrl && openImage.confidence >= MIN_OPEN_IMAGE_CONFIDENCE) {
-                        newSlide.imageUrl = openImageUrl;
-                        if (openImage.attribution) {
-                            newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
-                        }
-                        break;
+                const openImage = await findOpenEducationalImage(promptForGeneration, language);
+                const openImageUrl = openImage?.dataUrl || openImage?.proxyUrl || openImage?.url || '';
+                if (openImage && openImageUrl && openImage.confidence >= MIN_OPEN_IMAGE_CONFIDENCE) {
+                    newSlide.imageUrl = openImageUrl;
+                    if (openImage.attribution) {
+                        newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, openImage.attribution);
                     }
                 }
             } catch (openImageError) {
                 console.warn(`Open image lookup failed for prompt: "${newSlide.imagePrompt}"`, openImageError);
-            }
-
-            // Second-pass fallback query: simplified, title-led search tends to recover Wikimedia hits.
-            if (!newSlide.imageUrl) {
-                try {
-                    const simplifiedQuery = `${(newSlide.title || '').trim()} educational`.trim() || 'education classroom';
-                    const fallbackImage = await findOpenEducationalImage(simplifiedQuery, language);
-                    const fallbackImageUrl = fallbackImage?.dataUrl || fallbackImage?.proxyUrl || fallbackImage?.url || '';
-                    if (fallbackImage && fallbackImageUrl && fallbackImage.confidence >= 0.1) {
-                        newSlide.imageUrl = fallbackImageUrl;
-                        if (fallbackImage.attribution) {
-                            newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, fallbackImage.attribution);
-                        }
-                    }
-                } catch (fallbackError) {
-                    console.warn(`Simplified open image lookup failed for slide: "${newSlide.title}"`, fallbackError);
-                }
             }
 
             if (newSlide.imageUrl) {

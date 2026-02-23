@@ -1,4 +1,4 @@
-import { requireSession } from './_sessionAuth';
+import { requireSession } from './_sessionAuth.js';
 
 const ALLOWED_HOST_SUFFIXES = [
   '.wikimedia.org',
@@ -22,6 +22,33 @@ function isAllowedUrl(rawUrl: string): boolean {
   }
 }
 
+function normalizeCandidateUrls(rawUrl: string): string[] {
+  const candidates: string[] = [];
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return candidates;
+
+  candidates.push(trimmed);
+
+  try {
+    const decodedOnce = decodeURIComponent(trimmed);
+    if (decodedOnce && decodedOnce !== trimmed) {
+      candidates.push(decodedOnce);
+    }
+  } catch {
+    // Ignore malformed encodings and keep original candidate.
+  }
+
+  const unique: string[] = [];
+  const seen = new Set<string>();
+  for (const candidate of candidates) {
+    if (!seen.has(candidate)) {
+      seen.add(candidate);
+      unique.push(candidate);
+    }
+  }
+  return unique;
+}
+
 export default async function handler(req: any, res: any) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -40,8 +67,9 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const imageUrl = typeof req.query?.u === 'string' ? req.query.u : '';
-  if (!imageUrl || !isAllowedUrl(imageUrl)) {
+  const rawImageUrl = typeof req.query?.u === 'string' ? req.query.u : '';
+  const imageUrl = normalizeCandidateUrls(rawImageUrl).find((candidate) => isAllowedUrl(candidate)) || '';
+  if (!imageUrl) {
     return res.status(400).send('Invalid or disallowed image URL');
   }
 
