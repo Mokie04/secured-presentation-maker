@@ -383,8 +383,6 @@ const App: React.FC = () => {
   const handleCreatePlan = useCallback(async () => {
     setError(null);
     const content = dllContent.trim() || topicContext.trim();
-    const shouldConsumeGeneration = teachingLevel === 'College' || (teachingLevel === 'K-12' && depEdMode === 'single');
-
     if (teachingLevel === 'College' && (!topicContext.trim() || !objectivesContext.trim())) {
       setError(t.presentation.errorNoCollegeTopic);
       return;
@@ -395,20 +393,19 @@ const App: React.FC = () => {
       return;
     }
 
-    if (shouldConsumeGeneration) {
-      const hasQuota = tryIncrementCount('generations');
-      if (!hasQuota) {
-        setError(t.presentation.errorGenerationLimit);
-        return;
-      }
-    }
-
     setIsLoading(true);
-    let shouldRollbackGeneration = shouldConsumeGeneration;
+    let shouldRollbackGeneration = false;
 
     try {
         // College Flow
         if (teachingLevel === 'College') {
+            const hasQuota = tryIncrementCount('generations');
+            if (!hasQuota) {
+              setIsLoading(false);
+              setError(t.presentation.errorGenerationLimit);
+              return;
+            }
+            shouldRollbackGeneration = true;
             setLoadingDuration(45);
             setLoadingMessage(t.presentation.loadingLecture);
             const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, language, (msg) => setLoadingMessage(msg));
@@ -424,6 +421,13 @@ const App: React.FC = () => {
         else if (teachingLevel === 'K-12') {
             // DepEd Single Lesson Flow
             if (depEdMode === 'single') {
+                const hasQuota = tryIncrementCount('generations');
+                if (!hasQuota) {
+                  setIsLoading(false);
+                  setError(t.presentation.errorGenerationLimit);
+                  return;
+                }
+                shouldRollbackGeneration = true;
                 setLoadingDuration(40);
                 setLoadingMessage(t.presentation.loadingSingleLesson);
                 const fullPresentation = await generateK12SingleLessonSlides(content, selectedFormat, language, (msg) => setLoadingMessage(msg));
@@ -437,6 +441,7 @@ const App: React.FC = () => {
             }
             // DepEd Weekly Plan Flow (default)
             else if (depEdMode === 'weekly') {
+                // No generation quota consumed for creating the weekly blueprint.
                 setLoadingDuration(20);
                 setLoadingMessage(t.presentation.loadingBlueprint);
                 const blueprint = await createK12LessonBlueprint(content, selectedFormat, language);
