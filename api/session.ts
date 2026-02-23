@@ -6,6 +6,7 @@ import {
   isAppstoreAuthEnabled,
   verifyAppstoreAccessToken,
 } from './_sessionAuth.js';
+import { isJtiUsed, markJtiUsed } from '../lib/tokenCache';
 
 export const config = {
   maxDuration: 30,
@@ -51,6 +52,17 @@ export default async function handler(req: any, res: any) {
         authenticated: false,
         error: 'Invalid audience for this tool.',
       });
+    }
+
+    if (claims.jti && isJtiUsed(claims.jti)) {
+      res.setHeader('Set-Cookie', buildClearSessionCookie());
+      return res.status(401).json({
+        authenticated: false,
+        error: 'This access token was already used.',
+      });
+    }
+    if (claims.jti) {
+      markJtiUsed(claims.jti, Math.max(60, Math.min(5400, getRemainingSessionSeconds(claims))));
     }
 
     // Cap cookie lifetime to 60 minutes regardless of token TTL to keep users signed in

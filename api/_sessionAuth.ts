@@ -7,6 +7,7 @@ export type AppstoreSessionClaims = {
   email?: string;
   role?: string;
   aud?: string;
+  jti?: string;
 };
 
 const SESSION_COOKIE_NAME = 'spm_session';
