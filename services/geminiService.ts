@@ -10,7 +10,7 @@ type ClientEnv = {
 };
 
 const ENV = (import.meta as ImportMeta & { env?: ClientEnv }).env ?? {};
-const PROXY_FALLBACK_URL = 'https://dll-aligned-presentation-make-nd9d03hjy-mokie2024s-projects.vercel.app';
+const PROXY_FALLBACK_URL = '';
 
 function uniqueNonEmpty(values: Array<string | undefined>): string[] {
     return Array.from(
