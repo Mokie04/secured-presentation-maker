@@ -40,8 +40,8 @@ const IMAGE_MODELS = uniqueNonEmpty([
     "gemini-2.0-flash-image",
 ]);
 
-// Cost-saver default: open-source images first, no paid AI-image fallback unless explicitly enabled.
-export const AI_IMAGE_FALLBACK_ENABLED = parseBooleanEnv(ENV.VITE_ENABLE_AI_IMAGE_FALLBACK, false);
+// Default to enabled so users still see images if open-source search fails.
+export const AI_IMAGE_FALLBACK_ENABLED = parseBooleanEnv(ENV.VITE_ENABLE_AI_IMAGE_FALLBACK, true);
 
 const JSON_SCHEMA = {
     OBJECT: "object",
