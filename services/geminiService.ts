@@ -366,6 +366,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
             responseMimeType: "application/json",
             responseSchema,
             temperature: 0.3,
+            // No tools when using JSON mime; tools cause unsupported mime errors
         },
     });
 
@@ -466,7 +467,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                 responseMimeType: "application/json",
                 responseSchema,
                 temperature: 0.4,
-                tools: [{ googleSearch: {} }],
+                // Removed tools because Gemini does not support tool use with JSON mime responses
             },
         });
         const data = parseJsonModelResponse<{ slides: Slide[] }>(response.text, `day ${day.dayNumber} slide generation`);
@@ -662,7 +663,7 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
             responseMimeType: "application/json",
             responseSchema,
             temperature: 0.5,
-            tools: [{ googleSearch: {} }],
+            // Removed tools because Gemini does not support tool use with JSON mime responses
         },
     });
     const data = parseJsonModelResponse<{ title: string; slides: Slide[] }>(response.text, 'college lecture generation');
