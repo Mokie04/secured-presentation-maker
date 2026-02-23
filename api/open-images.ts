@@ -128,6 +128,27 @@ async function fetchWithTimeout(input: string, init: RequestInit = {}, timeoutMs
   }
 }
 
+async function tryFetchAsDataUrl(rawUrl: string): Promise<string | null> {
+  try {
+    const response = await fetchWithTimeout(rawUrl, {}, 6000);
+    if (!response.ok) return null;
+
+    const contentType = String(response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.startsWith('image/')) return null;
+
+    const contentLength = Number(response.headers.get('content-length') || '0');
+    if (Number.isFinite(contentLength) && contentLength > 6_000_000) return null;
+
+    const arrayBuffer = await response.arrayBuffer();
+    if (arrayBuffer.byteLength > 6_000_000) return null;
+
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+    return `data:${contentType};base64,${base64}`;
+  } catch {
+    return null;
+  }
+}
+
 function buildSearchCandidates(query: string, lang: string): string[] {
   const normalized = normalizeText(query);
   const tokens = normalized.split(' ').filter(Boolean);
@@ -511,9 +532,12 @@ async function resolveUsableImage(image: OpenImageCandidate): Promise<ResolvedIm
         proxyUrl: createProxyUrl(candidate),
       };
     }
-    // Allow direct https image URL fallback when proxy host is not in allowlist
-    if (/^https?:\/\/.*\.(jpe?g|png|webp)$/i.test(candidate)) {
-      return { url: candidate };
+    // For non-allowlisted hosts, fetch server-side and return a stable data URL.
+    if (/^https?:\/\//i.test(candidate)) {
+      const dataUrl = await tryFetchAsDataUrl(candidate);
+      if (dataUrl) {
+        return { url: candidate, dataUrl };
+      }
     }
   }
 

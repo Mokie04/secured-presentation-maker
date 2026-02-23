@@ -22,7 +22,7 @@ type LessonFormat = 'K-12' | 'MATATAG' | '5Es Model' | '4As Model';
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
-const MIN_OPEN_IMAGE_CONFIDENCE = 0.30; // more permissive to allow more open images
+const MIN_OPEN_IMAGE_CONFIDENCE = 0.15; // accept backend fallbacks when high-confidence match is unavailable
 
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.
