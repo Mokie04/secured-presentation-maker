@@ -1357,12 +1357,20 @@ const App: React.FC = () => {
             {authError || 'This link is protected. Please open this tool from your signed-in app store account.'}
           </p>
           {appStoreUrl && (
-            <a
-              href={appStoreUrl}
+            <button
+              onClick={() => {
+                try {
+                  if (window.top) {
+                    window.top.location.href = appStoreUrl;
+                    return;
+                  }
+                } catch (_) {}
+                window.location.href = appStoreUrl;
+              }}
               className="inline-flex items-center px-5 py-3 rounded-xl bg-brand text-brand-contrast font-semibold shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all"
             >
               Return to App Store
-            </a>
+            </button>
           )}
         </div>
       );
