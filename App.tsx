@@ -347,6 +347,23 @@ const App: React.FC = () => {
                 console.warn(`Open image lookup failed for prompt: "${newSlide.imagePrompt}"`, openImageError);
             }
 
+            // Second-pass fallback query: simplified, title-led search tends to recover Wikimedia hits.
+            if (!newSlide.imageUrl) {
+                try {
+                    const simplifiedQuery = `${(newSlide.title || '').trim()} educational`.trim() || 'education classroom';
+                    const fallbackImage = await findOpenEducationalImage(simplifiedQuery, language);
+                    const fallbackImageUrl = fallbackImage?.dataUrl || fallbackImage?.proxyUrl || fallbackImage?.url || '';
+                    if (fallbackImage && fallbackImageUrl && fallbackImage.confidence >= 0.1) {
+                        newSlide.imageUrl = fallbackImageUrl;
+                        if (fallbackImage.attribution) {
+                            newSlide.speakerNotes = appendImageAttribution(newSlide.speakerNotes, fallbackImage.attribution);
+                        }
+                    }
+                } catch (fallbackError) {
+                    console.warn(`Simplified open image lookup failed for slide: "${newSlide.title}"`, fallbackError);
+                }
+            }
+
             if (newSlide.imageUrl) {
                 slidesWithImages.push(newSlide);
                 continue;

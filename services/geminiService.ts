@@ -190,11 +190,12 @@ export async function findOpenEducationalImage(prompt: string, language: 'EN' | 
     }
 
     const data = await response.json().catch(() => null) as { image?: OpenEducationalImage } | null;
-    if (!data?.image?.url) {
+    const image = data?.image;
+    const hasRenderableUrl = Boolean(image?.dataUrl || image?.proxyUrl || image?.url);
+    if (!image || !hasRenderableUrl) {
         return null;
     }
 
-    const image = data.image;
     if (image.proxyUrl && image.proxyUrl.startsWith('/')) {
         const base = getProxyBaseUrl();
         image.proxyUrl = base ? `${base}${image.proxyUrl}` : image.proxyUrl;
