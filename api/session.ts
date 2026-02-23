@@ -6,7 +6,7 @@ import {
   isAppstoreAuthEnabled,
   verifyAppstoreAccessToken,
 } from './_sessionAuth.js';
-import { isJtiUsed, markJtiUsed } from '../lib/tokenCache';
+import { isJtiUsed, markJtiUsed } from '../lib/tokenCache.js';
 
 export const config = {
   maxDuration: 30,
