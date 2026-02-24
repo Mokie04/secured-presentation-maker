@@ -287,7 +287,12 @@ const App: React.FC = () => {
     return bestPrompt ? [bestPrompt] : [];
   }, [buildFallbackImagePrompt]);
 
-  const processSlidesForImages = async (slidesWithPrompts: Slide[], language: 'EN' | 'FIL'): Promise<Slide[]> => {
+  const processSlidesForImages = async (
+    slidesWithPrompts: Slide[],
+    language: 'EN' | 'FIL',
+    options?: { muteProgress?: boolean }
+  ): Promise<Slide[]> => {
+    const muteProgress = options?.muteProgress === true;
     if (IMAGES_DISABLED) {
         return slidesWithPrompts.map((s) => ({ ...s, imageUrl: '', imagePrompt: '' }));
     }
@@ -301,10 +306,12 @@ const App: React.FC = () => {
     const imagesLeftToday = Math.max(0, limits.images - images);
     const totalImagesThatCanBeGenerated = Math.min(totalImagesToAttempt, imagesLeftToday);
 
-    if (totalImagesThatCanBeGenerated > 0) {
-        setLoadingProgress(0);
-    } else if (totalImagesToAttempt > 0) {
-        console.warn("Daily image limit reached or no prompts found. Skipping image generation.");
+    if (!muteProgress) {
+      if (totalImagesThatCanBeGenerated > 0) {
+          setLoadingProgress(0);
+      } else if (totalImagesToAttempt > 0) {
+          console.warn("Daily image limit reached or no prompts found. Skipping image generation.");
+      }
     }
     
     for (const slide of slidesWithPrompts) {
@@ -325,9 +332,11 @@ const App: React.FC = () => {
 
             if (canGenerateImage && !rateLimitWasHit) {
                 imagesAttemptedCounter++;
-                setLoadingMessage(t.presentation.loadingImages.replace('{current}', imagesAttemptedCounter.toString()).replace('{total}', totalImagesThatCanBeGenerated.toString()));
+                if (!muteProgress) {
+                  setLoadingMessage(t.presentation.loadingImages.replace('{current}', imagesAttemptedCounter.toString()).replace('{total}', totalImagesThatCanBeGenerated.toString()));
+                }
                 
-                if (totalImagesThatCanBeGenerated > 0) {
+                if (!muteProgress && totalImagesThatCanBeGenerated > 0) {
                     const progress = (imagesAttemptedCounter / totalImagesThatCanBeGenerated) * 100;
                     setLoadingProgress(progress);
                 }
@@ -438,7 +447,7 @@ const App: React.FC = () => {
                     }
                 ];
 
-                const processedInitialSlides = await processSlidesForImages(initialSlides, language);
+                const processedInitialSlides = await processSlidesForImages(initialSlides, language, { muteProgress: true });
 
                 setPresentation({
                     title: blueprint.mainTitle,
