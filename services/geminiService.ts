@@ -658,7 +658,8 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
             break;
     }
 
-    const finalPrompt = `${styleInstructions} The image should depict: "${prompt}"`;
+    const relevanceGuard = 'Keep the content tightly on-topic to the described subject. Do NOT add any extra objects or unrelated scenes. No text, labels, numbers, watermarks, signatures, or UI chrome.';
+    const finalPrompt = `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
 
     try {
         const response = await callGeminiProxy<GeminiImageResponse>({
