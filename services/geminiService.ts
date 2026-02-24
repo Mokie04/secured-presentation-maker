@@ -517,7 +517,7 @@ export async function generateK12SingleLessonSlides(content: string, format: str
             responseMimeType: "application/json",
             responseSchema,
             temperature: 0.4,
-            tools: [{ googleSearch: {} }],
+            // No tools when using JSON mime; tools cause unsupported mime errors
         },
     });
     const data = parseJsonModelResponse<{ title: string; slides: Slide[] }>(response.text, 'single lesson generation');

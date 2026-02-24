@@ -313,6 +313,11 @@ const App: React.FC = () => {
           console.warn("Daily image limit reached or no prompts found. Skipping image generation.");
       }
     }
+
+    // If image quota is exhausted, return slides without blocking generation.
+    if (limits.images - images <= 0) {
+        return slidesWithPrompts.map((s) => ({ ...s, imageUrl: '', imagePrompt: s.imagePrompt || '' }));
+    }
     
     for (const slide of slidesWithPrompts) {
         let newSlide = { ...slide }; 
