@@ -122,7 +122,6 @@ export default async function handler(req: any, res: any) {
       if (m.startsWith('gemini-1.5-flash')) return 'gemini-1.5-flash-001';
       if (m.startsWith('gemini-2.5-flash-image')) return 'gemini-2.5-flash-image';
       if (m.startsWith('imagen-4.0-fast')) return 'imagen-4.0-fast';
-      if (m.startsWith('imagen-3.0-generate')) return 'imagen-3.0-generate-001';
       return m;
     });
   if (!model || !contents) {

@@ -42,9 +42,8 @@ const IMAGE_MODELS = uniqueNonEmpty([
     // User-reported available SKUs (prefer cheaper first)
     "gemini-2.5-flash-image",
     "imagen-4.0-fast",
-    // Legacy fallbacks
+    // Legacy fallback
     "gemini-1.5-flash-001",
-    "imagen-3.0-generate-001",
 ]);
 
 // Default to enabled so users still see images if open-source search fails.
