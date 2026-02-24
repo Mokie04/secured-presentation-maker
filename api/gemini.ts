@@ -119,11 +119,12 @@ export default async function handler(req: any, res: any) {
     .map((m) => m.trim())
     .map((m) => {
       // Map older/fallback names to supported ones for the v1beta generateContent endpoint
-      if (m.startsWith('gemini-1.5-flash')) return 'gemini-1.5-flash-001';
-      if (m.startsWith('gemini-2.5-flash-image')) return 'gemini-2.5-flash-image';
-      if (m.startsWith('imagen-4.0-fast')) return 'imagen-4.0-fast';
+      if (m.startsWith('gemini-1.5-flash')) return 'models/gemini-1.5-flash-001';
+      if (m.startsWith('gemini-2.5-flash-image')) return 'models/gemini-2.5-flash-image';
+      if (m.startsWith('imagen-4.0-fast')) return 'models/imagen-4.0-fast-generate-001';
       return m;
-    });
+    })
+    .map((m) => (m.startsWith('models/') ? m : `models/${m}`));
   if (!model || !contents) {
     return res.status(400).json({ error: 'Request must include model and contents.' });
   }
