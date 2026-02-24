@@ -641,6 +641,12 @@ const App: React.FC = () => {
         } else {
             text = await file.text();
         }
+        if (!text.trim()) {
+            setError(t.presentation.errorFileNoText.replace('{fileName}', file.name));
+            setFileName(null);
+            setDllContent('');
+            return;
+        }
         setDllContent(text);
     } catch (err) {
         console.error("Error parsing file:", err);
