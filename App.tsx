@@ -18,10 +18,58 @@ import { useUsageTracker } from './useUsageTracker';
 
 type AppStep = 'input' | 'planning' | 'presenting';
 type TransitionDirection = 'next' | 'prev' | null;
-type LessonFormat = 'K-12' | 'MATATAG' | '5Es Model' | '4As Model';
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
+const DEFAULT_LESSON_FORMAT = 'K-12';
+const DEFAULT_PLAN_UNIT_LABEL = 'Day';
+
+const normalizeExtractedText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+const tableToStructuredText = (table: HTMLTableElement, tableIndex: number): string => {
+  const rows = Array.from(table.rows)
+    .map((row) => Array.from(row.cells).map((cell) => normalizeExtractedText(cell.textContent || '')))
+    .filter((cells) => cells.some(Boolean));
+
+  if (rows.length === 0) return '';
+
+  return [
+    `Table ${tableIndex + 1}:`,
+    ...rows.map((cells) => `| ${cells.join(' | ')} |`),
+  ].join('\n');
+};
+
+const htmlToStructuredText = (html: string): string => {
+  const parser = new DOMParser();
+  const document = parser.parseFromString(html, 'text/html');
+  const blocks: string[] = [];
+  let tableIndex = 0;
+
+  document.body.childNodes.forEach((node) => {
+    if (node.nodeType !== Node.ELEMENT_NODE) {
+      const text = normalizeExtractedText(node.textContent || '');
+      if (text) blocks.push(text);
+      return;
+    }
+
+    const element = node as HTMLElement;
+    if (element.tagName.toLowerCase() === 'table') {
+      const tableText = tableToStructuredText(element as HTMLTableElement, tableIndex);
+      tableIndex += 1;
+      if (tableText) blocks.push(tableText);
+      return;
+    }
+
+    const text = normalizeExtractedText(element.textContent || '');
+    if (text) blocks.push(text);
+  });
+
+  return blocks.join('\n\n').trim();
+};
+
+const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
+  blueprint?.planUnitLabel?.trim() || DEFAULT_PLAN_UNIT_LABEL
+);
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.
  * @param text The input string.
@@ -75,7 +123,6 @@ const App: React.FC = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [appStep, setAppStep] = useState<AppStep>('input');
   
-  const [selectedFormat, setSelectedFormat] = useState<LessonFormat>('K-12');
   const [teachingLevel, setTeachingLevel] = useState<TeachingLevel>('K-12');
   const [depEdMode, setDepEdMode] = useState<DepEdMode>('weekly');
   
@@ -418,7 +465,7 @@ const App: React.FC = () => {
                 shouldRollbackGeneration = true;
                 setLoadingDuration(40);
                 setLoadingMessage(t.presentation.loadingSingleLesson);
-                const fullPresentation = await generateK12SingleLessonSlides(content, selectedFormat, language, (msg) => setLoadingMessage(msg));
+                const fullPresentation = await generateK12SingleLessonSlides(content, DEFAULT_LESSON_FORMAT, language, (msg) => setLoadingMessage(msg));
                 setLoadingMessage(t.presentation.loadingTables);
                 const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
                 const finalSlides = await processSlidesForImages(slidesWithTables, language);
@@ -432,7 +479,7 @@ const App: React.FC = () => {
                 // No generation quota consumed for creating the weekly blueprint.
                 setLoadingDuration(20);
                 setLoadingMessage(t.presentation.loadingBlueprint);
-                const blueprint = await createK12LessonBlueprint(content, selectedFormat, language);
+                const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, language);
                 const blueprintWithStatus = {
                     ...blueprint,
                     days: blueprint.days.map(d => ({...d, generationStatus: 'pending' as const}))
@@ -473,7 +520,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, selectedFormat, language, t, tryIncrementCount, decrementCount]);
+  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, language, t, tryIncrementCount, decrementCount]);
 
   const handleGenerateDailySlides = useCallback(async (dayIndex: number) => {
     if (!lessonBlueprint) return;
@@ -497,10 +544,15 @@ const App: React.FC = () => {
     
     try {
         const dayToGenerate = lessonBlueprint.days[dayIndex];
-        setLoadingMessage(t.presentation.loadingDailySlides.replace('{dayNumber}', dayToGenerate.dayNumber.toString()));
+        const unitLabel = getPlanUnitLabel(lessonBlueprint);
+        setLoadingMessage(
+          t.presentation.loadingDailySlides
+            .replace('{unitLabel}', unitLabel)
+            .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
+        );
         
         const content = dllContent.trim() || topicContext.trim();
-        const dailySlides = await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, selectedFormat, language);
+        const dailySlides = await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, language);
         
         setLoadingMessage(t.presentation.loadingTables);
         const slidesWithTables = await processSlidesForTables(dailySlides);
@@ -540,7 +592,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [lessonBlueprint, dllContent, topicContext, selectedFormat, theme, presentation, language, t, tryIncrementCount, decrementCount]);
+  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, language, t, tryIncrementCount, decrementCount]);
 
   const handleNextSlide = useCallback(() => {
     if (presentation && currentSlide < presentation.slides.length - 1) {
@@ -636,8 +688,16 @@ const App: React.FC = () => {
             }
         } else if (fileExtension === '.docx') {
             const arrayBuffer = await file.arrayBuffer();
-            const result = await mammoth.extractRawText({ arrayBuffer });
-            text = result.value;
+            const result = await mammoth.convertToHtml(
+                { arrayBuffer },
+                { convertImage: mammoth.images.imgElement(async () => ({ src: '' })) }
+            );
+            text = htmlToStructuredText(result.value);
+
+            if (!text.trim()) {
+                const fallback = await mammoth.extractRawText({ arrayBuffer });
+                text = fallback.value;
+            }
         } else {
             text = await file.text();
         }
@@ -948,12 +1008,13 @@ const App: React.FC = () => {
 
   const renderWeeklyBlueprintView = () => {
     if (!lessonBlueprint) return null;
+    const unitLabel = getPlanUnitLabel(lessonBlueprint);
 
     return (
         <div className="w-full max-w-5xl bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed animate-fade-in">
             <div className="mb-7">
-              <p className="text-xs uppercase tracking-[0.2em] text-secondary font-bold mb-2">Weekly Workflow</p>
-              <h2 className="text-3xl md:text-4xl font-extrabold text-primary mb-2">{t.presentation.weeklyBlueprintTitle}</h2>
+              <p className="text-xs uppercase tracking-[0.2em] text-secondary font-bold mb-2">{t.presentation.lessonWorkflowLabel}</p>
+              <h2 className="text-3xl md:text-4xl font-extrabold text-primary mb-2">{t.presentation.lessonBlueprintTitle}</h2>
               <p className="text-secondary text-base md:text-lg">{lessonBlueprint.mainTitle}</p>
             </div>
 
@@ -962,7 +1023,7 @@ const App: React.FC = () => {
                     <div key={day.dayNumber} className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-surface border border-themed shadow-neumorphic-inset">
                         <div className="flex items-center gap-4">
                             <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center" style={{backgroundColor: 'var(--brand-light)'}}>
-                                <span className="text-xs font-semibold text-brand">{t.presentation.day}</span>
+                                <span className="text-xs font-semibold text-brand">{unitLabel.toUpperCase()}</span>
                                 <span className="text-xl font-bold text-brand">{day.dayNumber}</span>
                             </div>
                             <div>
@@ -1276,14 +1337,6 @@ const App: React.FC = () => {
                   <div className="animate-fade-in">
                       <h3 className="text-xl font-semibold text-primary mb-5 text-center">{t.main.selectPlanType}</h3>
                       {renderDepEdInputs()}
-                      <div className="flex justify-center gap-2 my-7 p-1 bg-surface rounded-full shadow-neumorphic-inset w-max mx-auto flex-wrap">
-                          {(['K-12', 'MATATAG', '5Es Model', '4As Model'] as LessonFormat[]).map(format => (
-                              <button key={format} onClick={() => setSelectedFormat(format)}
-                                  className={`px-4 py-1.5 text-sm font-semibold rounded-full transition-all ${selectedFormat === format ? 'text-brand shadow-neumorphic-outset-sm' : 'text-secondary'}`}>
-                                  {format}
-                              </button>
-                          ))}
-                      </div>
                   </div>
                 )}
                 

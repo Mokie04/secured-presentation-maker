@@ -36,6 +36,7 @@ export interface DayPlan {
 
 export interface LessonBlueprint {
     mainTitle: string;
+    planUnitLabel?: string; // Display label for each generated unit, e.g. "Day" or "Session".
     subject: string;
     gradeLevel: string;
     quarter: string;

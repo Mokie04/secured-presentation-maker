@@ -247,6 +247,8 @@ function cleanSlideContent(content: string[]): string[] {
 
 // --- K-12 GENERATION LOGIC ---
 
+const getPlanUnitLabel = (blueprint: LessonBlueprint): string => blueprint.planUnitLabel?.trim() || 'Day';
+
 // PHASE 1: DEEP ANALYSIS & BLUEPRINT CREATION
 export async function createK12LessonBlueprint(content: string, format: string, language: 'EN' | 'FIL'): Promise<LessonBlueprint> {
     const prompt = `
@@ -263,8 +265,9 @@ export async function createK12LessonBlueprint(content: string, format: string, 
         **YOUR THREE-STEP PROCESS:**
 
         **STEP 1: Core Component Identification**
-        - **Subject, Grade, Quarter, Title:** Identify the Subject, Grade Level, Quarter, and a creative Main Title for the entire week's lesson.
+        - **Subject, Grade, Quarter, Title:** Identify the Subject, Grade Level, Quarter, and a creative Main Title for the whole lesson plan.
         - **Learning Competency:** Find the primary Learning Competency code and description (e.g., "S6MT-Ia-c-1: Describe mixtures"). This is the most important anchor for the lesson.
+        - **Planning Unit Label:** Determine whether the input is organized by "Day" or "Session". If the source uses "Learning Session", "Session 1", or similar wording, set \`planUnitLabel\` to "Session". Otherwise set it to "Day".
 
         **STEP 2: SMART Objective Formulation (CRITICAL)**
         - **Analyze Existing Objectives:** Review any objectives listed in the content.
@@ -273,10 +276,12 @@ export async function createK12LessonBlueprint(content: string, format: string, 
         - **Consolidate for Students:** After creating the SMART objectives, create a separate, consolidated list of 2-3 **student-facing objectives**. These should be concise, use simple language, and ideally start with "I can..." or "You will be able to...". These will be shown to the students on the presentation slide.
           - Example of a GOOD student-facing objective: "I can tell the difference between different types of mixtures."
 
-        **STEP 3: Daily Plan Structuring**
-        - **Breakdown:** Structure the lesson into a logical 5-day plan.
-        - **Daily Focus:** For each day, provide a concise 'focus' summary (e.g., "Day 1: Introduction to Mixtures and Their Types", "Day 2: Exploring Homogeneous Mixtures").
-        - **Extrapolation:** If the input only covers one day, logically extrapolate the content to create a full 5-day plan that scaffolds learning from introduction to assessment. The weekly flow must align with the principles of the **${format}** curriculum/model.
+        **STEP 3: Plan Unit Structuring**
+        - **Breakdown:** Structure the plan using the exact units present in the source material.
+        - **Explicit Sessions/Days Rule:** If the input lists explicit units such as "Learning Session 1" through "Learning Session 4", or only "Learning Session 1" through "Learning Session 2", output exactly those units. Do NOT add extra sessions or force a 5-day plan.
+        - **Fallback Rule:** Only infer a 5-day plan when the source is a traditional weekly DLL without explicit session/day breakdowns.
+        - **Unit Focus:** For each unit, provide a concise 'focus' summary (e.g., "Session 1: Introduction to Particle Models", "Day 2: Exploring Homogeneous Mixtures").
+        - **Source Fidelity:** Preserve each unit's objective, pre-lesson, flow, resources, assessment, extended learning, and reflection details when the document provides them.
 
         **FINAL OUTPUT (JSON FORMAT ONLY):**
         Return a single JSON object matching this schema. Do not add any extra text or explanations.
@@ -286,6 +291,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
         type: JSON_SCHEMA.OBJECT,
         properties: {
             mainTitle: { type: JSON_SCHEMA.STRING },
+            planUnitLabel: { type: JSON_SCHEMA.STRING, enum: ["Day", "Session"] },
             subject: { type: JSON_SCHEMA.STRING },
             gradeLevel: { type: JSON_SCHEMA.STRING },
             quarter: { type: JSON_SCHEMA.STRING },
@@ -305,7 +311,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
                 }
             }
         },
-        required: ["mainTitle", "subject", "learningCompetency", "smartObjectives", "studentFacingObjectives", "days"]
+        required: ["mainTitle", "planUnitLabel", "subject", "learningCompetency", "smartObjectives", "studentFacingObjectives", "days"]
     };
     
     const response = await callGeminiProxy<GeminiTextResponse>({
@@ -327,6 +333,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
 // PHASE 2: SLIDE GENERATION (PER DAY)
 export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL'): Promise<Slide[]> {
     let prompt = "";
+    const unitLabel = getPlanUnitLabel(blueprint);
     const commonRules = `
     **CRITICAL DIRECTIVES:**
     1.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
@@ -343,8 +350,8 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of volcanoes), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
         - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs.
         - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
-    7.  **DAILY GOAL SLIDE:** If generating for Day 2 or later, the first slide should be "Today's Goal". Do NOT generate a full "Learning Objectives" slide.
-    8.  **CONCLUDING SLIDE (MANDATORY):** The very last slide generated MUST serve as a conclusion for the day's lesson. This slide should typically cover the 'Evaluation' or 'Assignment' section and provide a clear end to the presentation.
+    7.  **UNIT GOAL SLIDE:** If generating for ${unitLabel} 2 or later, the first slide should be "Today's Goal". Do NOT generate a full "Learning Objectives" slide.
+    8.  **CONCLUDING SLIDE (MANDATORY):** The very last slide generated MUST serve as a conclusion for the ${unitLabel.toLowerCase()}'s lesson. This slide should typically cover the 'Evaluation' or 'Assignment' section and provide a clear end to the presentation.
     `;
     
     let sections = "";
@@ -364,19 +371,20 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - Subject: ${blueprint.subject}
         - Grade Level: ${blueprint.gradeLevel}
         - Learning Competency: ${blueprint.learningCompetency}
-        - SMART Objectives for the Week: ${blueprint.smartObjectives.join(", ")}
+        - SMART Objectives for the Plan: ${blueprint.smartObjectives.join(", ")}
         
-        **TODAY'S FOCUS (DAY ${day.dayNumber}):**
+        **TODAY'S FOCUS (${unitLabel.toUpperCase()} ${day.dayNumber}):**
         - Title: ${day.title}
         - Focus: ${day.focus}
 
-        **REFERENCE DLL/TOPIC CONTENT:**
+        **REFERENCE LESSON PLAN/TOPIC CONTENT:**
         \`\`\`
         ${originalContent}
         \`\`\`
 
         **TASK:**
-        Generate a set of 10-12 slides for DAY ${day.dayNumber} ONLY, following the **${format}** model.
+        Generate a set of 10-12 slides for ${unitLabel} ${day.dayNumber} ONLY, following the **${format}** model.
+        If the reference content includes session-specific columns or rows, use only the details tied to ${unitLabel} ${day.dayNumber} for the main lesson flow.
 
         **REQUIRED SECTIONS:**
         ${sections}
