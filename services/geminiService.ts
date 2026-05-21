@@ -72,10 +72,15 @@ type GeminiImageResponse = {
     error?: string;
     blockReason?: string;
     explanation?: string;
+    cache?: {
+        hit: boolean;
+        provider: string;
+    };
+    ok?: boolean;
 };
 
 type GeminiProxyRequest = {
-    task: 'text' | 'image';
+    task: 'text' | 'image' | 'cacheImage' | 'cachedImage';
     model: string | string[];
     contents: unknown;
     config?: Record<string, unknown>;
@@ -115,7 +120,7 @@ async function sleep(ms: number): Promise<void> {
 async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
     const proxyUrl = `${getProxyBaseUrl()}/api/gemini`;
 
-    const maxAttempts = payload.task === 'image' ? 1 : 3;
+    const maxAttempts = payload.task === 'text' ? 3 : 1;
     let lastError: ProxyError | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
@@ -644,11 +649,7 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
 
 // --- IMAGE GENERATION ---
 
-export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<string> {
-    if (!prompt || style === 'none') {
-        return Promise.resolve('');
-    }
-
+export function buildFinalImagePrompt(prompt: string, style: ImageStyle = 'illustration', _language: 'EN' | 'FIL' = 'EN'): string {
     let styleInstructions = '';
 
     switch(style) {
@@ -671,7 +672,62 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
     }
 
     const relevanceGuard = 'Keep the content tightly on-topic to the described subject. Do NOT add any extra objects or unrelated scenes. No text, labels, numbers, watermarks, signatures, or UI chrome.';
-    const finalPrompt = `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
+    return `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
+}
+
+export async function getCachedImageForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<string | null> {
+    if (!prompt || style === 'none' || IMAGES_DISABLED) {
+        return null;
+    }
+
+    const finalPrompt = buildFinalImagePrompt(prompt, style, language);
+
+    const response = await callGeminiProxy<GeminiImageResponse>({
+        task: 'cachedImage',
+        model: IMAGE_MODELS,
+        contents: {
+            prompt: finalPrompt,
+        },
+        config: {
+            imageConfig: {
+                aspectRatio: "16:9",
+            },
+        },
+    });
+
+    return response.dataUrl || null;
+}
+
+export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<boolean> {
+    if (!prompt || !dataUrl || style === 'none' || IMAGES_DISABLED) {
+        return false;
+    }
+
+    const finalPrompt = buildFinalImagePrompt(prompt, style, language);
+
+    const response = await callGeminiProxy<GeminiImageResponse>({
+        task: 'cacheImage',
+        model: IMAGE_MODELS,
+        contents: {
+            prompt: finalPrompt,
+            dataUrl,
+        },
+        config: {
+            imageConfig: {
+                aspectRatio: "16:9",
+            },
+        },
+    });
+
+    return response.ok === true;
+}
+
+export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<string> {
+    if (!prompt || style === 'none') {
+        return Promise.resolve('');
+    }
+
+    const finalPrompt = buildFinalImagePrompt(prompt, style, language);
 
     try {
         const response = await callGeminiProxy<GeminiImageResponse>({

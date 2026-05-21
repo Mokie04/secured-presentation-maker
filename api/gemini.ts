@@ -3,7 +3,7 @@ import { requireSession } from "./_sessionAuth.js";
 import { getCachedR2Image, setCachedR2Image } from "./_r2ImageCache.js";
 
 type GeminiProxyRequest = {
-  task?: 'text' | 'image';
+  task?: 'text' | 'image' | 'cacheImage' | 'cachedImage';
   model?: string | string[];
   contents?: unknown;
   config?: Record<string, unknown>;
@@ -27,6 +27,7 @@ type ImageRequestDetails = {
 
 type AIProvider = 'gemini' | 'xai';
 const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 25_000;
+const MAX_UPLOADED_IMAGE_BYTES = 6 * 1024 * 1024;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -128,6 +129,27 @@ function getImageRequestDetails(contents: unknown, requestConfig: Record<string,
     prompt: imagePrompt,
     aspectRatio: imageConfig.aspectRatio || '16:9',
   };
+}
+
+function parseUploadedImageDataUrl(contents: unknown): { base64: string; mime: string } | null {
+  const rawDataUrl = (contents as any)?.dataUrl;
+  if (typeof rawDataUrl !== 'string') {
+    return null;
+  }
+
+  const match = rawDataUrl.match(/^data:(image\/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const mime = match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase();
+  const base64 = match[2].replace(/\s+/g, '');
+  const byteLength = Buffer.byteLength(base64, 'base64');
+  if (byteLength === 0 || byteLength > MAX_UPLOADED_IMAGE_BYTES) {
+    return null;
+  }
+
+  return { base64, mime };
 }
 
 function normalizeProvider(value: string | undefined): AIProvider | null {
@@ -394,8 +416,9 @@ export default async function handler(req: any, res: any) {
   const { task = 'text', model, contents, config: requestConfig } = normalizeBody(req.body);
 
   const provider = task === 'text' ? getTextProvider() : getImageProvider();
+  const isImageTask = task === 'image' || task === 'cacheImage' || task === 'cachedImage';
   const modelList = provider === 'xai'
-    ? (task === 'image' ? normalizeXaiImageModels(model) : normalizeXaiModels(model))
+    ? (isImageTask ? normalizeXaiImageModels(model) : normalizeXaiModels(model))
     : (Array.isArray(model) ? model : [model]);
   const normalizedModels = modelList
     .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
@@ -429,6 +452,59 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    if (task === 'cachedImage' || task === 'cacheImage') {
+      const imageRequest = getImageRequestDetails(contents, requestConfig);
+      const cacheModel = modelCandidates[0];
+
+      if (task === 'cachedImage') {
+        const cachedImage = await getCachedR2Image({
+          prompt: imageRequest.prompt,
+          model: cacheModel,
+          aspectRatio: imageRequest.aspectRatio,
+        });
+
+        return res.status(200).json({
+          dataUrl: cachedImage?.dataUrl || '',
+          ok: true,
+          modelUsed: cacheModel,
+          provider,
+          cache: {
+            hit: Boolean(cachedImage),
+            provider: cachedImage ? 'r2' : 'none',
+          },
+        });
+      }
+
+      const uploadedImage = parseUploadedImageDataUrl(contents);
+      if (!uploadedImage) {
+        return res.status(400).json({
+          error: `Uploaded image must be a PNG, JPEG, or WebP data URL under ${MAX_UPLOADED_IMAGE_BYTES / (1024 * 1024)}MB.`,
+        });
+      }
+
+      const storedImage = await setCachedR2Image({
+        prompt: imageRequest.prompt,
+        model: cacheModel,
+        aspectRatio: imageRequest.aspectRatio,
+      }, uploadedImage.base64, uploadedImage.mime);
+
+      console.info('Manual image cache write', {
+        imageProvider: provider,
+        cacheProvider: storedImage ? 'r2' : 'none',
+        model: cacheModel,
+      });
+
+      return res.status(200).json({
+        ok: Boolean(storedImage),
+        modelUsed: cacheModel,
+        provider,
+        cache: {
+          hit: false,
+          provider: storedImage ? 'r2' : 'none',
+        },
+      });
+    }
+
     if (task === 'text' && provider === 'xai') {
       const textResponse = await generateXaiText(modelCandidates, contents, requestConfig);
       return res.status(200).json({
