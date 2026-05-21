@@ -25,6 +25,14 @@ type AuthState = 'checking' | 'authorized' | 'unauthorized';
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v1';
+const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
+const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
+const NON_EXPORTABLE_IMAGE_STATES = new Set([
+  'error',
+  'loading',
+  USER_IMAGE_LIMIT_PLACEHOLDER,
+  PROVIDER_IMAGE_LIMIT_PLACEHOLDER,
+]);
 
 type CachedLessonPlan = {
   blueprint: LessonBlueprint;
@@ -82,6 +90,15 @@ const resetBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint => ({
   ...blueprint,
   days: blueprint.days.map((day) => ({ ...day, generationStatus: 'pending' as const })),
 });
+
+const isImageProviderLimitError = (error: unknown): boolean => {
+  const message = error instanceof Error ? error.message : String(error || '');
+  const normalized = message.toLowerCase();
+  return normalized.includes('rate_limit_exceeded')
+    || normalized.includes('spending cap')
+    || normalized.includes('quota')
+    || normalized.includes('billing');
+};
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.
  * @param text The input string.
@@ -355,7 +372,7 @@ const App: React.FC = () => {
   ): Promise<Slide[]> => {
     const muteProgress = options?.muteProgress === true;
     if (IMAGES_DISABLED) {
-        return slidesWithPrompts.map((s) => ({ ...s, imageUrl: '', imagePrompt: '' }));
+        return slidesWithPrompts.map((s) => ({ ...s, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: s.imagePrompt || buildFallbackImagePrompt(s) }));
     }
     const slidesWithImages = [];
     let rateLimitWasHit = false;
@@ -377,7 +394,7 @@ const App: React.FC = () => {
 
     // If image quota is exhausted, return slides without blocking generation.
     if (limits.images - images <= 0) {
-        return slidesWithPrompts.map((s) => ({ ...s, imageUrl: '', imagePrompt: s.imagePrompt || '' }));
+        return slidesWithPrompts.map((s) => ({ ...s, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: s.imagePrompt || buildFallbackImagePrompt(s) }));
     }
     
     for (const slide of slidesWithPrompts) {
@@ -391,12 +408,16 @@ const App: React.FC = () => {
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
             const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
             if (currentImageCount >= limits.images) {
-                newSlide.imageUrl = 'limit_reached';
+                newSlide.imageUrl = USER_IMAGE_LIMIT_PLACEHOLDER;
                 slidesWithImages.push(newSlide);
                 continue;
             }
 
-            if (canGenerateImage && !rateLimitWasHit) {
+            if (!canGenerateImage) {
+                newSlide.imageUrl = USER_IMAGE_LIMIT_PLACEHOLDER;
+            } else if (rateLimitWasHit) {
+                newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
+            } else {
                 imagesAttemptedCounter++;
                 if (!muteProgress) {
                   setLoadingMessage(t.presentation.loadingImages.replace('{current}', imagesAttemptedCounter.toString()).replace('{total}', totalImagesThatCanBeGenerated.toString()));
@@ -413,13 +434,14 @@ const App: React.FC = () => {
                     incrementCount('images');
                 } catch (imgError) {
                     console.error(`Failed to generate image for prompt: "${promptForGeneration}"`, imgError);
-                    if ((imgError as Error).message === 'RATE_LIMIT_EXCEEDED') {
+                    if (isImageProviderLimitError(imgError)) {
                         rateLimitWasHit = true;
-                        setError("Image generation quota exceeded. Please check your Google AI plan and billing details. Further image generation has been stopped.");
+                        setError("Image generation is currently unavailable because the image provider quota, billing, or spending cap was reached. Placeholder slides were added so the deck can still be used.");
+                        newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
                     } else {
                         handleApiError(imgError);
+                        newSlide.imageUrl = 'error';
                     }
-                    newSlide.imageUrl = 'error';
                 }
             }
         }
@@ -855,7 +877,7 @@ const App: React.FC = () => {
 
   const resolveImageForPptx = useCallback(async (imageUrl: string | undefined): Promise<string | null> => {
     if (!imageUrl) return null;
-    if (imageUrl === 'error' || imageUrl === 'loading' || imageUrl === 'limit_reached') return null;
+    if (NON_EXPORTABLE_IMAGE_STATES.has(imageUrl)) return null;
     if (imageUrl.startsWith('data:')) return imageUrl;
 
     try {
@@ -903,7 +925,7 @@ const App: React.FC = () => {
             const slide = pptx.addSlide({ masterName: 'BLANK' });
             slide.background = { color: backgroundColor };
             
-            const hasImage = !!slideData.imageUrl && slideData.imageUrl !== 'error' && slideData.imageUrl !== 'loading' && slideData.imageUrl !== 'limit_reached';
+            const hasImage = !!slideData.imageUrl && !NON_EXPORTABLE_IMAGE_STATES.has(slideData.imageUrl);
             const hasContent = slideData.content && slideData.content.length > 0 && slideData.content.some(c => c.trim() !== '');
             
             let contentForPptx: any[] = [];
@@ -1066,7 +1088,7 @@ const App: React.FC = () => {
             setPresentation(prev => {
                 if (!prev) return null;
                 const finalSlides = [...prev.slides];
-                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: 'limit_reached', imagePrompt: newPrompt };
+                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: newPrompt };
                 return { ...prev, slides: finalSlides };
             });
             return;
@@ -1082,11 +1104,19 @@ const App: React.FC = () => {
         });
     } catch (err) {
         console.error("Image regeneration failed:", err);
-        handleApiError(err);
+        if (!isImageProviderLimitError(err)) {
+            handleApiError(err);
+        } else {
+            setError("Image generation is currently unavailable because the image provider quota, billing, or spending cap was reached. A placeholder was added so the slide can still be used.");
+        }
         setPresentation(prev => {
             if (!prev) return null;
             const finalSlides = [...prev.slides];
-            finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: 'error', imagePrompt: newPrompt };
+            finalSlides[slideIndex] = {
+                ...finalSlides[slideIndex],
+                imageUrl: isImageProviderLimitError(err) ? PROVIDER_IMAGE_LIMIT_PLACEHOLDER : 'error',
+                imagePrompt: newPrompt
+            };
             return { ...prev, slides: finalSlides };
         });
     }

@@ -16,6 +16,14 @@ interface SlideProps {
 const DEFAULT_LABEL_FONT_SIZE = 16;
 const MIN_LABEL_FONT_SIZE = 12;
 const MAX_LABEL_FONT_SIZE = 42;
+const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
+const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
+const NON_RENDERABLE_IMAGE_STATES = new Set([
+  'loading',
+  'error',
+  USER_IMAGE_LIMIT_PLACEHOLDER,
+  PROVIDER_IMAGE_LIMIT_PLACEHOLDER,
+]);
 
 const clampPercent = (value: number): number => Math.max(0, Math.min(100, value));
 const clampFontSize = (value: number): number => Math.max(MIN_LABEL_FONT_SIZE, Math.min(MAX_LABEL_FONT_SIZE, Math.round(value)));
@@ -67,7 +75,7 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
     setIsEditingLabels(false);
   }, [slide.imageOverlays, slideIndex]);
 
-  const renderableImage = Boolean(slide.imageUrl && !['loading', 'error', 'limit_reached'].includes(slide.imageUrl));
+  const renderableImage = Boolean(slide.imageUrl && !NON_RENDERABLE_IMAGE_STATES.has(slide.imageUrl));
 
   const selectedOverlay = draftOverlays.find((overlay) => overlay.id === selectedOverlayId) || null;
 
@@ -296,11 +304,17 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
               <span className="text-base font-semibold text-primary">{t.imageErrorTitle}</span>
               <span className="text-xs mt-1">{t.imageErrorSubtitle}</span>
             </div>
-          ) : slide.imageUrl === 'limit_reached' ? (
+          ) : slide.imageUrl === USER_IMAGE_LIMIT_PLACEHOLDER ? (
             <div className="w-full h-full flex flex-col items-center justify-center text-secondary p-4 text-center">
               <ImageIcon className="w-16 h-16 mb-4 text-yellow-500" />
               <span className="text-base font-semibold text-primary">{t.imageLimitReachedTitle}</span>
               <span className="text-xs mt-1">{t.imageLimitReachedSubtitle}</span>
+            </div>
+          ) : slide.imageUrl === PROVIDER_IMAGE_LIMIT_PLACEHOLDER ? (
+            <div className="w-full h-full flex flex-col items-center justify-center text-secondary p-4 text-center">
+              <ImageIcon className="w-16 h-16 mb-4 text-yellow-500" />
+              <span className="text-base font-semibold text-primary">{t.imageProviderLimitTitle}</span>
+              <span className="text-xs mt-1">{t.imageProviderLimitSubtitle}</span>
             </div>
           ) : slide.imageUrl ? (
             <div
