@@ -31,6 +31,8 @@ APPSTORE_AUTH_ENABLED=false
 # APPSTORE_SHARED_SECRET=replace_with_long_random_secret
 # Optional cookie scope for subdomains
 # APPSTORE_COOKIE_DOMAIN=.yourdomain.com
+# Optional cookie SameSite policy. Defaults to None in production for app-store embeds.
+# APPSTORE_COOKIE_SAMESITE=none
 # Optional token timing hardening
 # APPSTORE_ALLOWED_CLOCK_SKEW_SECONDS=20
 # APPSTORE_MAX_TOKEN_TTL_SECONDS=120

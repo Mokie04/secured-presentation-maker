@@ -55,6 +55,20 @@ function buildUserPayload(claims: Pick<AppstoreSessionClaims, 'sub' | 'email' | 
   };
 }
 
+function sendExistingSession(req: any, res: any): boolean {
+  const existingClaims = getClaimsFromNodeRequest(req);
+  if (!existingClaims) {
+    return false;
+  }
+
+  res.status(200).json({
+    authenticated: true,
+    user: buildUserPayload(existingClaims),
+    expiresAt: existingClaims.exp,
+  });
+  return true;
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
     res.setHeader('Allow', 'GET');
@@ -81,6 +95,10 @@ export default async function handler(req: any, res: any) {
   if (rawAccess) {
     const claims = verifyAppstoreAccessToken(rawAccess, secret);
     if (!claims) {
+      if (sendExistingSession(req, res)) {
+        return;
+      }
+
       res.setHeader('Set-Cookie', buildClearSessionCookie());
       return res.status(401).json({
         authenticated: false,
@@ -98,7 +116,10 @@ export default async function handler(req: any, res: any) {
     }
 
     if (claims.jti && isJtiUsed(claims.jti)) {
-      res.setHeader('Set-Cookie', buildClearSessionCookie());
+      if (sendExistingSession(req, res)) {
+        return;
+      }
+
       return res.status(401).json({
         authenticated: false,
         error: 'This access token was already used.',

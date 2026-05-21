@@ -28,6 +28,41 @@ type SessionUser = {
   role?: string;
   isAdmin?: boolean;
 };
+type SessionCheckResult = {
+  ok: boolean;
+  payload: {
+    authenticated?: boolean;
+    user?: SessionUser;
+    error?: string;
+  };
+};
+
+let sessionCheckCacheKey: string | null = null;
+let sessionCheckCachePromise: Promise<SessionCheckResult> | null = null;
+
+const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
+  if (sessionCheckCacheKey === endpoint && sessionCheckCachePromise) {
+    return sessionCheckCachePromise;
+  }
+
+  sessionCheckCacheKey = endpoint;
+  sessionCheckCachePromise = fetch(endpoint, {
+    method: 'GET',
+    credentials: 'include',
+  })
+    .then(async (response) => ({
+      ok: response.ok,
+      payload: await response.json().catch(() => ({})),
+    }))
+    .catch((error) => {
+      sessionCheckCacheKey = null;
+      sessionCheckCachePromise = null;
+      throw error;
+    });
+
+  return sessionCheckCachePromise;
+};
+
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v1';
@@ -218,11 +253,7 @@ const App: React.FC = () => {
           ? `/api/session?access=${encodeURIComponent(access)}`
           : '/api/session';
 
-        const response = await fetch(endpoint, {
-          method: 'GET',
-          credentials: 'include',
-        });
-        const payload = await response.json().catch(() => ({}));
+        const { ok, payload } = await fetchSessionOnce(endpoint);
 
         if (access) {
           params.delete('access');
@@ -233,7 +264,7 @@ const App: React.FC = () => {
 
         if (cancelled) return;
 
-        if (response.ok && payload?.authenticated) {
+        if (ok && payload?.authenticated) {
           setAuthState('authorized');
           setAuthError('');
           setSessionUser(payload.user || null);

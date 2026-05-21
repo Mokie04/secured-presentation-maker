@@ -71,6 +71,15 @@ export function getSessionMaxAgeSeconds(): number {
   return Math.max(300, Math.min(86400, raw));
 }
 
+function getCookieSameSiteAttribute(): string {
+  const configured = process.env.APPSTORE_COOKIE_SAMESITE?.trim().toLowerCase();
+  if (configured === 'strict') return '; SameSite=Strict';
+  if (configured === 'lax') return '; SameSite=Lax';
+  if (configured === 'none') return '; SameSite=None';
+
+  return process.env.NODE_ENV === 'production' ? '; SameSite=None' : '; SameSite=Lax';
+}
+
 export function getCookieValue(cookieHeader: string | undefined, name: string): string | null {
   if (!cookieHeader) return null;
   const parts = cookieHeader.split(';');
@@ -176,19 +185,21 @@ export function getClaimsFromNodeRequest(req: any): AppstoreSessionClaims | null
 }
 
 export function buildSessionCookie(token: string, maxAgeSeconds: number): string {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const sameSite = getCookieSameSiteAttribute();
+  const secure = process.env.NODE_ENV === 'production' || sameSite === '; SameSite=None' ? '; Secure' : '';
   const domain = process.env.APPSTORE_COOKIE_DOMAIN
     ? `; Domain=${process.env.APPSTORE_COOKIE_DOMAIN}`
     : '';
-  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${Math.max(1, Math.floor(maxAgeSeconds))}${secure}${domain}`;
+  return `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Path=/; HttpOnly${sameSite}; Max-Age=${Math.max(1, Math.floor(maxAgeSeconds))}${secure}${domain}`;
 }
 
 export function buildClearSessionCookie(): string {
-  const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+  const sameSite = getCookieSameSiteAttribute();
+  const secure = process.env.NODE_ENV === 'production' || sameSite === '; SameSite=None' ? '; Secure' : '';
   const domain = process.env.APPSTORE_COOKIE_DOMAIN
     ? `; Domain=${process.env.APPSTORE_COOKIE_DOMAIN}`
     : '';
-  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secure}${domain}`;
+  return `${SESSION_COOKIE_NAME}=; Path=/; HttpOnly${sameSite}; Max-Age=0${secure}${domain}`;
 }
 
 export function getRemainingSessionSeconds(claims: AppstoreSessionClaims): number {
