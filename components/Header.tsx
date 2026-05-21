@@ -14,10 +14,25 @@ interface HeaderProps {
         generations: number;
         images: number;
     }
+    imageLimitBypassed?: boolean;
   }
 }
 
-const QuotaIndicator: React.FC<{ icon: React.ReactNode; label: string; count: number; limit: number; }> = ({ icon, label, count, limit }) => {
+const QuotaIndicator: React.FC<{ icon: React.ReactNode; label: string; count: number; limit: number; unlimited?: boolean; }> = ({ icon, label, count, limit, unlimited = false }) => {
+    if (unlimited) {
+        return (
+            <div className="flex items-center gap-2 text-xs font-semibold text-secondary bg-surface px-3 py-2 rounded-lg shadow-neumorphic-inset" title={`${label} are unlimited for this admin session.`}>
+                {icon}
+                <div className="flex flex-col items-center w-16">
+                    <span className="text-primary">Unlimited</span>
+                    <div className="w-full h-1 bg-surface rounded-full shadow-neumorphic-inset mt-0.5">
+                        <div className="h-full rounded-full bg-brand" style={{ width: '100%' }}></div>
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
     const itemsLeft = Math.max(0, limit - count);
     const percentage = limit > 0 ? (itemsLeft / limit) * 100 : 0;
 
@@ -74,6 +89,7 @@ const Header: React.FC<HeaderProps> = ({ usage }) => {
               label={t.imagesQuota}
               count={usage.images}
               limit={usage.limits.images}
+              unlimited={usage.imageLimitBypassed}
           />
           <LanguageSwitcher />
           <ThemeSwitcher />

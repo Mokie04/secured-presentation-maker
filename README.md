@@ -128,6 +128,8 @@ Required payload fields:
 - `exp` (unix seconds expiry; 60 seconds is supported)
 - Optional: `email`, `role`, `iat`
 
+Admin image testing: when `role` is `admin`, `owner`, or `super_admin`, the frontend skips the local daily image-generation limit. Provider-side quota, billing, and rate limits still apply.
+
 Example backend signer (Node.js):
 
 ```js

@@ -22,6 +22,11 @@ type TransitionDirection = 'next' | 'prev' | null;
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
+type SessionUser = {
+  sub?: string;
+  email?: string;
+  role?: string;
+};
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v1';
@@ -93,6 +98,11 @@ const resetBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint => ({
   days: blueprint.days.map((day) => ({ ...day, generationStatus: 'pending' as const })),
 });
 
+const hasAdminImageBypass = (user: SessionUser | null): boolean => {
+  const role = user?.role?.trim().toLowerCase();
+  return role === 'admin' || role === 'owner' || role === 'super_admin';
+};
+
 const isImageProviderLimitError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error || '');
   const normalized = message.toLowerCase();
@@ -163,6 +173,7 @@ const App: React.FC = () => {
   const [isFullScreen, setIsFullScreen] = useState<boolean>(false);
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [authError, setAuthError] = useState<string>('');
+  const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
 
   const { theme } = useTheme();
   const { language } = useLanguage();
@@ -179,6 +190,7 @@ const App: React.FC = () => {
     canGenerateImage,
     updateCounts
   } = useUsageTracker();
+  const adminImageLimitBypassed = hasAdminImageBypass(sessionUser);
 
   useEffect(() => {
     updateCounts();
@@ -213,15 +225,18 @@ const App: React.FC = () => {
         if (response.ok && payload?.authenticated) {
           setAuthState('authorized');
           setAuthError('');
+          setSessionUser(payload.user || null);
           return;
         }
 
         setAuthState('unauthorized');
         setAuthError(payload?.error || 'Unauthorized access. Please open this tool from your app store account.');
+        setSessionUser(null);
       } catch {
         if (cancelled) return;
         setAuthState('unauthorized');
         setAuthError('Unable to validate your secure session. Please reopen this tool from your app store.');
+        setSessionUser(null);
       }
     };
 
@@ -383,8 +398,8 @@ const App: React.FC = () => {
     const totalImagesToAttempt = imagesToGenerate.length;
     let imagesAttemptedCounter = 0;
     
-    const imagesLeftToday = Math.max(0, limits.images - images);
-    const totalImagesThatCanBeGenerated = Math.min(totalImagesToAttempt, imagesLeftToday);
+    const imagesLeftToday = adminImageLimitBypassed ? totalImagesToAttempt : Math.max(0, limits.images - images);
+    const totalImagesThatCanBeGenerated = adminImageLimitBypassed ? totalImagesToAttempt : Math.min(totalImagesToAttempt, imagesLeftToday);
 
     if (!muteProgress) {
       if (totalImagesThatCanBeGenerated > 0) {
@@ -395,7 +410,7 @@ const App: React.FC = () => {
     }
 
     // If image quota is exhausted, return slides without blocking generation.
-    if (limits.images - images <= 0) {
+    if (!adminImageLimitBypassed && limits.images - images <= 0) {
         return slidesWithPrompts.map((s) => ({ ...s, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: s.imagePrompt || buildFallbackImagePrompt(s) }));
     }
     
@@ -409,13 +424,13 @@ const App: React.FC = () => {
             }
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
             const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
-            if (currentImageCount >= limits.images) {
+            if (!adminImageLimitBypassed && currentImageCount >= limits.images) {
                 newSlide.imageUrl = USER_IMAGE_LIMIT_PLACEHOLDER;
                 slidesWithImages.push(newSlide);
                 continue;
             }
 
-            if (!canGenerateImage) {
+            if (!adminImageLimitBypassed && !canGenerateImage) {
                 newSlide.imageUrl = USER_IMAGE_LIMIT_PLACEHOLDER;
             } else if (rateLimitWasHit) {
                 newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
@@ -433,7 +448,9 @@ const App: React.FC = () => {
                 try {
                     const imageUrl = await generateImageFromPrompt(promptForGeneration, slide.imageStyle, language);
                     newSlide.imageUrl = imageUrl;
-                    incrementCount('images');
+                    if (!adminImageLimitBypassed) {
+                        incrementCount('images');
+                    }
                 } catch (imgError) {
                     console.error(`Failed to generate image for prompt: "${promptForGeneration}"`, imgError);
                     if (isImageProviderLimitError(imgError)) {
@@ -1095,7 +1112,7 @@ const App: React.FC = () => {
             return;
         }
 
-        if (!canGenerateImage) {
+        if (!adminImageLimitBypassed && !canGenerateImage) {
             alert(t.presentation.errorImageLimit.replace('{limit}', limits.images.toString()));
             setPresentation(prev => {
                 if (!prev) return null;
@@ -1107,7 +1124,9 @@ const App: React.FC = () => {
         }
 
         const imageUrl = await generateImageFromPrompt(newPrompt, originalSlideStyle, language);
-        incrementCount('images');
+        if (!adminImageLimitBypassed) {
+            incrementCount('images');
+        }
         setPresentation(prev => {
             if (!prev) return null;
             const finalSlides = [...prev.slides];
@@ -1132,7 +1151,7 @@ const App: React.FC = () => {
             return { ...prev, slides: finalSlides };
         });
     }
-  }, [presentation, canGenerateImage, incrementCount, limits.images, t, language]);
+  }, [presentation, adminImageLimitBypassed, canGenerateImage, incrementCount, limits.images, t, language]);
 
   const handleUploadImage = useCallback((slideIndex: number, file: File) => {
     const reader = new FileReader();
@@ -1444,7 +1463,7 @@ const App: React.FC = () => {
                         Generations: <span className="text-brand">{generations}/{limits.generations}</span>
                     </div>
                     <div className="px-4 py-2 rounded-2xl bg-surface shadow-neumorphic-inset text-sm font-semibold text-secondary">
-                        Images: <span className="text-brand">{images}/{limits.images}</span>
+                        Images: <span className="text-brand">{adminImageLimitBypassed ? 'Unlimited' : `${images}/${limits.images}`}</span>
                     </div>
                     <div className="px-4 py-2 rounded-2xl bg-surface shadow-neumorphic-inset text-sm font-semibold text-secondary">
                         Active Mode: <span className="text-brand">{teachingLevel}</span>
@@ -1574,7 +1593,7 @@ const App: React.FC = () => {
           <div className="absolute top-1/4 right-[-9rem] w-[26rem] h-[26rem] rounded-full opacity-20" style={{ background: 'radial-gradient(circle, var(--brand-light) 0%, transparent 72%)' }} />
           <div className="absolute bottom-[-8rem] left-1/3 w-[22rem] h-[22rem] rounded-full opacity-15" style={{ background: 'radial-gradient(circle, var(--shadow-dark) 0%, transparent 72%)' }} />
         </div>
-        <Header usage={{ generations, images, limits }} />
+        <Header usage={{ generations, images, limits, imageLimitBypassed: adminImageLimitBypassed }} />
         <main className="w-full max-w-7xl mx-auto px-4 md:px-6 pb-6 pt-6 flex justify-center items-start flex-grow relative z-10">
           {renderContent()}
         </main>
