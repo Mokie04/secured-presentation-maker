@@ -27,11 +27,13 @@ const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v1';
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
+const IMAGE_SKIPPED_PLACEHOLDER = 'image_generation_skipped';
 const NON_EXPORTABLE_IMAGE_STATES = new Set([
   'error',
   'loading',
   USER_IMAGE_LIMIT_PLACEHOLDER,
   PROVIDER_IMAGE_LIMIT_PLACEHOLDER,
+  IMAGE_SKIPPED_PLACEHOLDER,
 ]);
 
 type CachedLessonPlan = {
@@ -372,7 +374,7 @@ const App: React.FC = () => {
   ): Promise<Slide[]> => {
     const muteProgress = options?.muteProgress === true;
     if (IMAGES_DISABLED) {
-        return slidesWithPrompts.map((s) => ({ ...s, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: s.imagePrompt || buildFallbackImagePrompt(s) }));
+        return slidesWithPrompts.map((s) => ({ ...s, imageUrl: IMAGE_SKIPPED_PLACEHOLDER, imagePrompt: s.imagePrompt || buildFallbackImagePrompt(s) }));
     }
     const slidesWithImages = [];
     let rateLimitWasHit = false;
@@ -1083,6 +1085,16 @@ const App: React.FC = () => {
     });
 
     try {
+        if (IMAGES_DISABLED) {
+            setPresentation(prev => {
+                if (!prev) return null;
+                const finalSlides = [...prev.slides];
+                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: IMAGE_SKIPPED_PLACEHOLDER, imagePrompt: newPrompt };
+                return { ...prev, slides: finalSlides };
+            });
+            return;
+        }
+
         if (!canGenerateImage) {
             alert(t.presentation.errorImageLimit.replace('{limit}', limits.images.toString()));
             setPresentation(prev => {

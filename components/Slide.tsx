@@ -18,11 +18,13 @@ const MIN_LABEL_FONT_SIZE = 12;
 const MAX_LABEL_FONT_SIZE = 42;
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
+const IMAGE_SKIPPED_PLACEHOLDER = 'image_generation_skipped';
 const NON_RENDERABLE_IMAGE_STATES = new Set([
   'loading',
   'error',
   USER_IMAGE_LIMIT_PLACEHOLDER,
   PROVIDER_IMAGE_LIMIT_PLACEHOLDER,
+  IMAGE_SKIPPED_PLACEHOLDER,
 ]);
 
 const clampPercent = (value: number): number => Math.max(0, Math.min(100, value));
@@ -315,6 +317,12 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
               <ImageIcon className="w-16 h-16 mb-4 text-yellow-500" />
               <span className="text-base font-semibold text-primary">{t.imageProviderLimitTitle}</span>
               <span className="text-xs mt-1">{t.imageProviderLimitSubtitle}</span>
+            </div>
+          ) : slide.imageUrl === IMAGE_SKIPPED_PLACEHOLDER ? (
+            <div className="w-full h-full flex flex-col items-center justify-center text-secondary p-4 text-center">
+              <ImageIcon className="w-16 h-16 mb-4 text-yellow-500" />
+              <span className="text-base font-semibold text-primary">{t.imageSkippedTitle}</span>
+              <span className="text-xs mt-1">{t.imageSkippedSubtitle}</span>
             </div>
           ) : slide.imageUrl ? (
             <div

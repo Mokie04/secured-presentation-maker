@@ -15,11 +15,15 @@ Create `.env.local` for local/full-stack runs:
 
 ```bash
 GEMINI_API_KEY=your_real_key_here
-# Use xAI/Grok for text generation. Gemini remains available for images.
+# Use xAI/Grok for text generation.
 AI_TEXT_PROVIDER=xai
 XAI_API_KEY=your_xai_key_here
 # Optional xAI text model override. Defaults to grok-4.3.
 # XAI_TEXT_MODEL=grok-4.3
+# Optional image provider. Set to xai to use Grok Imagine instead of Gemini/Imagen.
+# AI_IMAGE_PROVIDER=xai
+# Optional xAI image model override. Defaults to grok-imagine-image-quality.
+# XAI_IMAGE_MODEL=grok-imagine-image-quality
 APPSTORE_AUTH_ENABLED=false
 # Required only when APPSTORE_AUTH_ENABLED=true
 # APPSTORE_SHARED_SECRET=replace_with_long_random_secret
@@ -35,7 +39,9 @@ APPSTORE_AUTH_ENABLED=false
 # Optional: allow paid AI image fallback when open-source image match is not found.
 # Default is false for cost control.
 # VITE_ENABLE_AI_IMAGE_FALLBACK=false
-# Optional Gemini model overrides. Gemini is still used for image generation unless changed in code:
+# Optional: text-only mode. Skips Gemini/Imagen image generation and shows uploadable image placeholders.
+# VITE_DISABLE_IMAGES=true
+# Optional Gemini model overrides. Used only when the corresponding provider is Gemini:
 # VITE_GEMINI_TEXT_MODEL=gemini-2.0-flash-lite
 # VITE_GEMINI_IMAGE_MODEL=gemini-2.0-flash-image
 # Optional shared generated-image cache using Cloudflare R2:
@@ -56,9 +62,9 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 
 ## Image Strategy (Cost + Relevance)
 
-- The app now generates images directly with Google Gemini / Imagen (no open-license image fetch).
+- The app can generate images with xAI Grok Imagine or Google Gemini / Imagen.
 - Only high-confidence matches are used to keep images tightly related to the slide.
-- If Cloudflare R2 env vars are configured, generated images are cached in R2 and reused across devices before calling Gemini again.
+- If Cloudflare R2 env vars are configured, generated images are cached in R2 and reused across devices before calling the image provider again.
 - AI-generated images are instructed to contain no text/labels.
 - Intentional labels should be added with the manual image overlay editor in the slide view.
 
@@ -66,11 +72,15 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 
 Create a private R2 bucket and an R2 API token with object read/write access to that bucket. Add the `R2_*` variables above to Vercel. The app stores generated image bytes at `generated-images/v1/<hmac>.png`; the HMAC key is derived from the normalized image prompt, selected model, aspect ratio, and `R2_IMAGE_CACHE_SECRET`.
 
-If any R2 variable is missing, the app skips shared image caching and falls back to direct Gemini image generation.
+If any R2 variable is missing, the app skips shared image caching and falls back to direct image generation.
 
 ## Text Provider
 
 Set `AI_TEXT_PROVIDER=xai` and `XAI_API_KEY` to use xAI/Grok for lesson-plan, slide, and lecture text generation. The app translates its existing JSON schemas into xAI structured output requests. Gemini can still be used for text by setting `AI_TEXT_PROVIDER=gemini` and `GEMINI_API_KEY`.
+
+For text-only deployments, set `VITE_DISABLE_IMAGES=true`. The app will skip image API calls, keep using the text provider for lesson and slide content, and show image placeholders that can be replaced by manual uploads.
+
+To use xAI for generated slide images, set `AI_IMAGE_PROVIDER=xai`, keep `VITE_DISABLE_IMAGES` unset or `false`, and configure `XAI_API_KEY`. The default xAI image model is `grok-imagine-image-quality`.
 
 ## Local Development
 

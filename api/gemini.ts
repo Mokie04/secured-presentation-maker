@@ -25,7 +25,7 @@ type ImageRequestDetails = {
   aspectRatio: string;
 };
 
-type TextProvider = 'gemini' | 'xai';
+type AIProvider = 'gemini' | 'xai';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -120,11 +120,25 @@ function getImageRequestDetails(contents: unknown, requestConfig: Record<string,
   };
 }
 
-function getTextProvider(): TextProvider {
-  const configuredProvider = process.env.AI_TEXT_PROVIDER?.trim().toLowerCase();
+function normalizeProvider(value: string | undefined): AIProvider | null {
+  const configuredProvider = value?.trim().toLowerCase();
   if (configuredProvider === 'xai' || configuredProvider === 'grok') return 'xai';
   if (configuredProvider === 'gemini') return 'gemini';
+  return null;
+}
+
+function getTextProvider(): AIProvider {
+  const configuredProvider = normalizeProvider(process.env.AI_TEXT_PROVIDER);
+  if (configuredProvider) return configuredProvider;
   return process.env.XAI_API_KEY ? 'xai' : 'gemini';
+}
+
+function getImageProvider(): AIProvider {
+  const configuredProvider = normalizeProvider(process.env.AI_IMAGE_PROVIDER);
+  if (configuredProvider) return configuredProvider;
+  if (process.env.XAI_IMAGE_MODEL?.trim()) return 'xai';
+  if (!process.env.GEMINI_API_KEY && process.env.XAI_API_KEY) return 'xai';
+  return 'gemini';
 }
 
 function normalizeXaiModels(model: string | string[] | undefined): string[] {
@@ -133,15 +147,26 @@ function normalizeXaiModels(model: string | string[] | undefined): string[] {
 
   const models = [
     configuredModel,
-    ...requestedModels.filter((m): m is string => (
-      typeof m === 'string'
-      && m.trim().length > 0
-      && m.trim().toLowerCase().startsWith('grok-')
-    )),
+    ...requestedModels,
     'grok-4.3',
   ]
-    .map((m) => m?.trim())
-    .filter((m): m is string => Boolean(m));
+    .map((m) => (typeof m === 'string' ? m.trim().replace(/^models\//, '') : ''))
+    .filter((m): m is string => Boolean(m) && m.toLowerCase().startsWith('grok-'));
+
+  return Array.from(new Set(models));
+}
+
+function normalizeXaiImageModels(model: string | string[] | undefined): string[] {
+  const configuredModel = process.env.XAI_IMAGE_MODEL?.trim();
+  const requestedModels = Array.isArray(model) ? model : [model];
+
+  const models = [
+    configuredModel,
+    ...requestedModels,
+    'grok-imagine-image-quality',
+  ]
+    .map((m) => (typeof m === 'string' ? m.trim().replace(/^models\//, '') : ''))
+    .filter((m): m is string => Boolean(m) && m.toLowerCase().startsWith('grok-imagine-image'));
 
   return Array.from(new Set(models));
 }
@@ -255,6 +280,79 @@ async function generateXaiText(
   throw lastError || new Error('All xAI model candidates failed.');
 }
 
+function getXaiErrorMessage(payload: any, status: number): string {
+  const message = typeof payload?.error?.message === 'string'
+    ? payload.error.message
+    : typeof payload?.error === 'string'
+      ? payload.error
+      : `xAI request failed with status ${status}.`;
+
+  if (status === 429 && !message.toLowerCase().includes('rate')) {
+    return `rate_limit_exceeded: ${message}`;
+  }
+
+  return message;
+}
+
+function detectImageMimeFromBase64(base64: string): string {
+  const header = Buffer.from(base64.slice(0, 24), 'base64');
+  if (header.length >= 4 && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47) {
+    return 'image/png';
+  }
+  if (header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff) {
+    return 'image/jpeg';
+  }
+  if (header.length >= 12 && header.slice(0, 4).toString('ascii') === 'RIFF' && header.slice(8, 12).toString('ascii') === 'WEBP') {
+    return 'image/webp';
+  }
+  return 'image/jpeg';
+}
+
+async function generateXaiImage(
+  candidateModel: string,
+  imageRequest: ImageRequestDetails,
+): Promise<{ base64: string; mime: string; modelUsed: string }> {
+  const apiKey = process.env.XAI_API_KEY;
+  if (!apiKey) {
+    const error = new Error('Server is missing XAI_API_KEY.') as Error & { status?: number };
+    error.status = 500;
+    throw error;
+  }
+
+  const response = await fetch('https://api.x.ai/v1/images/generations', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: candidateModel,
+      prompt: imageRequest.prompt,
+      n: 1,
+      response_format: 'b64_json',
+      aspect_ratio: imageRequest.aspectRatio,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    const error = new Error(getXaiErrorMessage(payload, response.status)) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
+  }
+
+  const base64 = payload?.data?.[0]?.b64_json;
+  if (typeof base64 !== 'string' || base64.length === 0) {
+    throw new Error('xAI returned no image data.');
+  }
+
+  return {
+    base64,
+    mime: detectImageMimeFromBase64(base64),
+    modelUsed: payload?.model || candidateModel,
+  };
+}
+
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -267,33 +365,43 @@ export default async function handler(req: any, res: any) {
 
   const { task = 'text', model, contents, config: requestConfig } = normalizeBody(req.body);
 
-  // Force v1 text-to-image models that are supported by @google/genai 1.42.0 (Gemini API v1beta)
-  const textProvider = task === 'text' ? getTextProvider() : 'gemini';
-  const modelList = textProvider === 'xai' ? normalizeXaiModels(model) : (Array.isArray(model) ? model : [model]);
+  const provider = task === 'text' ? getTextProvider() : getImageProvider();
+  const modelList = provider === 'xai'
+    ? (task === 'image' ? normalizeXaiImageModels(model) : normalizeXaiModels(model))
+    : (Array.isArray(model) ? model : [model]);
   const normalizedModels = modelList
     .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
     .map((m) => m.trim())
     .map((m) => {
-      if (textProvider === 'xai') return m;
+      if (provider === 'xai') return m;
       // Map older/fallback names to supported ones for the v1beta generateContent endpoint
       if (m.startsWith('gemini-1.5-flash')) return 'models/gemini-1.5-flash-001';
       if (m.startsWith('gemini-2.5-flash-image')) return 'models/gemini-2.5-flash-image';
       if (m.startsWith('imagen-4.0-fast')) return 'models/imagen-4.0-fast-generate-001';
       return m;
     })
-    .map((m) => (m.startsWith('models/') ? m : `models/${m}`));
+    .map((m) => {
+      if (provider === 'xai') return m.replace(/^models\//, '');
+      return m.startsWith('models/') ? m : `models/${m}`;
+    });
   if (!model || !contents) {
     return res.status(400).json({ error: 'Request must include model and contents.' });
   }
 
   const modelCandidates = normalizedModels;
 
+  if (task === 'text' && provider === 'gemini' && modelCandidates.some((m) => m.includes('grok-'))) {
+    return res.status(500).json({
+      error: 'Grok text model was routed to Gemini. Set AI_TEXT_PROVIDER=xai and XAI_API_KEY in Vercel, or remove Grok from Gemini model env vars.',
+    });
+  }
+
   if (modelCandidates.length === 0) {
     return res.status(400).json({ error: 'Request model list is empty.' });
   }
 
   try {
-    if (task === 'text' && textProvider === 'xai') {
+    if (task === 'text' && provider === 'xai') {
       const textResponse = await generateXaiText(modelCandidates, contents, requestConfig);
       return res.status(200).json({
         text: textResponse.text,
@@ -301,6 +409,71 @@ export default async function handler(req: any, res: any) {
         modelUsed: textResponse.modelUsed,
         provider: 'xai',
       });
+    }
+
+    if (task === 'image' && provider === 'xai') {
+      const imageRequest = getImageRequestDetails(contents, requestConfig);
+      let lastError: unknown = null;
+      let lastErrorInfo: GeminiErrorInfo | null = null;
+
+      for (const candidateModel of modelCandidates) {
+        const maxAttemptsForModel = 3;
+        for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
+          try {
+            const cachedImage = attempt === 1
+              ? await getCachedR2Image({
+                prompt: imageRequest.prompt,
+                model: candidateModel,
+                aspectRatio: imageRequest.aspectRatio,
+              })
+              : null;
+
+            if (cachedImage) {
+              return res.status(200).json({
+                dataUrl: cachedImage.dataUrl,
+                modelUsed: candidateModel,
+                provider: 'xai',
+                cache: {
+                  hit: true,
+                  provider: 'r2',
+                },
+              });
+            }
+
+            const generatedImage = await generateXaiImage(candidateModel, imageRequest);
+            const storedImage = await setCachedR2Image({
+              prompt: imageRequest.prompt,
+              model: generatedImage.modelUsed,
+              aspectRatio: imageRequest.aspectRatio,
+            }, generatedImage.base64, generatedImage.mime);
+
+            return res.status(200).json({
+              dataUrl: `data:${generatedImage.mime};base64,${generatedImage.base64}`,
+              modelUsed: generatedImage.modelUsed,
+              provider: 'xai',
+              cache: {
+                hit: false,
+                provider: storedImage ? 'r2' : 'none',
+              },
+            });
+          } catch (error) {
+            lastError = error;
+            lastErrorInfo = extractGeminiErrorInfo(error);
+            const shouldRetry = lastErrorInfo.retryable && attempt < maxAttemptsForModel;
+            if (shouldRetry) {
+              await sleep(getRetryDelayMs(attempt));
+              continue;
+            }
+          }
+        }
+      }
+
+      if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
+        return res.status(503).json({
+          error: 'xAI image generation is temporarily experiencing high demand. Please retry in 20-60 seconds.',
+        });
+      }
+      throw lastError || new Error('All xAI image model candidates failed.');
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
