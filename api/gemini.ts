@@ -26,6 +26,7 @@ type ImageRequestDetails = {
 };
 
 type AIProvider = 'gemini' | 'xai';
+const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 25_000;
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -35,6 +36,15 @@ function getRetryDelayMs(attempt: number): number {
   const baseDelay = Math.min(4000, 900 * Math.pow(2, attempt - 1));
   const jitter = Math.floor(Math.random() * 450);
   return baseDelay + jitter;
+}
+
+function getXaiImageTimeoutMs(): number {
+  const parsed = Number.parseInt(process.env.XAI_IMAGE_TIMEOUT_MS || '', 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_XAI_IMAGE_TIMEOUT_MS;
+  }
+
+  return Math.max(5_000, Math.min(50_000, parsed));
 }
 
 function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
@@ -319,20 +329,38 @@ async function generateXaiImage(
     throw error;
   }
 
-  const response = await fetch('https://api.x.ai/v1/images/generations', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: candidateModel,
-      prompt: imageRequest.prompt,
-      n: 1,
-      response_format: 'b64_json',
-      aspect_ratio: imageRequest.aspectRatio,
-    }),
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), getXaiImageTimeoutMs());
+  let response: Response;
+
+  try {
+    response = await fetch('https://api.x.ai/v1/images/generations', {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: candidateModel,
+        prompt: imageRequest.prompt,
+        n: 1,
+        response_format: 'b64_json',
+        aspect_ratio: imageRequest.aspectRatio,
+      }),
+    });
+  } catch (error) {
+    if ((error as { name?: string })?.name === 'AbortError') {
+      const timeoutError = new Error('xAI image generation timed out before the server limit. Placeholder added; try again later.') as Error & { status?: number };
+      timeoutError.status = 504;
+      throw timeoutError;
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
   const payload = await response.json().catch(() => ({}));
 
   if (!response.ok) {
@@ -417,7 +445,7 @@ export default async function handler(req: any, res: any) {
       let lastErrorInfo: GeminiErrorInfo | null = null;
 
       for (const candidateModel of modelCandidates) {
-        const maxAttemptsForModel = 3;
+        const maxAttemptsForModel = 1;
         for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
           try {
             const cachedImage = attempt === 1
@@ -429,6 +457,12 @@ export default async function handler(req: any, res: any) {
               : null;
 
             if (cachedImage) {
+              console.info('Generated image cache hit', {
+                imageProvider: 'xai',
+                cacheProvider: 'r2',
+                model: candidateModel,
+              });
+
               return res.status(200).json({
                 dataUrl: cachedImage.dataUrl,
                 modelUsed: candidateModel,
@@ -446,6 +480,11 @@ export default async function handler(req: any, res: any) {
               model: generatedImage.modelUsed,
               aspectRatio: imageRequest.aspectRatio,
             }, generatedImage.base64, generatedImage.mime);
+            console.info('Generated image cache write', {
+              imageProvider: 'xai',
+              cacheProvider: storedImage ? 'r2' : 'none',
+              model: generatedImage.modelUsed,
+            });
 
             return res.status(200).json({
               dataUrl: `data:${generatedImage.mime};base64,${generatedImage.base64}`,
@@ -502,6 +541,12 @@ export default async function handler(req: any, res: any) {
               : null;
 
             if (cachedImage) {
+              console.info('Generated image cache hit', {
+                imageProvider: 'gemini',
+                cacheProvider: 'r2',
+                model: candidateModel,
+              });
+
               return res.status(200).json({
                 dataUrl: cachedImage.dataUrl,
                 modelUsed: candidateModel,
@@ -568,6 +613,11 @@ export default async function handler(req: any, res: any) {
           model: modelUsed || modelCandidates[0],
           aspectRatio: imageRequest.aspectRatio,
         }, inline, mime);
+        console.info('Generated image cache write', {
+          imageProvider: 'gemini',
+          cacheProvider: cachedImage ? 'r2' : 'none',
+          model: modelUsed || modelCandidates[0],
+        });
 
         return res.status(200).json({
           dataUrl: `data:${mime};base64,${inline}`,

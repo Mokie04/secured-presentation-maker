@@ -114,7 +114,11 @@ const isImageProviderLimitError = (error: unknown): boolean => {
   return normalized.includes('rate_limit_exceeded')
     || normalized.includes('spending cap')
     || normalized.includes('quota')
-    || normalized.includes('billing');
+    || normalized.includes('billing')
+    || normalized.includes('gateway timeout')
+    || normalized.includes('timed out')
+    || normalized.includes('timeout')
+    || normalized.includes('temporarily experiencing');
 };
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.

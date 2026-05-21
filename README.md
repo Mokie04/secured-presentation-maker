@@ -24,6 +24,8 @@ XAI_API_KEY=your_xai_key_here
 # AI_IMAGE_PROVIDER=xai
 # Optional xAI image model override. Defaults to grok-imagine-image-quality.
 # XAI_IMAGE_MODEL=grok-imagine-image-quality
+# Optional xAI image request timeout in ms. Defaults to 25000 to avoid Vercel 504s.
+# XAI_IMAGE_TIMEOUT_MS=25000
 APPSTORE_AUTH_ENABLED=false
 # Required only when APPSTORE_AUTH_ENABLED=true
 # APPSTORE_SHARED_SECRET=replace_with_long_random_secret

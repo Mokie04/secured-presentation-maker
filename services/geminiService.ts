@@ -115,7 +115,7 @@ async function sleep(ms: number): Promise<void> {
 async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
     const proxyUrl = `${getProxyBaseUrl()}/api/gemini`;
 
-    const maxAttempts = 3;
+    const maxAttempts = payload.task === 'image' ? 1 : 3;
     let lastError: ProxyError | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
