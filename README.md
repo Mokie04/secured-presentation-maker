@@ -36,6 +36,9 @@ APPSTORE_AUTH_ENABLED=false
 # APPSTORE_SESSION_MAX_AGE_SECONDS=3600
 # Optional button target when session is missing
 # VITE_APPSTORE_URL=https://app.yourdomain.com
+# Optional admin image-limit bypass. Comma or space separated.
+# ADMIN_EMAILS=admin@example.com
+# ADMIN_SUBS=appstore-user-id
 # Optional: allow paid AI image fallback when open-source image match is not found.
 # Default is false for cost control.
 # VITE_ENABLE_AI_IMAGE_FALLBACK=false
@@ -128,7 +131,7 @@ Required payload fields:
 - `exp` (unix seconds expiry; 60 seconds is supported)
 - Optional: `email`, `role`, `iat`
 
-Admin image testing: when `role` is `admin`, `owner`, or `super_admin`, the frontend skips the local daily image-generation limit. Provider-side quota, billing, and rate limits still apply.
+Admin image testing: when `role` is `admin`, `owner`, `super_admin`, or `administrator`, or when the verified token `email`/`sub` is listed in `ADMIN_EMAILS`/`ADMIN_SUBS`, the frontend skips the local daily image-generation limit. Provider-side quota, billing, and rate limits still apply.
 
 Example backend signer (Node.js):
 

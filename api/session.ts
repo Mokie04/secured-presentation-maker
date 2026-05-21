@@ -6,6 +6,7 @@ import {
   getSessionMaxAgeSeconds,
   getClaimsFromNodeRequest,
   isAppstoreAuthEnabled,
+  type AppstoreSessionClaims,
   verifyAppstoreAccessToken,
 } from './_sessionAuth.js';
 import { isJtiUsed, markJtiUsed } from '../lib/tokenCache.js';
@@ -13,6 +14,46 @@ import { isJtiUsed, markJtiUsed } from '../lib/tokenCache.js';
 export const config = {
   maxDuration: 30,
 };
+
+const ADMIN_ROLES = new Set(['admin', 'owner', 'super_admin', 'administrator']);
+
+function normalizeRole(value: string | undefined): string {
+  return (value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
+function parseAdminList(value: string | undefined): Set<string> {
+  return new Set(
+    (value || '')
+      .split(/[,\s]+/)
+      .map((item) => item.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+function isAdminUser(claims: Pick<AppstoreSessionClaims, 'sub' | 'email' | 'role'>): boolean {
+  if (ADMIN_ROLES.has(normalizeRole(claims.role))) {
+    return true;
+  }
+
+  const adminEmails = parseAdminList(process.env.ADMIN_EMAILS);
+  const email = (claims.email || '').trim().toLowerCase();
+  if (email && adminEmails.has(email)) {
+    return true;
+  }
+
+  const adminSubs = parseAdminList(process.env.ADMIN_SUBS);
+  const sub = (claims.sub || '').trim().toLowerCase();
+  return Boolean(sub && adminSubs.has(sub));
+}
+
+function buildUserPayload(claims: Pick<AppstoreSessionClaims, 'sub' | 'email' | 'role'>) {
+  return {
+    sub: claims.sub,
+    email: claims.email || '',
+    role: claims.role || '',
+    isAdmin: isAdminUser(claims),
+  };
+}
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'GET') {
@@ -24,7 +65,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       authenticated: true,
       mode: 'disabled',
-      user: { sub: 'dev-bypass' },
+      user: { sub: 'dev-bypass', isAdmin: true },
     });
   }
 
@@ -84,11 +125,7 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json({
       authenticated: true,
       activated: true,
-      user: {
-        sub: claims.sub,
-        email: claims.email || '',
-        role: claims.role || '',
-      },
+      user: buildUserPayload(sessionClaims),
       expiresAt: sessionClaims.exp,
     });
   }
@@ -103,11 +140,7 @@ export default async function handler(req: any, res: any) {
 
   return res.status(200).json({
     authenticated: true,
-    user: {
-      sub: existingClaims.sub,
-      email: existingClaims.email || '',
-      role: existingClaims.role || '',
-    },
+    user: buildUserPayload(existingClaims),
     expiresAt: existingClaims.exp,
   });
 }

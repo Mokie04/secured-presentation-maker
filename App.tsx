@@ -26,6 +26,7 @@ type SessionUser = {
   sub?: string;
   email?: string;
   role?: string;
+  isAdmin?: boolean;
 };
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
@@ -99,8 +100,12 @@ const resetBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint => ({
 });
 
 const hasAdminImageBypass = (user: SessionUser | null): boolean => {
+  if (user?.isAdmin === true) {
+    return true;
+  }
+
   const role = user?.role?.trim().toLowerCase();
-  return role === 'admin' || role === 'owner' || role === 'super_admin';
+  return role === 'admin' || role === 'owner' || role === 'super_admin' || role === 'super-admin' || role === 'administrator';
 };
 
 const isImageProviderLimitError = (error: unknown): boolean => {
