@@ -66,6 +66,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v1';
+const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
@@ -128,6 +129,10 @@ const htmlToStructuredText = (html: string): string => {
 
 const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
   blueprint?.planUnitLabel?.trim() || DEFAULT_PLAN_UNIT_LABEL
+);
+
+const waitForCacheHitLoading = (): Promise<void> => (
+  new Promise((resolve) => setTimeout(resolve, CACHE_HIT_LOADING_DELAY_MS))
 );
 
 const resetBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint => ({
@@ -545,6 +550,7 @@ const App: React.FC = () => {
             ]);
             const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
             if (cachedPresentation) {
+              await waitForCacheHitLoading();
               setPresentation(cachedPresentation);
               setCurrentSlide(0);
               setAppStep('presenting');
@@ -583,6 +589,7 @@ const App: React.FC = () => {
                 ]);
                 const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
                 if (cachedPresentation) {
+                  await waitForCacheHitLoading();
                   setPresentation(cachedPresentation);
                   setCurrentSlide(0);
                   setAppStep('presenting');
@@ -620,6 +627,7 @@ const App: React.FC = () => {
                 ]);
                 const cachedPlan = await getCachedGeneration<CachedLessonPlan>(cacheKey);
                 if (cachedPlan) {
+                  await waitForCacheHitLoading();
                   setLessonBlueprint(resetBlueprintStatus(cachedPlan.blueprint));
                   setPresentation(cachedPlan.initialPresentation);
                   setAppStep('planning');
@@ -711,6 +719,7 @@ const App: React.FC = () => {
         const slideIndexOfNewDay = presentation?.slides.length ?? 0;
 
         if (cachedSlides) {
+            await waitForCacheHitLoading();
             setPresentation(prev => ({
                 title: prev?.title ?? lessonBlueprint.mainTitle,
                 slides: [...(prev?.slides ?? []), ...cachedSlides]
