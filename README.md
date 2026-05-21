@@ -4,10 +4,10 @@
 
 # DLL-aligned Presentation Maker
 
-This app is now structured for Vercel deployment with server-side Gemini access:
+This app is now structured for Vercel deployment with server-side AI access:
 - Frontend: Vite + React static site
 - Backend: Vercel serverless function at `/api/gemini`
-- Secret handling: Gemini API key stays server-side (`GEMINI_API_KEY`)
+- Secret handling: provider API keys stay server-side
 
 ## Environment Variables
 
@@ -15,6 +15,11 @@ Create `.env.local` for local/full-stack runs:
 
 ```bash
 GEMINI_API_KEY=your_real_key_here
+# Use xAI/Grok for text generation. Gemini remains available for images.
+AI_TEXT_PROVIDER=xai
+XAI_API_KEY=your_xai_key_here
+# Optional xAI text model override. Defaults to grok-4.3.
+# XAI_TEXT_MODEL=grok-4.3
 APPSTORE_AUTH_ENABLED=false
 # Required only when APPSTORE_AUTH_ENABLED=true
 # APPSTORE_SHARED_SECRET=replace_with_long_random_secret
@@ -30,7 +35,7 @@ APPSTORE_AUTH_ENABLED=false
 # Optional: allow paid AI image fallback when open-source image match is not found.
 # Default is false for cost control.
 # VITE_ENABLE_AI_IMAGE_FALLBACK=false
-# Optional model overrides (low-cost defaults are already applied in code):
+# Optional Gemini model overrides. Gemini is still used for image generation unless changed in code:
 # VITE_GEMINI_TEXT_MODEL=gemini-2.0-flash-lite
 # VITE_GEMINI_IMAGE_MODEL=gemini-2.0-flash-image
 # Optional shared generated-image cache using Cloudflare R2:
@@ -62,6 +67,10 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 Create a private R2 bucket and an R2 API token with object read/write access to that bucket. Add the `R2_*` variables above to Vercel. The app stores generated image bytes at `generated-images/v1/<hmac>.png`; the HMAC key is derived from the normalized image prompt, selected model, aspect ratio, and `R2_IMAGE_CACHE_SECRET`.
 
 If any R2 variable is missing, the app skips shared image caching and falls back to direct Gemini image generation.
+
+## Text Provider
+
+Set `AI_TEXT_PROVIDER=xai` and `XAI_API_KEY` to use xAI/Grok for lesson-plan, slide, and lecture text generation. The app translates its existing JSON schemas into xAI structured output requests. Gemini can still be used for text by setting `AI_TEXT_PROVIDER=gemini` and `GEMINI_API_KEY`.
 
 ## Local Development
 

@@ -133,7 +133,7 @@ async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
             if (!response.ok) {
                 const errorMessage = typeof data?.error === 'string'
                     ? data.error
-                    : `Gemini request failed with status ${response.status}.`;
+                    : `AI request failed with status ${response.status}.`;
                 const error = new Error(errorMessage) as ProxyError;
                 error.status = response.status;
                 throw error;
@@ -154,19 +154,19 @@ async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
         }
     }
 
-    throw lastError || new Error('Gemini request failed.');
+    throw lastError || new Error('AI request failed.');
 }
 
 function parseJsonModelResponse<T>(text: string | undefined, label: string): T {
     const raw = (text ?? '').trim();
     if (!raw) {
-        throw new Error(`Gemini returned an empty response for ${label}.`);
+        throw new Error(`AI returned an empty response for ${label}.`);
     }
 
     try {
         return JSON.parse(raw) as T;
     } catch (error) {
-        console.error(`Failed to parse Gemini JSON for ${label}. Raw response:`, raw);
+        console.error(`Failed to parse AI JSON for ${label}. Raw response:`, raw);
         throw error;
     }
 }
