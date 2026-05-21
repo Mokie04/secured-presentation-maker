@@ -31,6 +31,7 @@ type SessionUser = {
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v1';
+const ADMIN_IMAGE_BATCH_LIMIT = 8;
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
 const IMAGE_SKIPPED_PLACEHOLDER = 'image_generation_skipped';
@@ -183,6 +184,7 @@ const App: React.FC = () => {
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [authError, setAuthError] = useState<string>('');
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const regeneratingImageIndexesRef = useRef<Set<number>>(new Set());
 
   const { theme } = useTheme();
   const { language } = useLanguage();
@@ -407,8 +409,12 @@ const App: React.FC = () => {
     const totalImagesToAttempt = imagesToGenerate.length;
     let imagesAttemptedCounter = 0;
     
-    const imagesLeftToday = adminImageLimitBypassed ? totalImagesToAttempt : Math.max(0, limits.images - images);
-    const totalImagesThatCanBeGenerated = adminImageLimitBypassed ? totalImagesToAttempt : Math.min(totalImagesToAttempt, imagesLeftToday);
+    const imagesLeftToday = Math.max(0, limits.images - images);
+    const imageAttemptsAllowed = adminImageLimitBypassed
+      ? Math.min(totalImagesToAttempt, ADMIN_IMAGE_BATCH_LIMIT)
+      : Math.min(totalImagesToAttempt, imagesLeftToday);
+    const totalImagesThatCanBeGenerated = imageAttemptsAllowed;
+    let imageAttemptsUsed = 0;
 
     if (!muteProgress) {
       if (totalImagesThatCanBeGenerated > 0) {
@@ -432,9 +438,8 @@ const App: React.FC = () => {
                 newSlide.imagePrompt = promptForGeneration;
             }
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
-            const currentImageCount = images + (slidesWithImages.filter(s => s.imageUrl && s.imageUrl.startsWith('data')).length);
-            if (!adminImageLimitBypassed && currentImageCount >= limits.images) {
-                newSlide.imageUrl = USER_IMAGE_LIMIT_PLACEHOLDER;
+            if (imageAttemptsUsed >= imageAttemptsAllowed) {
+                newSlide.imageUrl = adminImageLimitBypassed ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER;
                 slidesWithImages.push(newSlide);
                 continue;
             }
@@ -445,6 +450,7 @@ const App: React.FC = () => {
                 newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
             } else {
                 imagesAttemptedCounter++;
+                imageAttemptsUsed++;
                 if (!muteProgress) {
                   setLoadingMessage(t.presentation.loadingImages.replace('{current}', imagesAttemptedCounter.toString()).replace('{total}', totalImagesThatCanBeGenerated.toString()));
                 }
@@ -1100,13 +1106,19 @@ const App: React.FC = () => {
   }, [presentation, theme, t, resolveImageForPptx]);
 
   const handleRegenerateImage = useCallback(async (slideIndex: number, newPrompt: string) => {
-    if (!presentation) return;
+    const trimmedPrompt = newPrompt.trim();
+    const originalSlide = presentation?.slides[slideIndex];
+    if (!originalSlide || !trimmedPrompt) return;
+    if (regeneratingImageIndexesRef.current.has(slideIndex)) return;
 
-    const originalSlideStyle = presentation.slides[slideIndex].imageStyle;
+    regeneratingImageIndexesRef.current.add(slideIndex);
+    const originalSlideStyle = originalSlide.imageStyle;
     setPresentation(prev => {
         if (!prev) return null;
         const updatedSlides = [...prev.slides];
-        updatedSlides[slideIndex] = { ...updatedSlides[slideIndex], imagePrompt: newPrompt, imageUrl: 'loading' };
+        const currentSlide = updatedSlides[slideIndex];
+        if (!currentSlide) return prev;
+        updatedSlides[slideIndex] = { ...currentSlide, imagePrompt: trimmedPrompt, imageUrl: 'loading' };
         return { ...prev, slides: updatedSlides };
     });
 
@@ -1115,7 +1127,9 @@ const App: React.FC = () => {
             setPresentation(prev => {
                 if (!prev) return null;
                 const finalSlides = [...prev.slides];
-                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: IMAGE_SKIPPED_PLACEHOLDER, imagePrompt: newPrompt };
+                const currentSlide = finalSlides[slideIndex];
+                if (!currentSlide) return prev;
+                finalSlides[slideIndex] = { ...currentSlide, imageUrl: IMAGE_SKIPPED_PLACEHOLDER, imagePrompt: trimmedPrompt };
                 return { ...prev, slides: finalSlides };
             });
             return;
@@ -1126,20 +1140,24 @@ const App: React.FC = () => {
             setPresentation(prev => {
                 if (!prev) return null;
                 const finalSlides = [...prev.slides];
-                finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: newPrompt };
+                const currentSlide = finalSlides[slideIndex];
+                if (!currentSlide) return prev;
+                finalSlides[slideIndex] = { ...currentSlide, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: trimmedPrompt };
                 return { ...prev, slides: finalSlides };
             });
             return;
         }
 
-        const imageUrl = await generateImageFromPrompt(newPrompt, originalSlideStyle, language);
+        const imageUrl = await generateImageFromPrompt(trimmedPrompt, originalSlideStyle, language);
         if (!adminImageLimitBypassed) {
             incrementCount('images');
         }
         setPresentation(prev => {
             if (!prev) return null;
             const finalSlides = [...prev.slides];
-            finalSlides[slideIndex] = { ...finalSlides[slideIndex], imageUrl: imageUrl, imagePrompt: newPrompt };
+            const currentSlide = finalSlides[slideIndex];
+            if (!currentSlide) return prev;
+            finalSlides[slideIndex] = { ...currentSlide, imageUrl: imageUrl || IMAGE_SKIPPED_PLACEHOLDER, imagePrompt: trimmedPrompt };
             return { ...prev, slides: finalSlides };
         });
     } catch (err) {
@@ -1152,13 +1170,17 @@ const App: React.FC = () => {
         setPresentation(prev => {
             if (!prev) return null;
             const finalSlides = [...prev.slides];
+            const currentSlide = finalSlides[slideIndex];
+            if (!currentSlide) return prev;
             finalSlides[slideIndex] = {
-                ...finalSlides[slideIndex],
+                ...currentSlide,
                 imageUrl: isImageProviderLimitError(err) ? PROVIDER_IMAGE_LIMIT_PLACEHOLDER : 'error',
-                imagePrompt: newPrompt
+                imagePrompt: trimmedPrompt
             };
             return { ...prev, slides: finalSlides };
         });
+    } finally {
+        regeneratingImageIndexesRef.current.delete(slideIndex);
     }
   }, [presentation, adminImageLimitBypassed, canGenerateImage, incrementCount, limits.images, t, language]);
 

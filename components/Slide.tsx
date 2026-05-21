@@ -78,6 +78,7 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
   }, [slide.imageOverlays, slideIndex]);
 
   const renderableImage = Boolean(slide.imageUrl && !NON_RENDERABLE_IMAGE_STATES.has(slide.imageUrl));
+  const imageIsLoading = slide.imageUrl === 'loading';
 
   const selectedOverlay = draftOverlays.find((overlay) => overlay.id === selectedOverlayId) || null;
 
@@ -507,7 +508,8 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
             <div className="absolute top-3 right-3 z-20 flex flex-col sm:flex-row gap-2">
               <button
                 onClick={() => setIsEditingPrompt(true)}
-                className="flex items-center justify-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-primary rounded-lg shadow-neumorphic-outset bg-surface/95 transition-all hover:shadow-neumorphic-inset"
+                disabled={imageIsLoading}
+                className="flex items-center justify-center gap-2 px-3 py-2 text-xs sm:text-sm font-semibold text-primary rounded-lg shadow-neumorphic-outset bg-surface/95 transition-all hover:shadow-neumorphic-inset disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RefreshCwIcon className="w-4 h-4" /> Regenerate
               </button>
@@ -545,7 +547,8 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
                 </button>
                 <button
                   onClick={handleRegenerate}
-                  className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg"
+                  disabled={!currentPrompt.trim()}
+                  className="px-4 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   Generate
                 </button>

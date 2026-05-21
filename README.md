@@ -133,7 +133,7 @@ Required payload fields:
 - `exp` (unix seconds expiry; 60 seconds is supported)
 - Optional: `email`, `role`, `iat`
 
-Admin image testing: when `role` is `admin`, `owner`, `super_admin`, or `administrator`, or when the verified token `email`/`sub` is listed in `ADMIN_EMAILS`/`ADMIN_SUBS`, the frontend skips the local daily image-generation limit. Provider-side quota, billing, and rate limits still apply.
+Admin image testing: when `role` is `admin`, `owner`, `super_admin`, or `administrator`, or when the verified token `email`/`sub` is listed in `ADMIN_EMAILS`/`ADMIN_SUBS`, the frontend skips the local daily image-generation limit. Admin bulk generation is still capped per presentation run to avoid provider timeouts; remaining placeholders can be regenerated manually. Provider-side quota, billing, and rate limits still apply.
 
 Example backend signer (Node.js):
 
