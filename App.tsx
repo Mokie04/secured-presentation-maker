@@ -14,6 +14,7 @@ import Footer from './components/Footer';
 import { useLanguage } from './contexts/LanguageContext';
 import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
+import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -23,6 +24,12 @@ type DepEdMode = 'weekly' | 'single';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v1';
+
+type CachedLessonPlan = {
+  blueprint: LessonBlueprint;
+  initialPresentation: Presentation;
+};
 
 const normalizeExtractedText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
@@ -70,6 +77,11 @@ const htmlToStructuredText = (html: string): string => {
 const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
   blueprint?.planUnitLabel?.trim() || DEFAULT_PLAN_UNIT_LABEL
 );
+
+const resetBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint => ({
+  ...blueprint,
+  days: blueprint.days.map((day) => ({ ...day, generationStatus: 'pending' as const })),
+});
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.
  * @param text The input string.
@@ -231,6 +243,8 @@ const App: React.FC = () => {
         setError("The application's API key is missing from its configuration. Please contact the administrator.");
     } else if (errorMessage.includes("high demand") || errorMessage.includes("UNAVAILABLE") || errorMessage.includes("temporarily experiencing")) {
         setError("The AI service is currently under heavy load. The app retried automatically; please try again in about 1 minute.");
+    } else if (errorMessage.toLowerCase().includes('spending cap')) {
+        setError("The AI project has reached its monthly spending cap. Cached lesson plans can still be reused, but new generations are blocked until the spend cap is raised or the billing cycle resets.");
     } else if (errorMessage.includes('API key not valid')) {
         setError("One of the application's API keys is invalid. Please contact the administrator.");
     } else if (errorMessage.includes('permission') || errorMessage.includes('billing') || errorMessage.includes('quota')) {
@@ -434,6 +448,22 @@ const App: React.FC = () => {
     try {
         // College Flow
         if (teachingLevel === 'College') {
+            setLoadingDuration(45);
+            setLoadingMessage(t.presentation.loadingLecture);
+            const cacheKey = await buildGenerationCacheKey('college-presentation', [
+              GENERATION_CACHE_VERSION,
+              topicContext,
+              objectivesContext,
+              language,
+            ]);
+            const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
+            if (cachedPresentation) {
+              setPresentation(cachedPresentation);
+              setCurrentSlide(0);
+              setAppStep('presenting');
+              return;
+            }
+
             const hasQuota = tryIncrementCount('generations');
             if (!hasQuota) {
               setIsLoading(false);
@@ -441,14 +471,14 @@ const App: React.FC = () => {
               return;
             }
             shouldRollbackGeneration = true;
-            setLoadingDuration(45);
-            setLoadingMessage(t.presentation.loadingLecture);
             const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, language, (msg) => setLoadingMessage(msg));
             setLoadingMessage(t.presentation.loadingTables);
             const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
             const finalSlides = await processSlidesForImages(slidesWithTables, language);
+            const finalPresentation = { ...fullPresentation, slides: finalSlides };
 
-            setPresentation({ ...fullPresentation, slides: finalSlides });
+            setPresentation(finalPresentation);
+            await setCachedGeneration(cacheKey, finalPresentation);
             setCurrentSlide(0);
             setAppStep('presenting');
         } 
@@ -456,6 +486,22 @@ const App: React.FC = () => {
         else if (teachingLevel === 'K-12') {
             // DepEd Single Lesson Flow
             if (depEdMode === 'single') {
+                setLoadingDuration(40);
+                setLoadingMessage(t.presentation.loadingSingleLesson);
+                const cacheKey = await buildGenerationCacheKey('k12-single-presentation', [
+                  GENERATION_CACHE_VERSION,
+                  content,
+                  DEFAULT_LESSON_FORMAT,
+                  language,
+                ]);
+                const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
+                if (cachedPresentation) {
+                  setPresentation(cachedPresentation);
+                  setCurrentSlide(0);
+                  setAppStep('presenting');
+                  return;
+                }
+
                 const hasQuota = tryIncrementCount('generations');
                 if (!hasQuota) {
                   setIsLoading(false);
@@ -463,14 +509,14 @@ const App: React.FC = () => {
                   return;
                 }
                 shouldRollbackGeneration = true;
-                setLoadingDuration(40);
-                setLoadingMessage(t.presentation.loadingSingleLesson);
                 const fullPresentation = await generateK12SingleLessonSlides(content, DEFAULT_LESSON_FORMAT, language, (msg) => setLoadingMessage(msg));
                 setLoadingMessage(t.presentation.loadingTables);
                 const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
                 const finalSlides = await processSlidesForImages(slidesWithTables, language);
+                const finalPresentation = { ...fullPresentation, slides: finalSlides };
 
-                setPresentation({ ...fullPresentation, slides: finalSlides });
+                setPresentation(finalPresentation);
+                await setCachedGeneration(cacheKey, finalPresentation);
                 setCurrentSlide(0);
                 setAppStep('presenting');
             }
@@ -479,11 +525,22 @@ const App: React.FC = () => {
                 // No generation quota consumed for creating the weekly blueprint.
                 setLoadingDuration(20);
                 setLoadingMessage(t.presentation.loadingBlueprint);
+                const cacheKey = await buildGenerationCacheKey('k12-lesson-plan', [
+                  GENERATION_CACHE_VERSION,
+                  content,
+                  DEFAULT_LESSON_FORMAT,
+                  language,
+                ]);
+                const cachedPlan = await getCachedGeneration<CachedLessonPlan>(cacheKey);
+                if (cachedPlan) {
+                  setLessonBlueprint(resetBlueprintStatus(cachedPlan.blueprint));
+                  setPresentation(cachedPlan.initialPresentation);
+                  setAppStep('planning');
+                  return;
+                }
+
                 const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, language);
-                const blueprintWithStatus = {
-                    ...blueprint,
-                    days: blueprint.days.map(d => ({...d, generationStatus: 'pending' as const}))
-                };
+                const blueprintWithStatus = resetBlueprintStatus(blueprint);
                 setLessonBlueprint(blueprintWithStatus);
                 
                 const initialSlides = [
@@ -500,11 +557,13 @@ const App: React.FC = () => {
                 ];
 
                 const processedInitialSlides = await processSlidesForImages(initialSlides, language, { muteProgress: true });
-
-                setPresentation({
+                const initialPresentation = {
                     title: blueprint.mainTitle,
                     slides: processedInitialSlides
-                });
+                };
+
+                setPresentation(initialPresentation);
+                await setCachedGeneration(cacheKey, { blueprint, initialPresentation });
 
                 setAppStep('planning');
             }
@@ -524,12 +583,6 @@ const App: React.FC = () => {
 
   const handleGenerateDailySlides = useCallback(async (dayIndex: number) => {
     if (!lessonBlueprint) return;
-
-    const hasQuota = tryIncrementCount('generations');
-    if (!hasQuota) {
-      setError(t.presentation.errorGenerationLimit);
-      return;
-    }
     
     setLessonBlueprint(prev => {
         if (!prev) return null;
@@ -540,18 +593,68 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
-    let shouldRollbackGeneration = true;
+    let shouldRollbackGeneration = false;
     
     try {
         const dayToGenerate = lessonBlueprint.days[dayIndex];
         const unitLabel = getPlanUnitLabel(lessonBlueprint);
+        const content = dllContent.trim() || topicContext.trim();
+        const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
+          GENERATION_CACHE_VERSION,
+          content,
+          DEFAULT_LESSON_FORMAT,
+          language,
+          unitLabel,
+          {
+            dayNumber: dayToGenerate.dayNumber,
+            title: dayToGenerate.title,
+            focus: dayToGenerate.focus,
+            mainTitle: lessonBlueprint.mainTitle,
+            learningCompetency: lessonBlueprint.learningCompetency,
+          },
+        ]);
+
         setLoadingMessage(
           t.presentation.loadingDailySlides
             .replace('{unitLabel}', unitLabel)
             .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
         );
-        
-        const content = dllContent.trim() || topicContext.trim();
+
+        const cachedSlides = await getCachedGeneration<Slide[]>(cacheKey);
+        const slideIndexOfNewDay = presentation?.slides.length ?? 0;
+
+        if (cachedSlides) {
+            setPresentation(prev => ({
+                title: prev?.title ?? lessonBlueprint.mainTitle,
+                slides: [...(prev?.slides ?? []), ...cachedSlides]
+            }));
+
+            setLessonBlueprint(prev => {
+                if (!prev) return null;
+                const newDays = [...prev.days];
+                newDays[dayIndex].generationStatus = 'done';
+                return {...prev, days: newDays};
+            });
+
+            setCurrentSlide(slideIndexOfNewDay);
+            setAppStep('presenting');
+            shouldRollbackGeneration = false;
+            return;
+        }
+
+        const hasQuota = tryIncrementCount('generations');
+        if (!hasQuota) {
+          setError(t.presentation.errorGenerationLimit);
+          setLessonBlueprint(prev => {
+              if (!prev) return null;
+              const newDays = [...prev.days];
+              newDays[dayIndex].generationStatus = 'pending';
+              return {...prev, days: newDays};
+          });
+          return;
+        }
+
+        shouldRollbackGeneration = true;
         const dailySlides = await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, language);
         
         setLoadingMessage(t.presentation.loadingTables);
@@ -559,12 +662,11 @@ const App: React.FC = () => {
         
         const finalSlides = await processSlidesForImages(slidesWithTables, language);
 
-        const slideIndexOfNewDay = presentation?.slides.length ?? 0;
-
         setPresentation(prev => ({
             title: prev?.title ?? lessonBlueprint.mainTitle,
             slides: [...(prev?.slides ?? []), ...finalSlides]
         }));
+        await setCachedGeneration(cacheKey, finalSlides);
         
         setLessonBlueprint(prev => {
             if (!prev) return null;

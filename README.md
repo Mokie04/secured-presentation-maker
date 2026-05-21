@@ -33,6 +33,12 @@ APPSTORE_AUTH_ENABLED=false
 # Optional model overrides (low-cost defaults are already applied in code):
 # VITE_GEMINI_TEXT_MODEL=gemini-2.0-flash-lite
 # VITE_GEMINI_IMAGE_MODEL=gemini-2.0-flash-image
+# Optional shared generated-image cache using Cloudflare R2:
+# R2_ACCOUNT_ID=your_cloudflare_account_id
+# R2_ACCESS_KEY_ID=your_r2_access_key_id
+# R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
+# R2_BUCKET_NAME=your_private_bucket_name
+# R2_IMAGE_CACHE_SECRET=use_a_long_random_secret_for_cache_keys
 ```
 
 Optional:
@@ -47,10 +53,15 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 
 - The app now generates images directly with Google Gemini / Imagen (no open-license image fetch).
 - Only high-confidence matches are used to keep images tightly related to the slide.
-- Open-source matches are proxied server-side for reliable rendering and PPTX export.
-- Cost-saver default: if no strong open image match is found, paid AI image generation is skipped unless `VITE_ENABLE_AI_IMAGE_FALLBACK=true`.
+- If Cloudflare R2 env vars are configured, generated images are cached in R2 and reused across devices before calling Gemini again.
 - AI-generated images are instructed to contain no text/labels.
 - Intentional labels should be added with the manual image overlay editor in the slide view.
+
+### Cloudflare R2 Image Cache
+
+Create a private R2 bucket and an R2 API token with object read/write access to that bucket. Add the `R2_*` variables above to Vercel. The app stores generated image bytes at `generated-images/v1/<hmac>.png`; the HMAC key is derived from the normalized image prompt, selected model, aspect ratio, and `R2_IMAGE_CACHE_SECRET`.
+
+If any R2 variable is missing, the app skips shared image caching and falls back to direct Gemini image generation.
 
 ## Local Development
 

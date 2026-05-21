@@ -91,6 +91,10 @@ type ProxyError = Error & { status?: number };
 
 function shouldRetryProxyError(status: number | undefined, message: string): boolean {
     const upperMessage = message.toUpperCase();
+    if (upperMessage.includes('SPENDING CAP')) {
+        return false;
+    }
+
     return [429, 500, 502, 503, 504].includes(status || 0)
         || upperMessage.includes('UNAVAILABLE')
         || upperMessage.includes('HIGH DEMAND')

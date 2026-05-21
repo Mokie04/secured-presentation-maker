@@ -1,5 +1,6 @@
 import { GoogleGenAI } from "@google/genai";
 import { requireSession } from "./_sessionAuth.js";
+import { getCachedR2Image, setCachedR2Image } from "./_r2ImageCache.js";
 
 type GeminiProxyRequest = {
   task?: 'text' | 'image';
@@ -17,6 +18,11 @@ type GeminiErrorInfo = {
   code?: number;
   message: string;
   retryable: boolean;
+};
+
+type ImageRequestDetails = {
+  prompt: string;
+  aspectRatio: string;
 };
 
 function sleep(ms: number): Promise<void> {
@@ -71,10 +77,11 @@ function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
   }
 
   const upperMessage = message.toUpperCase();
-  const retryable = [429, 500, 502, 503, 504].includes(status)
+  const isSpendingCapError = upperMessage.includes('SPENDING CAP');
+  const retryable = !isSpendingCapError && ([429, 500, 502, 503, 504].includes(status)
     || upperMessage.includes('UNAVAILABLE')
     || upperMessage.includes('HIGH DEMAND')
-    || upperMessage.includes('TRY AGAIN LATER');
+    || upperMessage.includes('TRY AGAIN LATER'));
 
   return { status, code, message, retryable };
 }
@@ -93,6 +100,22 @@ function normalizeBody(body: unknown): GeminiProxyRequest {
   }
 
   return {};
+}
+
+function getImageRequestDetails(contents: unknown, requestConfig: Record<string, unknown> | undefined): ImageRequestDetails {
+  const imagePrompt =
+    typeof contents === 'string'
+      ? contents
+      : (contents as any)?.parts?.[0]?.text
+        || (contents as any)?.prompt
+        || JSON.stringify(contents);
+
+  const imageConfig = (requestConfig as any)?.imageConfig ?? {};
+
+  return {
+    prompt: imagePrompt,
+    aspectRatio: imageConfig.aspectRatio || '16:9',
+  };
 }
 
 export default async function handler(req: any, res: any) {
@@ -147,22 +170,34 @@ export default async function handler(req: any, res: any) {
       for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
         try {
           if (task === 'image') {
-            const imagePrompt =
-              typeof contents === 'string'
-                ? contents
-                : (contents as any)?.parts?.[0]?.text
-                  || (contents as any)?.prompt
-                  || JSON.stringify(contents);
+            const imageRequest = getImageRequestDetails(contents, requestConfig);
+            const cachedImage = attempt === 1
+              ? await getCachedR2Image({
+                prompt: imageRequest.prompt,
+                model: candidateModel,
+                aspectRatio: imageRequest.aspectRatio,
+              })
+              : null;
 
-            const imageConfig = (requestConfig as any)?.imageConfig ?? {};
+            if (cachedImage) {
+              return res.status(200).json({
+                dataUrl: cachedImage.dataUrl,
+                modelUsed: candidateModel,
+                cache: {
+                  hit: true,
+                  provider: 'r2',
+                },
+              });
+            }
+
             const imgConfig = {
-              aspectRatio: imageConfig.aspectRatio || '16:9',
+              aspectRatio: imageRequest.aspectRatio,
               numberOfImages: 1,
             };
 
             response = await ai.models.generateImages({
               model: candidateModel,
-              prompt: imagePrompt,
+              prompt: imageRequest.prompt,
               config: imgConfig,
             });
           } else {
@@ -205,9 +240,20 @@ export default async function handler(req: any, res: any) {
       const inline = generated?.image?.imageBytes;
       if (inline) {
         const mime = generated?.image?.mimeType || 'image/png';
+        const imageRequest = getImageRequestDetails(contents, requestConfig);
+        const cachedImage = await setCachedR2Image({
+          prompt: imageRequest.prompt,
+          model: modelUsed || modelCandidates[0],
+          aspectRatio: imageRequest.aspectRatio,
+        }, inline, mime);
+
         return res.status(200).json({
           dataUrl: `data:${mime};base64,${inline}`,
           modelUsed,
+          cache: {
+            hit: false,
+            provider: cachedImage ? 'r2' : 'none',
+          },
         });
       }
 
