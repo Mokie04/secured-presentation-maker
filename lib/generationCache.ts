@@ -134,8 +134,8 @@ export const getCachedGeneration = async <T>(key: string): Promise<T | null> => 
     writeStore.put({ ...record, lastAccessedAt: Date.now() });
     await transactionDone(writeTransaction);
     return record.value;
-  } catch (error) {
-    console.warn('Failed to read generation cache:', error);
+  } catch {
+    console.warn('Failed to read saved generation data.');
     return null;
   } finally {
     db?.close();
@@ -153,8 +153,8 @@ export const setCachedGeneration = async <T>(key: string, value: T): Promise<voi
     store.put({ key, value, createdAt: now, lastAccessedAt: now });
     await transactionDone(transaction);
     await trimCache(db);
-  } catch (error) {
-    console.warn('Failed to write generation cache:', error);
+  } catch {
+    console.warn('Failed to save generation data.');
   } finally {
     db?.close();
   }

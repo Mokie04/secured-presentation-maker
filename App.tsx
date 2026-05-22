@@ -161,6 +161,23 @@ const isImageProviderLimitError = (error: unknown): boolean => {
     || normalized.includes('timeout')
     || normalized.includes('temporarily experiencing');
 };
+
+const GENERIC_AUTH_ERROR = 'Secure access is required. Please sign in again from your authorized account.';
+const GENERIC_REQUEST_ERROR = 'Something went wrong while processing your request. Please try again.';
+const SERVICE_LIMIT_ERROR = 'A service limit or billing issue prevented this request. Please contact the administrator.';
+const SERVICE_BUSY_ERROR = 'The service is temporarily busy. Please try again in about 1 minute.';
+const SERVER_CONFIG_ERROR = 'A required server configuration is missing or invalid. Please contact the administrator.';
+const IMAGE_LIMIT_ERROR = 'Image generation is temporarily unavailable because a service limit was reached. A placeholder was added so the slide can still be used.';
+const IMAGE_LIMIT_BATCH_ERROR = 'Image generation is temporarily unavailable because a service limit was reached. Placeholder slides were added so the deck can still be used.';
+
+const getErrorMessage = (error: unknown): string => (
+  error instanceof Error ? error.message : String(error || '')
+);
+
+const getErrorStatus = (error: unknown): number | undefined => {
+  const status = (error as { status?: unknown })?.status;
+  return typeof status === 'number' ? status : undefined;
+};
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.
  * @param text The input string.
@@ -277,12 +294,12 @@ const App: React.FC = () => {
         }
 
         setAuthState('unauthorized');
-        setAuthError(payload?.error || 'Unauthorized access. Please open this tool from your app store account.');
+        setAuthError(GENERIC_AUTH_ERROR);
         setSessionUser(null);
       } catch {
         if (cancelled) return;
         setAuthState('unauthorized');
-        setAuthError('Unable to validate your secure session. Please reopen this tool from your app store.');
+        setAuthError(GENERIC_AUTH_ERROR);
         setSessionUser(null);
       }
     };
@@ -305,33 +322,30 @@ const App: React.FC = () => {
   }, []);
 
   const handleApiError = (e: unknown) => {
-    const errorMessage = (e as Error).message;
-    console.error(e);
+    const errorMessage = getErrorMessage(e);
+    const normalizedError = errorMessage.toLowerCase();
+    const status = getErrorStatus(e);
+    console.error('Request failed.', status ? { status } : undefined);
 
-    // Specific check for when all keys are exhausted.
-    if (errorMessage.includes("RATE_LIMIT_EXCEEDED")) {
-        setError("The application's API usage quota has been exceeded on all available keys. Please contact the administrator or check the billing plan.");
+    if (status === 429 || normalizedError.includes("rate_limit_exceeded")) {
+        setError(SERVICE_LIMIT_ERROR);
         return; // Important to return here to avoid fallback messages.
     }
 
-    if (errorMessage.includes('Unauthorized') || errorMessage.includes('401')) {
+    if (status === 401 || normalizedError.includes('unauthorized') || errorMessage.includes('401')) {
         setAuthState('unauthorized');
-        setAuthError('Your secure session expired. Please reopen this tool from your app store.');
+        setAuthError(GENERIC_AUTH_ERROR);
         return;
     }
     
-    if (errorMessage.includes("API key is missing") || errorMessage.includes("GEMINI_API_KEY")) {
-        setError("The application's API key is missing from its configuration. Please contact the administrator.");
-    } else if (errorMessage.includes("high demand") || errorMessage.includes("UNAVAILABLE") || errorMessage.includes("temporarily experiencing")) {
-        setError("The AI service is currently under heavy load. The app retried automatically; please try again in about 1 minute.");
-    } else if (errorMessage.toLowerCase().includes('spending cap')) {
-        setError("The AI project has reached its monthly spending cap. Cached lesson plans can still be reused, but new generations are blocked until the spend cap is raised or the billing cycle resets.");
-    } else if (errorMessage.includes('API key not valid')) {
-        setError("One of the application's API keys is invalid. Please contact the administrator.");
-    } else if (errorMessage.includes('permission') || errorMessage.includes('billing') || errorMessage.includes('quota')) {
-        setError("An API key has a permission or billing issue. Please contact the administrator.");
+    if (normalizedError.includes("api key") || normalizedError.includes("api_key") || normalizedError.includes("server configuration")) {
+        setError(SERVER_CONFIG_ERROR);
+    } else if (normalizedError.includes("high demand") || normalizedError.includes("unavailable") || normalizedError.includes("temporarily") || normalizedError.includes('timed out') || normalizedError.includes('timeout')) {
+        setError(SERVICE_BUSY_ERROR);
+    } else if (normalizedError.includes('spending cap') || normalizedError.includes('permission') || normalizedError.includes('billing') || normalizedError.includes('quota')) {
+        setError(SERVICE_LIMIT_ERROR);
     } else {
-        setError(`An unexpected error occurred: ${errorMessage}`);
+        setError(GENERIC_REQUEST_ERROR);
     }
   };
   
@@ -503,10 +517,10 @@ const App: React.FC = () => {
                         incrementCount('images');
                     }
                 } catch (imgError) {
-                    console.error(`Failed to generate image for prompt: "${promptForGeneration}"`, imgError);
+                    console.error('Image generation failed.');
                     if (isImageProviderLimitError(imgError)) {
                         rateLimitWasHit = true;
-                        setError("Image generation is currently unavailable because the image provider quota, billing, or spending cap was reached. Placeholder slides were added so the deck can still be used.");
+                        setError(IMAGE_LIMIT_BATCH_ERROR);
                         newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
                     } else {
                         handleApiError(imgError);
@@ -540,8 +554,8 @@ const App: React.FC = () => {
         try {
             const cachedImageUrl = await getCachedImageForPrompt(prompt, slide.imageStyle, refreshLanguage);
             refreshedSlides.push(cachedImageUrl ? { ...slide, imageUrl: cachedImageUrl } : slide);
-        } catch (cacheError) {
-            console.warn('Failed to refresh cached slide image from R2.', cacheError);
+        } catch {
+            console.warn('Failed to refresh a saved slide image.');
             refreshedSlides.push(slide);
         }
     }
@@ -1233,11 +1247,11 @@ const App: React.FC = () => {
             return { ...prev, slides: finalSlides };
         });
     } catch (err) {
-        console.error("Image regeneration failed:", err);
+        console.error('Image regeneration failed.');
         if (!isImageProviderLimitError(err)) {
             handleApiError(err);
         } else {
-            setError("Image generation is currently unavailable because the image provider quota, billing, or spending cap was reached. A placeholder was added so the slide can still be used.");
+            setError(IMAGE_LIMIT_ERROR);
         }
         setPresentation(prev => {
             if (!prev) return null;
@@ -1278,10 +1292,10 @@ const App: React.FC = () => {
         if (promptForCache) {
             cacheUploadedImageForPrompt(promptForCache, imageUrl, styleForCache, language).then((cached) => {
                 if (!cached) {
-                    console.warn('Uploaded image was not written to the shared image cache.');
+                    console.warn('Uploaded image was not saved for reuse.');
                 }
-            }).catch((cacheError) => {
-                console.warn('Failed to cache uploaded slide image.', cacheError);
+            }).catch(() => {
+                console.warn('Failed to save uploaded slide image for reuse.');
             });
         }
     };
@@ -1673,7 +1687,7 @@ const App: React.FC = () => {
         <div className="w-full max-w-2xl bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed animate-fade-in text-center">
           <h2 className="text-2xl md:text-3xl font-extrabold text-primary mb-4">Secure Access Required</h2>
           <p className="text-secondary text-base md:text-lg mb-6">
-            {authError || 'This link is protected. Please open this tool from your signed-in app store account.'}
+            {authError || GENERIC_AUTH_ERROR}
           </p>
           {appStoreUrl && (
             <button
@@ -1688,7 +1702,7 @@ const App: React.FC = () => {
               }}
               className="inline-flex items-center px-5 py-3 rounded-xl bg-brand text-brand-contrast font-semibold shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all"
             >
-              Return to App Store
+              Return to Account
             </button>
           )}
         </div>

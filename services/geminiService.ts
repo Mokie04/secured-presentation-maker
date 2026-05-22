@@ -165,13 +165,13 @@ async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
 function parseJsonModelResponse<T>(text: string | undefined, label: string): T {
     const raw = (text ?? '').trim();
     if (!raw) {
-        throw new Error(`AI returned an empty response for ${label}.`);
+        throw new Error(`The response was empty for ${label}.`);
     }
 
     try {
         return JSON.parse(raw) as T;
     } catch (error) {
-        console.error(`Failed to parse AI JSON for ${label}. Raw response:`, raw);
+        console.error(`Failed to parse generated JSON for ${label}.`);
         throw error;
     }
 }
@@ -748,17 +748,17 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
         }
 
         if (response.blockReason) {
-            throw new Error(`Image generation was blocked. Reason: ${response.blockReason}`);
+            throw new Error('Image generation was blocked. Try a different prompt.');
         }
 
         if (response.explanation) {
-            console.warn(`Model returned text instead of an image for prompt "${prompt}": ${response.explanation}`);
-            throw new Error(`The model returned text instead of an image.`);
+            console.warn('Image generation returned unusable data.');
+            throw new Error('Image generation did not return usable image data.');
         }
 
         throw new Error(response.error || "No image data found in the response.");
     } catch (error) {
-        console.error(`Error generating image with Gemini for prompt: "${prompt}".`, error);
+        console.error('Image generation failed.');
         throw error;
     }
 }

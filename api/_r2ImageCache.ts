@@ -121,7 +121,7 @@ export async function getCachedR2Image(input: ImageCacheInput): Promise<CachedIm
   } catch (error) {
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
     if (statusCode !== 404) {
-      console.warn('Failed to read R2 image cache:', error);
+      console.warn('Failed to read saved image data.', { statusCode });
     }
     return null;
   }
@@ -155,7 +155,8 @@ export async function setCachedR2Image(input: ImageCacheInput, imageBytes: strin
       objectKey,
     };
   } catch (error) {
-    console.warn('Failed to write R2 image cache:', error);
+    const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    console.warn('Failed to write saved image data.', statusCode ? { statusCode } : undefined);
     return null;
   }
 }

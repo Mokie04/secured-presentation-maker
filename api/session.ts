@@ -87,7 +87,7 @@ export default async function handler(req: any, res: any) {
   if (!secret) {
     return res.status(500).json({
       authenticated: false,
-      error: 'Server is missing APPSTORE_SHARED_SECRET.',
+      error: 'Required server configuration is missing.',
     });
   }
 

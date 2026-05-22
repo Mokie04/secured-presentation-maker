@@ -217,7 +217,7 @@ export function requireSession(req: any, res: any): AppstoreSessionClaims | null
   const claims = getClaimsFromNodeRequest(req);
   if (claims) return claims;
 
-  const message = 'Unauthorized: Sign in through the app store first.';
+  const message = 'Unauthorized request.';
   if (typeof res?.status === 'function' && typeof res?.json === 'function') {
     res.status(401).json({ error: message });
   } else if (typeof res?.status === 'function' && typeof res?.send === 'function') {

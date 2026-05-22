@@ -28,6 +28,13 @@ type ImageRequestDetails = {
 type AIProvider = 'gemini' | 'xai';
 const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 25_000;
 const MAX_UPLOADED_IMAGE_BYTES = 6 * 1024 * 1024;
+const GENERIC_REQUEST_ERROR = 'The request could not be completed. Please try again.';
+const INVALID_REQUEST_ERROR = 'The request is missing required data.';
+const SERVER_CONFIG_ERROR = 'A required server configuration is missing or invalid. Please contact the administrator.';
+const SERVICE_BUSY_ERROR = 'The service is temporarily busy. Please try again in about 1 minute.';
+const SERVICE_LIMIT_ERROR = 'A service limit or billing issue prevented this request. Please contact the administrator.';
+const IMAGE_BLOCKED_ERROR = 'Image generation was blocked. Try a different prompt.';
+const IMAGE_DATA_ERROR = 'Image generation did not return usable image data.';
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -51,7 +58,7 @@ function getXaiImageTimeoutMs(): number {
 function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
   const fallback: GeminiErrorInfo = {
     status: 500,
-    message: 'Unknown Gemini proxy error.',
+    message: 'Unknown generation proxy error.',
     retryable: false,
   };
 
@@ -97,6 +104,51 @@ function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
     || upperMessage.includes('TRY AGAIN LATER'));
 
   return { status, code, message, retryable };
+}
+
+function getSafeProxyErrorMessage(info: GeminiErrorInfo): string {
+  const message = info.message.toLowerCase();
+
+  if (info.status === 401 || info.status === 403) {
+    return 'Your session is not active. Please sign in again.';
+  }
+
+  if (message.includes('api key')
+    || message.includes('api_key')
+    || message.includes('credential')
+    || message.includes('server configuration')
+    || (message.includes('missing') && message.includes('key'))) {
+    return SERVER_CONFIG_ERROR;
+  }
+
+  if (info.status === 429
+    || message.includes('rate_limit')
+    || message.includes('quota')
+    || message.includes('billing')
+    || message.includes('spending cap')
+    || message.includes('permission')) {
+    return SERVICE_LIMIT_ERROR;
+  }
+
+  if (info.retryable
+    || [500, 502, 503, 504].includes(info.status)
+    || message.includes('unavailable')
+    || message.includes('high demand')
+    || message.includes('try again later')
+    || message.includes('timed out')
+    || message.includes('timeout')) {
+    return SERVICE_BUSY_ERROR;
+  }
+
+  if (info.status === 400) {
+    return INVALID_REQUEST_ERROR;
+  }
+
+  if (info.status === 422) {
+    return 'The request could not be completed. Please revise the input and try again.';
+  }
+
+  return GENERIC_REQUEST_ERROR;
 }
 
 function normalizeBody(body: unknown): GeminiProxyRequest {
@@ -276,7 +328,7 @@ async function generateXaiText(
             ? payload.error.message
             : typeof payload?.error === 'string'
               ? payload.error
-              : `xAI request failed with status ${response.status}.`;
+              : `Text request failed with status ${response.status}.`;
           const error = new Error(message) as Error & { status?: number };
           error.status = response.status;
           throw error;
@@ -284,7 +336,7 @@ async function generateXaiText(
 
         const text = payload?.choices?.[0]?.message?.content;
         if (typeof text !== 'string') {
-          throw new Error('xAI returned an empty text response.');
+          throw new Error('Text generation returned an empty response.');
         }
 
         return {
@@ -304,12 +356,12 @@ async function generateXaiText(
   }
 
   if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
-    const error = new Error('xAI is temporarily experiencing high demand. Please retry in 20-60 seconds.') as Error & { status?: number };
+    const error = new Error('The service is temporarily busy. Please try again in about 1 minute.') as Error & { status?: number };
     error.status = 503;
     throw error;
   }
 
-  throw lastError || new Error('All xAI model candidates failed.');
+  throw lastError || new Error('All text generation candidates failed.');
 }
 
 function getXaiErrorMessage(payload: any, status: number): string {
@@ -317,7 +369,7 @@ function getXaiErrorMessage(payload: any, status: number): string {
     ? payload.error.message
     : typeof payload?.error === 'string'
       ? payload.error
-      : `xAI request failed with status ${status}.`;
+      : `Image request failed with status ${status}.`;
 
   if (status === 429 && !message.toLowerCase().includes('rate')) {
     return `rate_limit_exceeded: ${message}`;
@@ -373,7 +425,7 @@ async function generateXaiImage(
     });
   } catch (error) {
     if ((error as { name?: string })?.name === 'AbortError') {
-      const timeoutError = new Error('xAI image generation timed out before the server limit. Placeholder added; try again later.') as Error & { status?: number };
+      const timeoutError = new Error('Image generation timed out. Try again later.') as Error & { status?: number };
       timeoutError.status = 504;
       throw timeoutError;
     }
@@ -393,7 +445,7 @@ async function generateXaiImage(
 
   const base64 = payload?.data?.[0]?.b64_json;
   if (typeof base64 !== 'string' || base64.length === 0) {
-    throw new Error('xAI returned no image data.');
+    throw new Error('Image generation returned no image data.');
   }
 
   return {
@@ -436,19 +488,19 @@ export default async function handler(req: any, res: any) {
       return m.startsWith('models/') ? m : `models/${m}`;
     });
   if (!model || !contents) {
-    return res.status(400).json({ error: 'Request must include model and contents.' });
+    return res.status(400).json({ error: INVALID_REQUEST_ERROR });
   }
 
   const modelCandidates = normalizedModels;
 
   if (task === 'text' && provider === 'gemini' && modelCandidates.some((m) => m.includes('grok-'))) {
     return res.status(500).json({
-      error: 'Grok text model was routed to Gemini. Set AI_TEXT_PROVIDER=xai and XAI_API_KEY in Vercel, or remove Grok from Gemini model env vars.',
+      error: SERVER_CONFIG_ERROR,
     });
   }
 
   if (modelCandidates.length === 0) {
-    return res.status(400).json({ error: 'Request model list is empty.' });
+    return res.status(400).json({ error: INVALID_REQUEST_ERROR });
   }
 
   try {
@@ -585,15 +637,15 @@ export default async function handler(req: any, res: any) {
 
       if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
         return res.status(503).json({
-          error: 'xAI image generation is temporarily experiencing high demand. Please retry in 20-60 seconds.',
+          error: SERVICE_BUSY_ERROR,
         });
       }
-      throw lastError || new Error('All xAI image model candidates failed.');
+      throw lastError || new Error('All image generation candidates failed.');
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return res.status(500).json({ error: 'Server is missing GEMINI_API_KEY.' });
+      return res.status(500).json({ error: SERVER_CONFIG_ERROR });
     }
 
     const ai = new GoogleGenAI({ apiKey });
@@ -672,10 +724,10 @@ export default async function handler(req: any, res: any) {
     if (!response) {
       if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
         return res.status(503).json({
-          error: 'Gemini is temporarily experiencing high demand. Please retry in 20-60 seconds.',
+          error: SERVICE_BUSY_ERROR,
         });
       }
-      throw lastError || new Error('All candidate models failed.');
+      throw lastError || new Error('All generation candidates failed.');
     }
 
     if (task === 'image') {
@@ -708,12 +760,12 @@ export default async function handler(req: any, res: any) {
       const raiReason = generated?.raiFilteredReason;
       if (raiReason) {
         return res.status(422).json({
-          error: `Image generation was blocked. Reason: ${raiReason}`,
-          blockReason: raiReason,
+          error: IMAGE_BLOCKED_ERROR,
+          blockReason: 'blocked',
         });
       }
 
-      return res.status(502).json({ error: 'No image data found in the model response.' });
+      return res.status(502).json({ error: IMAGE_DATA_ERROR });
     }
 
     return res.status(200).json({
@@ -723,6 +775,13 @@ export default async function handler(req: any, res: any) {
     });
   } catch (error) {
     const info = extractGeminiErrorInfo(error);
-    return res.status(info.status).json({ error: info.message });
+    const safeMessage = getSafeProxyErrorMessage(info);
+    console.error('Generation proxy request failed.', {
+      status: info.status,
+      code: info.code,
+      retryable: info.retryable,
+      message: safeMessage,
+    });
+    return res.status(info.status).json({ error: safeMessage });
   }
 }
