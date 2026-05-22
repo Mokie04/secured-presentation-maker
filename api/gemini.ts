@@ -553,13 +553,13 @@ export default async function handler(req: any, res: any) {
             const generatedImage = await generateXaiImage(candidateModel, imageRequest);
             const storedImage = await setCachedR2Image({
               prompt: imageRequest.prompt,
-              model: generatedImage.modelUsed,
+              model: candidateModel,
               aspectRatio: imageRequest.aspectRatio,
             }, generatedImage.base64, generatedImage.mime);
             console.info('Generated image cache write', {
               imageProvider: 'xai',
               cacheProvider: storedImage ? 'r2' : 'none',
-              model: generatedImage.modelUsed,
+              model: candidateModel,
             });
 
             return res.status(200).json({
