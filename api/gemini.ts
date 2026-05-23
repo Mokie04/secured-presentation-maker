@@ -23,6 +23,7 @@ type GeminiErrorInfo = {
 type ImageRequestDetails = {
   prompt: string;
   aspectRatio: string;
+  cacheId?: string;
 };
 
 type AIProvider = 'gemini' | 'xai';
@@ -53,6 +54,24 @@ function getXaiImageTimeoutMs(): number {
   }
 
   return Math.max(5_000, Math.min(50_000, parsed));
+}
+
+async function getCachedImageWithPromptFallback(input: {
+  prompt: string;
+  model: string;
+  aspectRatio: string;
+  cacheId?: string;
+}) {
+  const stableCachedImage = await getCachedR2Image(input);
+  if (stableCachedImage || !input.cacheId) {
+    return stableCachedImage;
+  }
+
+  return getCachedR2Image({
+    prompt: input.prompt,
+    model: input.model,
+    aspectRatio: input.aspectRatio,
+  });
 }
 
 function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
@@ -176,10 +195,16 @@ function getImageRequestDetails(contents: unknown, requestConfig: Record<string,
         || JSON.stringify(contents);
 
   const imageConfig = (requestConfig as any)?.imageConfig ?? {};
+  const cacheId = typeof (contents as any)?.cacheId === 'string'
+    ? (contents as any).cacheId.trim()
+    : typeof imageConfig.cacheId === 'string'
+      ? imageConfig.cacheId.trim()
+      : '';
 
   return {
     prompt: imagePrompt,
     aspectRatio: imageConfig.aspectRatio || '16:9',
+    ...(cacheId ? { cacheId } : {}),
   };
 }
 
@@ -509,20 +534,36 @@ export default async function handler(req: any, res: any) {
       const cacheModel = modelCandidates[0];
 
       if (task === 'cachedImage') {
-        const cachedImage = await getCachedR2Image({
-          prompt: imageRequest.prompt,
-          model: cacheModel,
-          aspectRatio: imageRequest.aspectRatio,
-        });
+        for (const candidateModel of modelCandidates) {
+          const cachedImage = await getCachedImageWithPromptFallback({
+            prompt: imageRequest.prompt,
+            model: candidateModel,
+            aspectRatio: imageRequest.aspectRatio,
+            cacheId: imageRequest.cacheId,
+          });
+
+          if (cachedImage) {
+            return res.status(200).json({
+              dataUrl: cachedImage.dataUrl,
+              ok: true,
+              modelUsed: candidateModel,
+              provider,
+              cache: {
+                hit: true,
+                provider: 'r2',
+              },
+            });
+          }
+        }
 
         return res.status(200).json({
-          dataUrl: cachedImage?.dataUrl || '',
+          dataUrl: '',
           ok: true,
           modelUsed: cacheModel,
           provider,
           cache: {
-            hit: Boolean(cachedImage),
-            provider: cachedImage ? 'r2' : 'none',
+            hit: false,
+            provider: 'none',
           },
         });
       }
@@ -538,6 +579,7 @@ export default async function handler(req: any, res: any) {
         prompt: imageRequest.prompt,
         model: cacheModel,
         aspectRatio: imageRequest.aspectRatio,
+        cacheId: imageRequest.cacheId,
       }, uploadedImage.base64, uploadedImage.mime);
 
       console.info('Manual image cache write', {
@@ -577,10 +619,11 @@ export default async function handler(req: any, res: any) {
         for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
           try {
             const cachedImage = attempt === 1
-              ? await getCachedR2Image({
+              ? await getCachedImageWithPromptFallback({
                 prompt: imageRequest.prompt,
                 model: candidateModel,
                 aspectRatio: imageRequest.aspectRatio,
+                cacheId: imageRequest.cacheId,
               })
               : null;
 
@@ -607,6 +650,7 @@ export default async function handler(req: any, res: any) {
               prompt: imageRequest.prompt,
               model: candidateModel,
               aspectRatio: imageRequest.aspectRatio,
+              cacheId: imageRequest.cacheId,
             }, generatedImage.base64, generatedImage.mime);
             console.info('Generated image cache write', {
               imageProvider: 'xai',
@@ -661,10 +705,11 @@ export default async function handler(req: any, res: any) {
           if (task === 'image') {
             const imageRequest = getImageRequestDetails(contents, requestConfig);
             const cachedImage = attempt === 1
-              ? await getCachedR2Image({
+              ? await getCachedImageWithPromptFallback({
                 prompt: imageRequest.prompt,
                 model: candidateModel,
                 aspectRatio: imageRequest.aspectRatio,
+                cacheId: imageRequest.cacheId,
               })
               : null;
 
@@ -740,6 +785,7 @@ export default async function handler(req: any, res: any) {
           prompt: imageRequest.prompt,
           model: modelUsed || modelCandidates[0],
           aspectRatio: imageRequest.aspectRatio,
+          cacheId: imageRequest.cacheId,
         }, inline, mime);
         console.info('Generated image cache write', {
           imageProvider: 'gemini',

@@ -675,7 +675,7 @@ export function buildFinalImagePrompt(prompt: string, style: ImageStyle = 'illus
     return `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
 }
 
-export async function getCachedImageForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<string | null> {
+export async function getCachedImageForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string): Promise<string | null> {
     if (!prompt || style === 'none' || IMAGES_DISABLED) {
         return null;
     }
@@ -687,6 +687,7 @@ export async function getCachedImageForPrompt(prompt: string, style: ImageStyle 
         model: IMAGE_MODELS,
         contents: {
             prompt: finalPrompt,
+            ...(cacheId ? { cacheId } : {}),
         },
         config: {
             imageConfig: {
@@ -698,7 +699,7 @@ export async function getCachedImageForPrompt(prompt: string, style: ImageStyle 
     return response.dataUrl || null;
 }
 
-export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<boolean> {
+export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string): Promise<boolean> {
     if (!prompt || !dataUrl || style === 'none' || IMAGES_DISABLED) {
         return false;
     }
@@ -711,6 +712,7 @@ export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: strin
         contents: {
             prompt: finalPrompt,
             dataUrl,
+            ...(cacheId ? { cacheId } : {}),
         },
         config: {
             imageConfig: {
@@ -722,7 +724,7 @@ export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: strin
     return response.ok === true;
 }
 
-export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL'): Promise<string> {
+export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string): Promise<string> {
     if (!prompt || style === 'none') {
         return Promise.resolve('');
     }
@@ -735,6 +737,7 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
             model: IMAGE_MODELS,
             contents: {
                 parts: [{ text: finalPrompt }],
+                ...(cacheId ? { cacheId } : {}),
             },
             config: {
                 imageConfig: {

@@ -19,6 +19,7 @@ type ImageCacheInput = {
   prompt: string;
   model: string;
   aspectRatio: string;
+  cacheId?: string;
 };
 
 const IMAGE_CACHE_PREFIX = 'generated-images/v1';
@@ -61,13 +62,24 @@ function normalizePrompt(prompt: string): string {
   return prompt.replace(/\s+/g, ' ').trim();
 }
 
+function normalizeCacheId(cacheId: string): string {
+  return cacheId.replace(/\s+/g, ' ').trim();
+}
+
 function createCacheKey(input: ImageCacheInput, cacheSecret: string): string {
-  const payload = JSON.stringify({
-    prompt: normalizePrompt(input.prompt),
-    model: input.model.trim(),
-    aspectRatio: input.aspectRatio.trim(),
-    version: IMAGE_CACHE_PREFIX,
-  });
+  const stableCacheId = input.cacheId ? normalizeCacheId(input.cacheId) : '';
+  const payload = stableCacheId
+    ? JSON.stringify({
+      cacheId: stableCacheId,
+      aspectRatio: input.aspectRatio.trim(),
+      version: IMAGE_CACHE_PREFIX,
+    })
+    : JSON.stringify({
+      prompt: normalizePrompt(input.prompt),
+      model: input.model.trim(),
+      aspectRatio: input.aspectRatio.trim(),
+      version: IMAGE_CACHE_PREFIX,
+    });
 
   return createHmac('sha256', cacheSecret).update(payload).digest('hex');
 }

@@ -16,6 +16,7 @@ export interface Slide {
   imagePrompt?: string; // A descriptive prompt for generating a relevant image.
   imageStyle?: ImageStyle; // The artistic style for the image
   imageUrl?: string; // The data URL of the generated image.
+  imageCacheId?: string; // Stable cache key for reusing the same image across matching generations.
   imageOverlays?: ImageOverlayLabel[]; // Manual label overlays rendered above the image.
   speakerNotes: string; // Notes for the teacher presenting the slide.
 }
