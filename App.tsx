@@ -182,6 +182,17 @@ const getErrorStatus = (error: unknown): number | undefined => {
   const status = (error as { status?: unknown })?.status;
   return typeof status === 'number' ? status : undefined;
 };
+
+const logRequestFailure = (error: unknown, status: number | undefined): void => {
+  if (status) {
+    console.error('Request failed.', { status });
+    return;
+  }
+
+  console.error('Request failed without a response status.', {
+    reason: error instanceof Error ? error.name : typeof error,
+  });
+};
 /**
  * Processes a string to identify parts of chemical formulas that need subscripting.
  * @param text The input string.
@@ -329,7 +340,7 @@ const App: React.FC = () => {
     const errorMessage = getErrorMessage(e);
     const normalizedError = errorMessage.toLowerCase();
     const status = getErrorStatus(e);
-    console.error('Request failed.', status ? { status } : undefined);
+    logRequestFailure(e, status);
 
     if (status === 429 || normalizedError.includes("rate_limit_exceeded")) {
         setError(SERVICE_LIMIT_ERROR);
