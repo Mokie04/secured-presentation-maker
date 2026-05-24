@@ -1,6 +1,7 @@
 import { GoogleGenAI } from "@google/genai";
 import { requireSession } from "./_sessionAuth.js";
 import { getCachedR2Image, setCachedR2Image } from "./_r2ImageCache.js";
+import { getCachedR2TextGeneration, setCachedR2TextGeneration } from "./_r2TextGenerationCache.js";
 
 type GeminiProxyRequest = {
   task?: 'text' | 'image' | 'cacheImage' | 'cachedImage';
@@ -26,7 +27,16 @@ type ImageRequestDetails = {
   cacheId?: string;
 };
 
-type AIProvider = 'gemini' | 'xai';
+type TextGenerationResponse = {
+  text: string;
+  groundingChunks: unknown[];
+  modelUsed?: string | null;
+  provider?: string;
+};
+
+type TextProvider = 'gemini' | 'xai' | 'deepseek';
+type ImageProvider = 'gemini' | 'xai';
+type AIProvider = TextProvider | ImageProvider;
 const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 25_000;
 const MAX_UPLOADED_IMAGE_BYTES = 6 * 1024 * 1024;
 const GENERIC_REQUEST_ERROR = 'The request could not be completed. Please try again.';
@@ -72,6 +82,20 @@ async function getCachedImageWithPromptFallback(input: {
     model: input.model,
     aspectRatio: input.aspectRatio,
   });
+}
+
+function buildTextCacheInput(
+  provider: AIProvider,
+  modelCandidates: string[],
+  contents: unknown,
+  requestConfig: Record<string, unknown> | undefined,
+) {
+  return {
+    provider,
+    models: modelCandidates,
+    contents,
+    config: requestConfig,
+  };
 }
 
 function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
@@ -128,10 +152,6 @@ function extractGeminiErrorInfo(error: unknown): GeminiErrorInfo {
 function getSafeProxyErrorMessage(info: GeminiErrorInfo): string {
   const message = info.message.toLowerCase();
 
-  if (info.status === 401 || info.status === 403) {
-    return 'Your session is not active. Please sign in again.';
-  }
-
   if (message.includes('api key')
     || message.includes('api_key')
     || message.includes('credential')
@@ -140,7 +160,9 @@ function getSafeProxyErrorMessage(info: GeminiErrorInfo): string {
     return SERVER_CONFIG_ERROR;
   }
 
-  if (info.status === 429
+  if (info.status === 401
+    || info.status === 403
+    || info.status === 429
     || message.includes('rate_limit')
     || message.includes('quota')
     || message.includes('billing')
@@ -168,6 +190,26 @@ function getSafeProxyErrorMessage(info: GeminiErrorInfo): string {
   }
 
   return GENERIC_REQUEST_ERROR;
+}
+
+function getSafeProxyStatus(info: GeminiErrorInfo): number {
+  if (info.status === 400 || info.status === 422 || info.status === 429) {
+    return info.status;
+  }
+
+  if (info.status === 503 || info.status === 504) {
+    return info.status;
+  }
+
+  if (info.status === 401 || info.status === 403) {
+    return 502;
+  }
+
+  if (info.status >= 500 && info.status <= 599) {
+    return info.status;
+  }
+
+  return 500;
 }
 
 function normalizeBody(body: unknown): GeminiProxyRequest {
@@ -229,21 +271,30 @@ function parseUploadedImageDataUrl(contents: unknown): { base64: string; mime: s
   return { base64, mime };
 }
 
-function normalizeProvider(value: string | undefined): AIProvider | null {
+function normalizeTextProvider(value: string | undefined): TextProvider | null {
+  const configuredProvider = value?.trim().toLowerCase();
+  if (configuredProvider === 'xai' || configuredProvider === 'grok') return 'xai';
+  if (configuredProvider === 'deepseek' || configuredProvider === 'deepseek-ai') return 'deepseek';
+  if (configuredProvider === 'gemini') return 'gemini';
+  return null;
+}
+
+function normalizeImageProvider(value: string | undefined): ImageProvider | null {
   const configuredProvider = value?.trim().toLowerCase();
   if (configuredProvider === 'xai' || configuredProvider === 'grok') return 'xai';
   if (configuredProvider === 'gemini') return 'gemini';
   return null;
 }
 
-function getTextProvider(): AIProvider {
-  const configuredProvider = normalizeProvider(process.env.AI_TEXT_PROVIDER);
+function getTextProvider(): TextProvider {
+  const configuredProvider = normalizeTextProvider(process.env.AI_TEXT_PROVIDER);
   if (configuredProvider) return configuredProvider;
+  if (process.env.DEEPSEEK_API_KEY) return 'deepseek';
   return process.env.XAI_API_KEY ? 'xai' : 'gemini';
 }
 
-function getImageProvider(): AIProvider {
-  const configuredProvider = normalizeProvider(process.env.AI_IMAGE_PROVIDER);
+function getImageProvider(): ImageProvider {
+  const configuredProvider = normalizeImageProvider(process.env.AI_IMAGE_PROVIDER);
   if (configuredProvider) return configuredProvider;
   if (process.env.XAI_IMAGE_MODEL?.trim()) return 'xai';
   if (!process.env.GEMINI_API_KEY && process.env.XAI_API_KEY) return 'xai';
@@ -265,6 +316,21 @@ function normalizeXaiModels(model: string | string[] | undefined): string[] {
   return Array.from(new Set(models));
 }
 
+function normalizeDeepSeekModels(model: string | string[] | undefined): string[] {
+  const configuredModel = process.env.DEEPSEEK_TEXT_MODEL?.trim();
+  const requestedModels = Array.isArray(model) ? model : [model];
+
+  const models = [
+    configuredModel,
+    ...requestedModels,
+    'deepseek-v4-flash',
+  ]
+    .map((m) => (typeof m === 'string' ? m.trim().replace(/^models\//, '') : ''))
+    .filter((m): m is string => Boolean(m) && m.toLowerCase().startsWith('deepseek-'));
+
+  return Array.from(new Set(models));
+}
+
 function normalizeXaiImageModels(model: string | string[] | undefined): string[] {
   const configuredModel = process.env.XAI_IMAGE_MODEL?.trim();
   const requestedModels = Array.isArray(model) ? model : [model];
@@ -280,7 +346,7 @@ function normalizeXaiImageModels(model: string | string[] | undefined): string[]
   return Array.from(new Set(models));
 }
 
-function buildXaiMessages(contents: unknown): Array<{ role: 'user'; content: string }> {
+function buildChatMessages(contents: unknown): Array<{ role: 'user'; content: string }> {
   const content =
     typeof contents === 'string'
       ? contents
@@ -309,6 +375,17 @@ function buildXaiResponseFormat(requestConfig: Record<string, unknown> | undefin
   };
 }
 
+function buildDeepSeekResponseFormat(requestConfig: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  const responseMimeType = (requestConfig as any)?.responseMimeType;
+  if (responseMimeType !== 'application/json') {
+    return undefined;
+  }
+
+  return {
+    type: 'json_object',
+  };
+}
+
 async function generateXaiText(
   modelCandidates: string[],
   contents: unknown,
@@ -323,7 +400,7 @@ async function generateXaiText(
 
   let lastError: unknown = null;
   let lastErrorInfo: GeminiErrorInfo | null = null;
-  const messages = buildXaiMessages(contents);
+  const messages = buildChatMessages(contents);
   const responseFormat = buildXaiResponseFormat(requestConfig);
   const temperature = typeof (requestConfig as any)?.temperature === 'number'
     ? (requestConfig as any).temperature
@@ -361,6 +438,88 @@ async function generateXaiText(
 
         const text = payload?.choices?.[0]?.message?.content;
         if (typeof text !== 'string') {
+          throw new Error('Text generation returned an empty response.');
+        }
+
+        return {
+          text,
+          modelUsed: payload?.model || candidateModel,
+        };
+      } catch (error) {
+        lastError = error;
+        lastErrorInfo = extractGeminiErrorInfo(error);
+        const shouldRetry = lastErrorInfo.retryable && attempt < maxAttemptsForModel;
+        if (shouldRetry) {
+          await sleep(getRetryDelayMs(attempt));
+          continue;
+        }
+      }
+    }
+  }
+
+  if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
+    const error = new Error('The service is temporarily busy. Please try again in about 1 minute.') as Error & { status?: number };
+    error.status = 503;
+    throw error;
+  }
+
+  throw lastError || new Error('All text generation candidates failed.');
+}
+
+async function generateDeepSeekText(
+  modelCandidates: string[],
+  contents: unknown,
+  requestConfig: Record<string, unknown> | undefined,
+): Promise<{ text: string; modelUsed: string }> {
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  if (!apiKey) {
+    const error = new Error('Server is missing DEEPSEEK_API_KEY.') as Error & { status?: number };
+    error.status = 500;
+    throw error;
+  }
+
+  let lastError: unknown = null;
+  let lastErrorInfo: GeminiErrorInfo | null = null;
+  const messages = buildChatMessages(contents);
+  const responseFormat = buildDeepSeekResponseFormat(requestConfig);
+  const temperature = typeof (requestConfig as any)?.temperature === 'number'
+    ? (requestConfig as any).temperature
+    : undefined;
+
+  for (const candidateModel of modelCandidates) {
+    const maxAttemptsForModel = 3;
+    for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
+      try {
+        const response = await fetch('https://api.deepseek.com/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: candidateModel,
+            messages,
+            stream: false,
+            thinking: { type: 'disabled' },
+            ...(temperature !== undefined ? { temperature } : {}),
+            ...(responseFormat ? { response_format: responseFormat } : {}),
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+          const message = typeof payload?.error?.message === 'string'
+            ? payload.error.message
+            : typeof payload?.error === 'string'
+              ? payload.error
+              : `Text request failed with status ${response.status}.`;
+          const error = new Error(message) as Error & { status?: number };
+          error.status = response.status;
+          throw error;
+        }
+
+        const text = payload?.choices?.[0]?.message?.content;
+        if (typeof text !== 'string' || text.trim().length === 0) {
           throw new Error('Text generation returned an empty response.');
         }
 
@@ -496,12 +655,14 @@ export default async function handler(req: any, res: any) {
   const isImageTask = task === 'image' || task === 'cacheImage' || task === 'cachedImage';
   const modelList = provider === 'xai'
     ? (isImageTask ? normalizeXaiImageModels(model) : normalizeXaiModels(model))
+    : provider === 'deepseek'
+      ? normalizeDeepSeekModels(model)
     : (Array.isArray(model) ? model : [model]);
   const normalizedModels = modelList
     .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
     .map((m) => m.trim())
     .map((m) => {
-      if (provider === 'xai') return m;
+      if (provider === 'xai' || provider === 'deepseek') return m;
       // Map older/fallback names to supported ones for the v1beta generateContent endpoint
       if (m.startsWith('gemini-1.5-flash')) return 'models/gemini-1.5-flash-001';
       if (m.startsWith('gemini-2.5-flash-image')) return 'models/gemini-2.5-flash-image';
@@ -509,7 +670,7 @@ export default async function handler(req: any, res: any) {
       return m;
     })
     .map((m) => {
-      if (provider === 'xai') return m.replace(/^models\//, '');
+      if (provider === 'xai' || provider === 'deepseek') return m.replace(/^models\//, '');
       return m.startsWith('models/') ? m : `models/${m}`;
     });
   if (!model || !contents) {
@@ -529,6 +690,17 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
+    const textCacheInput = task === 'text'
+      ? buildTextCacheInput(provider, modelCandidates, contents, requestConfig)
+      : null;
+
+    if (textCacheInput) {
+      const cachedTextResponse = await getCachedR2TextGeneration<TextGenerationResponse>(textCacheInput);
+      if (cachedTextResponse) {
+        return res.status(200).json(cachedTextResponse);
+      }
+    }
+
     if (task === 'cachedImage' || task === 'cacheImage') {
       const imageRequest = getImageRequestDetails(contents, requestConfig);
       const cacheModel = modelCandidates[0];
@@ -601,12 +773,30 @@ export default async function handler(req: any, res: any) {
 
     if (task === 'text' && provider === 'xai') {
       const textResponse = await generateXaiText(modelCandidates, contents, requestConfig);
-      return res.status(200).json({
+      const responsePayload: TextGenerationResponse = {
         text: textResponse.text,
         groundingChunks: [],
         modelUsed: textResponse.modelUsed,
         provider: 'xai',
-      });
+      };
+      if (textCacheInput) {
+        await setCachedR2TextGeneration(textCacheInput, responsePayload);
+      }
+      return res.status(200).json(responsePayload);
+    }
+
+    if (task === 'text' && provider === 'deepseek') {
+      const textResponse = await generateDeepSeekText(modelCandidates, contents, requestConfig);
+      const responsePayload: TextGenerationResponse = {
+        text: textResponse.text,
+        groundingChunks: [],
+        modelUsed: textResponse.modelUsed,
+        provider: 'deepseek',
+      };
+      if (textCacheInput) {
+        await setCachedR2TextGeneration(textCacheInput, responsePayload);
+      }
+      return res.status(200).json(responsePayload);
     }
 
     if (task === 'image' && provider === 'xai') {
@@ -814,20 +1004,25 @@ export default async function handler(req: any, res: any) {
       return res.status(502).json({ error: IMAGE_DATA_ERROR });
     }
 
-    return res.status(200).json({
+    const responsePayload: TextGenerationResponse = {
       text: response.text ?? '',
       groundingChunks: response.candidates?.[0]?.groundingMetadata?.groundingChunks ?? [],
       modelUsed,
-    });
+    };
+    if (textCacheInput) {
+      await setCachedR2TextGeneration(textCacheInput, responsePayload);
+    }
+    return res.status(200).json(responsePayload);
   } catch (error) {
     const info = extractGeminiErrorInfo(error);
     const safeMessage = getSafeProxyErrorMessage(info);
+    const safeStatus = getSafeProxyStatus(info);
     console.error('Generation proxy request failed.', {
       status: info.status,
       code: info.code,
       retryable: info.retryable,
       message: safeMessage,
     });
-    return res.status(info.status).json({ error: safeMessage });
+    return res.status(safeStatus).json({ error: safeMessage });
   }
 }

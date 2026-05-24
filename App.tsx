@@ -336,6 +336,11 @@ const App: React.FC = () => {
         return; // Important to return here to avoid fallback messages.
     }
 
+    if (status === 403) {
+        setError(SERVICE_LIMIT_ERROR);
+        return;
+    }
+
     if (status === 401 || normalizedError.includes('unauthorized') || errorMessage.includes('401')) {
         setAuthState('unauthorized');
         setAuthError(GENERIC_AUTH_ERROR);

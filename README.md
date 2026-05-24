@@ -15,9 +15,14 @@ Create `.env.local` for local/full-stack runs:
 
 ```bash
 GEMINI_API_KEY=your_real_key_here
-# Use xAI/Grok for text generation.
-AI_TEXT_PROVIDER=xai
-XAI_API_KEY=your_xai_key_here
+# Use DeepSeek for text generation.
+AI_TEXT_PROVIDER=deepseek
+DEEPSEEK_API_KEY=your_deepseek_key_here
+# Optional DeepSeek text model override. Defaults to deepseek-v4-flash.
+# DEEPSEEK_TEXT_MODEL=deepseek-v4-flash
+# Optional xAI/Grok text provider.
+# AI_TEXT_PROVIDER=xai
+# XAI_API_KEY=your_xai_key_here
 # Optional xAI text model override. Defaults to grok-4.3.
 # XAI_TEXT_MODEL=grok-4.3
 # Optional image provider. Set to xai to use Grok Imagine instead of Gemini/Imagen.
@@ -51,11 +56,12 @@ APPSTORE_AUTH_ENABLED=false
 # Optional Gemini model overrides. Used only when the corresponding provider is Gemini:
 # VITE_GEMINI_TEXT_MODEL=gemini-2.0-flash-lite
 # VITE_GEMINI_IMAGE_MODEL=gemini-2.0-flash-image
-# Optional shared generated-image cache using Cloudflare R2:
+# Optional shared generated text/image cache using Cloudflare R2:
 # R2_ACCOUNT_ID=your_cloudflare_account_id
 # R2_ACCESS_KEY_ID=your_r2_access_key_id
 # R2_SECRET_ACCESS_KEY=your_r2_secret_access_key
 # R2_BUCKET_NAME=your_private_bucket_name
+# R2_GENERATION_CACHE_SECRET=use_a_long_random_secret_for_text_cache_keys
 # R2_IMAGE_CACHE_SECRET=use_a_long_random_secret_for_cache_keys
 ```
 
@@ -75,15 +81,17 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 - AI-generated images are instructed to contain no text/labels.
 - Intentional labels should be added with the manual image overlay editor in the slide view.
 
-### Cloudflare R2 Image Cache
+### Cloudflare R2 Shared Cache
 
 Create a private R2 bucket and an R2 API token with object read/write access to that bucket. Add the `R2_*` variables above to Vercel. The app stores generated image bytes at `generated-images/v1/<hmac>.png`; the HMAC key is derived from the normalized image prompt, selected model, aspect ratio, and `R2_IMAGE_CACHE_SECRET`.
 
-If any R2 variable is missing, the app skips shared image caching and falls back to direct image generation.
+The app also stores successful text generation responses at `generated-text/v1/<hmac>.json`; the HMAC key is derived from the normalized request contents, selected text provider/model, request config, and `R2_GENERATION_CACHE_SECRET` or `R2_IMAGE_CACHE_SECRET`. If any required R2 variable is missing, the app skips shared caching and falls back to direct generation.
 
 ## Text Provider
 
-Set `AI_TEXT_PROVIDER=xai` and `XAI_API_KEY` to use xAI/Grok for lesson-plan, slide, and lecture text generation. The app translates its existing JSON schemas into xAI structured output requests. Gemini can still be used for text by setting `AI_TEXT_PROVIDER=gemini` and `GEMINI_API_KEY`.
+Set `AI_TEXT_PROVIDER=deepseek` and `DEEPSEEK_API_KEY` to use DeepSeek for lesson-plan, slide, and lecture text generation. The default DeepSeek text model is `deepseek-v4-flash`; override it with `DEEPSEEK_TEXT_MODEL` when needed.
+
+Set `AI_TEXT_PROVIDER=xai` and `XAI_API_KEY` to use xAI/Grok instead. Gemini can still be used for text by setting `AI_TEXT_PROVIDER=gemini` and `GEMINI_API_KEY`.
 
 For text-only deployments, set `VITE_DISABLE_IMAGES=true`. The app will skip image API calls, keep using the text provider for lesson and slide content, and show image placeholders that can be replaced by manual uploads.
 
