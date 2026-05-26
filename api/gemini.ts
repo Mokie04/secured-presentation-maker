@@ -47,6 +47,50 @@ const SERVICE_LIMIT_ERROR = 'A service limit or billing issue prevented this req
 const IMAGE_BLOCKED_ERROR = 'Image generation was blocked. Try a different prompt.';
 const IMAGE_DATA_ERROR = 'Image generation did not return usable image data.';
 
+function parseConfiguredOrigins(value: string | undefined): Set<string> {
+  return new Set(
+    (value || '')
+      .split(/[,\s]+/)
+      .map((origin) => {
+        try {
+          return new URL(origin).origin;
+        } catch {
+          return '';
+        }
+      })
+      .filter(Boolean)
+  );
+}
+
+function getRequestOrigin(req: any): string {
+  const protocol = typeof req.headers?.['x-forwarded-proto'] === 'string'
+    ? req.headers['x-forwarded-proto'].split(',')[0].trim()
+    : 'https';
+  const host = typeof req.headers?.host === 'string' ? req.headers.host : '';
+  return host ? `${protocol}://${host}` : '';
+}
+
+function applyCorsHeaders(req: any, res: any): boolean {
+  const requestOrigin = typeof req.headers?.origin === 'string' ? req.headers.origin : '';
+  if (!requestOrigin) {
+    return false;
+  }
+
+  const allowedOrigins = parseConfiguredOrigins(process.env.API_ALLOWED_ORIGINS);
+  const isSameOrigin = requestOrigin === getRequestOrigin(req);
+  const isAllowedOrigin = isSameOrigin || allowedOrigins.has(requestOrigin);
+  if (!isAllowedOrigin) {
+    return false;
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Appstore-Access');
+  res.setHeader('Vary', 'Origin');
+  return true;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -640,6 +684,14 @@ async function generateXaiImage(
 }
 
 export default async function handler(req: any, res: any) {
+  const corsAllowed = applyCorsHeaders(req, res);
+
+  if (req.method === 'OPTIONS') {
+    return corsAllowed
+      ? res.status(204).end()
+      : res.status(403).end();
+  }
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ error: 'Method not allowed. Use POST.' });

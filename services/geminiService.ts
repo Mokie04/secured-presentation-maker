@@ -92,7 +92,13 @@ function getProxyBaseUrl(): string {
     return PROXY_FALLBACK_URL;
 }
 
-type ProxyError = Error & { status?: number };
+type ProxyError = Error & {
+    status?: number;
+    code?: 'NETWORK_ERROR' | 'REQUEST_ERROR';
+};
+
+const NETWORK_REQUEST_ERROR = 'The request could not reach the service. Please check your connection and try again.';
+const GENERIC_PROXY_ERROR = 'The request could not be completed. Please try again.';
 
 function shouldRetryProxyError(status: number | undefined, message: string): boolean {
     const upperMessage = message.toUpperCase();
@@ -104,6 +110,30 @@ function shouldRetryProxyError(status: number | undefined, message: string): boo
         || upperMessage.includes('UNAVAILABLE')
         || upperMessage.includes('HIGH DEMAND')
         || upperMessage.includes('TRY AGAIN LATER');
+}
+
+function toProxyError(error: unknown): ProxyError {
+    const existingStatus = (error as { status?: unknown })?.status;
+    const existingCode = (error as { code?: unknown })?.code;
+    if (error instanceof Error && typeof existingStatus === 'number') {
+        return error as ProxyError;
+    }
+
+    if (error instanceof TypeError) {
+        const proxyError = new Error(NETWORK_REQUEST_ERROR) as ProxyError;
+        proxyError.name = 'NetworkError';
+        proxyError.code = 'NETWORK_ERROR';
+        return proxyError;
+    }
+
+    const proxyError = new Error(error instanceof Error && error.message ? error.message : GENERIC_PROXY_ERROR) as ProxyError;
+    proxyError.name = error instanceof Error && error.name ? error.name : 'RequestError';
+    if (existingCode === 'NETWORK_ERROR' || existingCode === 'REQUEST_ERROR') {
+        proxyError.code = existingCode;
+    } else {
+        proxyError.code = 'REQUEST_ERROR';
+    }
+    return proxyError;
 }
 
 function getRetryDelayMs(attempt: number): number {
@@ -146,9 +176,10 @@ async function callGeminiProxy<T>(payload: GeminiProxyRequest): Promise<T> {
 
             return data as T;
         } catch (error) {
-            const proxyError = error as ProxyError;
+            const proxyError = toProxyError(error);
             lastError = proxyError;
-            const retryable = shouldRetryProxyError(proxyError.status, proxyError.message || '');
+            const retryable = proxyError.code === 'NETWORK_ERROR'
+                || shouldRetryProxyError(proxyError.status, proxyError.message || '');
             const hasAttemptsLeft = attempt < maxAttempts;
 
             if (!retryable || !hasAttemptsLeft) {

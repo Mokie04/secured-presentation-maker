@@ -45,6 +45,8 @@ APPSTORE_AUTH_ENABLED=false
 # APPSTORE_SESSION_MAX_AGE_SECONDS=3600
 # Optional button target when session is missing
 # VITE_APPSTORE_URL=https://app.yourdomain.com
+# Optional only when a separate frontend origin calls this API with credentials.
+# API_ALLOWED_ORIGINS=https://your-frontend-domain.com
 # Optional admin image-limit bypass. Comma or space separated.
 # ADMIN_EMAILS=admin@example.com
 # ADMIN_SUBS=appstore-user-id
@@ -71,7 +73,7 @@ Optional:
 VITE_GEMINI_PROXY_BASE_URL=https://your-vercel-domain.vercel.app
 ```
 
-Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere else and needs to call a remote `/api/gemini`.
+Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere else and needs to call a remote `/api/gemini`. If you do that, set `API_ALLOWED_ORIGINS` on the API deployment to the exact frontend origin so browser preflight requests can complete. Same-origin deployments should leave `VITE_GEMINI_PROXY_BASE_URL` empty.
 
 ## Image Strategy (Cost + Relevance)
 

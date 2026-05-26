@@ -183,14 +183,20 @@ const getErrorStatus = (error: unknown): number | undefined => {
   return typeof status === 'number' ? status : undefined;
 };
 
+const getErrorCode = (error: unknown): string | undefined => {
+  const code = (error as { code?: unknown })?.code;
+  return typeof code === 'string' ? code : undefined;
+};
+
 const logRequestFailure = (error: unknown, status: number | undefined): void => {
   if (status) {
     console.error('Request failed.', { status });
     return;
   }
 
+  const code = getErrorCode(error);
   console.error('Request failed without a response status.', {
-    reason: error instanceof Error ? error.name : typeof error,
+    reason: code === 'NETWORK_ERROR' ? 'network' : (error instanceof Error ? error.name : typeof error),
   });
 };
 /**
@@ -355,6 +361,11 @@ const App: React.FC = () => {
     if (status === 401 || normalizedError.includes('unauthorized') || errorMessage.includes('401')) {
         setAuthState('unauthorized');
         setAuthError(GENERIC_AUTH_ERROR);
+        return;
+    }
+
+    if (getErrorCode(e) === 'NETWORK_ERROR') {
+        setError(GENERIC_REQUEST_ERROR);
         return;
     }
     
