@@ -66,6 +66,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v1';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v1';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
@@ -138,6 +139,52 @@ const waitForCacheHitLoading = (): Promise<void> => (
 const buildSlideImageCacheId = (scope: string | undefined, slideIndex: number): string | undefined => (
   scope ? `${scope}:image:${slideIndex}` : undefined
 );
+
+const normalizeImageSemanticText = (value: string | undefined): string => (
+  (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
+);
+
+const getSlideImageRole = (slide: Slide): string => {
+  const text = normalizeImageSemanticText([
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.speakerNotes,
+  ].filter(Boolean).join(' '));
+
+  if (/\b(assignment|homework|takdang|gawain sa bahay)\b/.test(text)) return 'assignment';
+  if (/\b(activity|aktibidad|gawain|group work|experiment|explore)\b/.test(text)) return 'activity';
+  if (/\b(practice|drill|guided practice|independent practice|pagsasanay)\b/.test(text)) return 'practice';
+  if (/\b(evaluation|assessment|quiz|test|exit ticket|evaluating|pagtataya)\b/.test(text)) return 'assessment';
+  if (/\b(review|recap|balik-aral)\b/.test(text)) return 'review';
+  if (/\b(summary|conclusion|generalization|synthesis|paglalahat)\b/.test(text)) return 'summary';
+  if (/\b(objective|goal|layunin)\b/.test(text)) return 'objectives';
+  if (/\b(title|agenda|overview)\b/.test(text)) return 'overview';
+  return 'content';
+};
+
+const getSlideImageSemanticAnchor = (slide: Slide, prompt: string): string => {
+  const slideText = normalizeImageSemanticText([
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.speakerNotes,
+  ].filter(Boolean).join(' '));
+
+  return (slideText || normalizeImageSemanticText(prompt)).slice(0, 420);
+};
+
+const buildK12ImageSemanticScope = (blueprint: Pick<LessonBlueprint, 'subject' | 'gradeLevel' | 'learningCompetency'>) => ({
+  level: 'k12',
+  format: DEFAULT_LESSON_FORMAT,
+  subject: blueprint.subject,
+  gradeLevel: blueprint.gradeLevel,
+  learningCompetency: blueprint.learningCompetency,
+});
+
+const buildTopicImageSemanticScope = (level: TeachingLevel, topic: string, format?: string) => ({
+  level,
+  format: format || '',
+  topic: normalizeImageSemanticText(topic).slice(0, 240),
+});
 
 const resetBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint => ({
   ...blueprint,
@@ -474,18 +521,55 @@ const App: React.FC = () => {
     return bestPrompt ? [bestPrompt] : [];
   }, [buildFallbackImagePrompt]);
 
+  const buildSlideImageSemanticCacheId = useCallback(async (
+    slide: Slide,
+    semanticLanguage: 'EN' | 'FIL',
+    semanticScope?: unknown
+  ): Promise<string | undefined> => {
+    const prompt = (slide.imagePrompt || buildFallbackImagePrompt(slide)).trim();
+    if (!prompt || slide.imageStyle === 'none') {
+      return undefined;
+    }
+
+    return buildGenerationCacheKey('image-semantic', [
+      IMAGE_SEMANTIC_CACHE_VERSION,
+      semanticScope || 'general',
+      semanticLanguage,
+      slide.imageStyle || 'illustration',
+      getSlideImageRole(slide),
+      getSlideImageSemanticAnchor(slide, prompt),
+    ]);
+  }, [buildFallbackImagePrompt]);
+
   const processSlidesForImages = async (
     slidesWithPrompts: Slide[],
     language: 'EN' | 'FIL',
-    options?: { muteProgress?: boolean; imageCacheScope?: string }
+    options?: { muteProgress?: boolean; imageCacheScope?: string; imageSemanticScope?: unknown }
   ): Promise<Slide[]> => {
     const muteProgress = options?.muteProgress === true;
+    const attachImageCacheIds = async (slide: Slide, slideIndex: number): Promise<Slide> => {
+        const imagePrompt = slide.imagePrompt || buildFallbackImagePrompt(slide);
+        const slideWithPrompt = { ...slide, imagePrompt };
+        const imageSemanticCacheId = slide.imageSemanticCacheId || await buildSlideImageSemanticCacheId(
+          slideWithPrompt,
+          language,
+          options?.imageSemanticScope
+        );
+
+        return {
+          ...slideWithPrompt,
+          imageCacheId: slide.imageCacheId || buildSlideImageCacheId(options?.imageCacheScope, slideIndex),
+          ...(imageSemanticCacheId ? { imageSemanticCacheId } : {}),
+        };
+    };
+
     if (IMAGES_DISABLED) {
-        return slidesWithPrompts.map((s, slideIndex) => ({
-          ...s,
-          imageCacheId: s.imageCacheId || buildSlideImageCacheId(options?.imageCacheScope, slideIndex),
-          imageUrl: IMAGE_SKIPPED_PLACEHOLDER,
-          imagePrompt: s.imagePrompt || buildFallbackImagePrompt(s)
+        return Promise.all(slidesWithPrompts.map(async (s, slideIndex) => {
+          const slideWithCacheIds = await attachImageCacheIds(s, slideIndex);
+          return {
+            ...slideWithCacheIds,
+            imageUrl: IMAGE_SKIPPED_PLACEHOLDER,
+          };
         }));
     }
     const slidesWithImages = [];
@@ -510,28 +594,33 @@ const App: React.FC = () => {
       }
     }
 
-    // If image quota is exhausted, return slides without blocking generation.
-    if (!adminImageLimitBypassed && limits.images - images <= 0) {
-        return slidesWithPrompts.map((s, slideIndex) => ({
-          ...s,
-          imageCacheId: s.imageCacheId || buildSlideImageCacheId(options?.imageCacheScope, slideIndex),
-          imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER,
-          imagePrompt: s.imagePrompt || buildFallbackImagePrompt(s)
-        }));
-    }
-    
     for (let slideIndex = 0; slideIndex < slidesWithPrompts.length; slideIndex += 1) {
         const slide = slidesWithPrompts[slideIndex];
-        let newSlide = {
-            ...slide,
-            imageCacheId: slide.imageCacheId || buildSlideImageCacheId(options?.imageCacheScope, slideIndex),
-        };
+        let newSlide = await attachImageCacheIds(slide, slideIndex);
         const promptCandidates = buildImagePromptCandidates(newSlide);
         if (!newSlide.imageUrl && promptCandidates.length > 0) {
             const promptForGeneration = promptCandidates[0];
             if (!newSlide.imagePrompt || !newSlide.imagePrompt.trim()) {
                 newSlide.imagePrompt = promptForGeneration;
             }
+
+            try {
+                const cachedImageUrl = await getCachedImageForPrompt(
+                  promptForGeneration,
+                  newSlide.imageStyle,
+                  language,
+                  newSlide.imageCacheId,
+                  newSlide.imageSemanticCacheId
+                );
+                if (cachedImageUrl) {
+                    newSlide.imageUrl = cachedImageUrl;
+                    slidesWithImages.push(newSlide);
+                    continue;
+                }
+            } catch {
+                console.warn('Failed to check saved slide image before generation.');
+            }
+
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
             if (imageAttemptsUsed >= imageAttemptsAllowed) {
                 newSlide.imageUrl = adminImageLimitBypassed ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER;
@@ -556,7 +645,13 @@ const App: React.FC = () => {
                 }
                 
                 try {
-                    const imageUrl = await generateImageFromPrompt(promptForGeneration, newSlide.imageStyle, language, newSlide.imageCacheId);
+                    const imageUrl = await generateImageFromPrompt(
+                      promptForGeneration,
+                      newSlide.imageStyle,
+                      language,
+                      newSlide.imageCacheId,
+                      newSlide.imageSemanticCacheId
+                    );
                     newSlide.imageUrl = imageUrl;
                     if (!adminImageLimitBypassed) {
                         incrementCount('images');
@@ -583,7 +678,8 @@ const App: React.FC = () => {
   const refreshSlidesWithCachedImages = useCallback(async (
     slidesToRefresh: Slide[],
     refreshLanguage: 'EN' | 'FIL',
-    imageCacheScope?: string
+    imageCacheScope?: string,
+    imageSemanticScope?: unknown
   ): Promise<Slide[]> => {
     if (IMAGES_DISABLED) {
         return slidesToRefresh;
@@ -591,9 +687,18 @@ const App: React.FC = () => {
 
     const refreshedSlides: Slide[] = [];
     for (let slideIndex = 0; slideIndex < slidesToRefresh.length; slideIndex += 1) {
-        const slide = {
+        const baseSlide = {
             ...slidesToRefresh[slideIndex],
             imageCacheId: slidesToRefresh[slideIndex].imageCacheId || buildSlideImageCacheId(imageCacheScope, slideIndex),
+        };
+        const imageSemanticCacheId = baseSlide.imageSemanticCacheId || await buildSlideImageSemanticCacheId(
+          baseSlide,
+          refreshLanguage,
+          imageSemanticScope
+        );
+        const slide = {
+            ...baseSlide,
+            ...(imageSemanticCacheId ? { imageSemanticCacheId } : {}),
         };
         const prompt = (slide.imagePrompt || '').trim();
         if (!prompt || slide.imageStyle === 'none') {
@@ -602,7 +707,13 @@ const App: React.FC = () => {
         }
 
         try {
-            const cachedImageUrl = await getCachedImageForPrompt(prompt, slide.imageStyle, refreshLanguage, slide.imageCacheId);
+            const cachedImageUrl = await getCachedImageForPrompt(
+              prompt,
+              slide.imageStyle,
+              refreshLanguage,
+              slide.imageCacheId,
+              slide.imageSemanticCacheId
+            );
             refreshedSlides.push(cachedImageUrl ? { ...slide, imageUrl: cachedImageUrl } : slide);
         } catch {
             console.warn('Failed to refresh a saved slide image.');
@@ -611,7 +722,7 @@ const App: React.FC = () => {
     }
 
     return refreshedSlides;
-  }, []);
+  }, [buildSlideImageSemanticCacheId]);
 
   const handleCreatePlan = useCallback(async () => {
     setError(null);
@@ -640,10 +751,11 @@ const App: React.FC = () => {
               objectivesContext,
               language,
             ]);
+            const imageSemanticScope = buildTopicImageSemanticScope('College', `${topicContext}\n${objectivesContext}`);
             const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
             if (cachedPresentation) {
               await waitForCacheHitLoading();
-              const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, language, cacheKey);
+              const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, language, cacheKey, imageSemanticScope);
               setPresentation({ ...cachedPresentation, slides: refreshedSlides });
               setCurrentSlide(0);
               setAppStep('presenting');
@@ -660,7 +772,7 @@ const App: React.FC = () => {
             const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, language, (msg) => setLoadingMessage(msg));
             setLoadingMessage(t.presentation.loadingTables);
             const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
-            const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey });
+            const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey, imageSemanticScope });
             const finalPresentation = { ...fullPresentation, slides: finalSlides };
 
             setPresentation(finalPresentation);
@@ -680,10 +792,11 @@ const App: React.FC = () => {
                   DEFAULT_LESSON_FORMAT,
                   language,
                 ]);
+                const imageSemanticScope = buildTopicImageSemanticScope('K-12', content, DEFAULT_LESSON_FORMAT);
                 const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
                 if (cachedPresentation) {
                   await waitForCacheHitLoading();
-                  const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, language, cacheKey);
+                  const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, language, cacheKey, imageSemanticScope);
                   setPresentation({ ...cachedPresentation, slides: refreshedSlides });
                   setCurrentSlide(0);
                   setAppStep('presenting');
@@ -700,7 +813,7 @@ const App: React.FC = () => {
                 const fullPresentation = await generateK12SingleLessonSlides(content, DEFAULT_LESSON_FORMAT, language, (msg) => setLoadingMessage(msg));
                 setLoadingMessage(t.presentation.loadingTables);
                 const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
-                const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey });
+                const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey, imageSemanticScope });
                 const finalPresentation = { ...fullPresentation, slides: finalSlides };
 
                 setPresentation(finalPresentation);
@@ -722,7 +835,8 @@ const App: React.FC = () => {
                 const cachedPlan = await getCachedGeneration<CachedLessonPlan>(cacheKey);
                 if (cachedPlan) {
                   await waitForCacheHitLoading();
-                  const refreshedInitialSlides = await refreshSlidesWithCachedImages(cachedPlan.initialPresentation.slides, language, cacheKey);
+                  const imageSemanticScope = buildK12ImageSemanticScope(cachedPlan.blueprint);
+                  const refreshedInitialSlides = await refreshSlidesWithCachedImages(cachedPlan.initialPresentation.slides, language, cacheKey, imageSemanticScope);
                   setLessonBlueprint(resetBlueprintStatus(cachedPlan.blueprint));
                   setPresentation({ ...cachedPlan.initialPresentation, slides: refreshedInitialSlides });
                   setAppStep('planning');
@@ -731,6 +845,7 @@ const App: React.FC = () => {
 
                 const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, language);
                 const blueprintWithStatus = resetBlueprintStatus(blueprint);
+                const imageSemanticScope = buildK12ImageSemanticScope(blueprint);
                 setLessonBlueprint(blueprintWithStatus);
                 
                 const initialSlides = [
@@ -746,7 +861,7 @@ const App: React.FC = () => {
                     }
                 ];
 
-                const processedInitialSlides = await processSlidesForImages(initialSlides, language, { muteProgress: true, imageCacheScope: cacheKey });
+                const processedInitialSlides = await processSlidesForImages(initialSlides, language, { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope });
                 const initialPresentation = {
                     title: blueprint.mainTitle,
                     slides: processedInitialSlides
@@ -811,6 +926,7 @@ const App: React.FC = () => {
           unitLabel,
           dayToGenerate.dayNumber,
         ]);
+        const imageSemanticScope = buildK12ImageSemanticScope(lessonBlueprint);
 
         setLoadingMessage(
           t.presentation.loadingDailySlides
@@ -823,7 +939,7 @@ const App: React.FC = () => {
 
         if (cachedSlides) {
             await waitForCacheHitLoading();
-            const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, language, imageCacheScope);
+            const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, language, imageCacheScope, imageSemanticScope);
             setPresentation(prev => ({
                 title: prev?.title ?? lessonBlueprint.mainTitle,
                 slides: [...(prev?.slides ?? []), ...refreshedSlides]
@@ -860,7 +976,7 @@ const App: React.FC = () => {
         setLoadingMessage(t.presentation.loadingTables);
         const slidesWithTables = await processSlidesForTables(dailySlides);
         
-        const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope });
+        const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope });
 
         setPresentation(prev => ({
             title: prev?.title ?? lessonBlueprint.mainTitle,
@@ -1292,7 +1408,13 @@ const App: React.FC = () => {
             return;
         }
 
-        const imageUrl = await generateImageFromPrompt(trimmedPrompt, originalSlideStyle, language, originalSlide.imageCacheId);
+        const imageUrl = await generateImageFromPrompt(
+            trimmedPrompt,
+            originalSlideStyle,
+            language,
+            originalSlide.imageCacheId,
+            originalSlide.imageSemanticCacheId
+        );
         if (!adminImageLimitBypassed) {
             incrementCount('images');
         }
@@ -1335,6 +1457,7 @@ const App: React.FC = () => {
         : '';
     const styleForCache = slideForCache?.imageStyle;
     const imageCacheId = slideForCache?.imageCacheId;
+    const imageSemanticCacheId = slideForCache?.imageSemanticCacheId;
     const reader = new FileReader();
     reader.onload = (event) => {
         const imageUrl = event.target?.result as string;
@@ -1349,7 +1472,7 @@ const App: React.FC = () => {
         });
 
         if (promptForCache) {
-            cacheUploadedImageForPrompt(promptForCache, imageUrl, styleForCache, language, imageCacheId).then((cached) => {
+            cacheUploadedImageForPrompt(promptForCache, imageUrl, styleForCache, language, imageCacheId, imageSemanticCacheId).then((cached) => {
                 if (!cached) {
                     console.warn('Uploaded image was not saved for reuse.');
                 }

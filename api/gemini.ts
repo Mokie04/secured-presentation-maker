@@ -25,6 +25,7 @@ type ImageRequestDetails = {
   prompt: string;
   aspectRatio: string;
   cacheId?: string;
+  semanticCacheId?: string;
 };
 
 type TextGenerationResponse = {
@@ -115,9 +116,10 @@ async function getCachedImageWithPromptFallback(input: {
   model: string;
   aspectRatio: string;
   cacheId?: string;
+  semanticCacheId?: string;
 }) {
   const stableCachedImage = await getCachedR2Image(input);
-  if (stableCachedImage || !input.cacheId) {
+  if (stableCachedImage || (!input.cacheId && !input.semanticCacheId)) {
     return stableCachedImage;
   }
 
@@ -286,11 +288,17 @@ function getImageRequestDetails(contents: unknown, requestConfig: Record<string,
     : typeof imageConfig.cacheId === 'string'
       ? imageConfig.cacheId.trim()
       : '';
+  const semanticCacheId = typeof (contents as any)?.semanticCacheId === 'string'
+    ? (contents as any).semanticCacheId.trim()
+    : typeof imageConfig.semanticCacheId === 'string'
+      ? imageConfig.semanticCacheId.trim()
+      : '';
 
   return {
     prompt: imagePrompt,
     aspectRatio: imageConfig.aspectRatio || '16:9',
     ...(cacheId ? { cacheId } : {}),
+    ...(semanticCacheId ? { semanticCacheId } : {}),
   };
 }
 
@@ -764,6 +772,7 @@ export default async function handler(req: any, res: any) {
             model: candidateModel,
             aspectRatio: imageRequest.aspectRatio,
             cacheId: imageRequest.cacheId,
+            semanticCacheId: imageRequest.semanticCacheId,
           });
 
           if (cachedImage) {
@@ -804,6 +813,7 @@ export default async function handler(req: any, res: any) {
         model: cacheModel,
         aspectRatio: imageRequest.aspectRatio,
         cacheId: imageRequest.cacheId,
+        semanticCacheId: imageRequest.semanticCacheId,
       }, uploadedImage.base64, uploadedImage.mime);
 
       console.info('Manual image cache write', {
@@ -866,6 +876,7 @@ export default async function handler(req: any, res: any) {
                 model: candidateModel,
                 aspectRatio: imageRequest.aspectRatio,
                 cacheId: imageRequest.cacheId,
+                semanticCacheId: imageRequest.semanticCacheId,
               })
               : null;
 
@@ -893,6 +904,7 @@ export default async function handler(req: any, res: any) {
               model: candidateModel,
               aspectRatio: imageRequest.aspectRatio,
               cacheId: imageRequest.cacheId,
+              semanticCacheId: imageRequest.semanticCacheId,
             }, generatedImage.base64, generatedImage.mime);
             console.info('Generated image cache write', {
               imageProvider: 'xai',
@@ -952,6 +964,7 @@ export default async function handler(req: any, res: any) {
                 model: candidateModel,
                 aspectRatio: imageRequest.aspectRatio,
                 cacheId: imageRequest.cacheId,
+                semanticCacheId: imageRequest.semanticCacheId,
               })
               : null;
 
@@ -1028,6 +1041,7 @@ export default async function handler(req: any, res: any) {
           model: modelUsed || modelCandidates[0],
           aspectRatio: imageRequest.aspectRatio,
           cacheId: imageRequest.cacheId,
+          semanticCacheId: imageRequest.semanticCacheId,
         }, inline, mime);
         console.info('Generated image cache write', {
           imageProvider: 'gemini',

@@ -17,6 +17,7 @@ export interface Slide {
   imageStyle?: ImageStyle; // The artistic style for the image
   imageUrl?: string; // The data URL of the generated image.
   imageCacheId?: string; // Stable cache key for reusing the same image across matching generations.
+  imageSemanticCacheId?: string; // Concept-level cache key for reusing images across similar slide contexts.
   imageOverlays?: ImageOverlayLabel[]; // Manual label overlays rendered above the image.
   speakerNotes: string; // Notes for the teacher presenting the slide.
 }

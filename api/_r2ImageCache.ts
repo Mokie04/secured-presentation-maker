@@ -20,6 +20,7 @@ type ImageCacheInput = {
   model: string;
   aspectRatio: string;
   cacheId?: string;
+  semanticCacheId?: string;
 };
 
 const IMAGE_CACHE_PREFIX = 'generated-images/v1';
@@ -66,8 +67,8 @@ function normalizeCacheId(cacheId: string): string {
   return cacheId.replace(/\s+/g, ' ').trim();
 }
 
-function createCacheKey(input: ImageCacheInput, cacheSecret: string): string {
-  const stableCacheId = input.cacheId ? normalizeCacheId(input.cacheId) : '';
+function createCacheKey(input: ImageCacheInput, cacheSecret: string, cacheId?: string): string {
+  const stableCacheId = cacheId ? normalizeCacheId(cacheId) : '';
   const payload = stableCacheId
     ? JSON.stringify({
       cacheId: stableCacheId,
@@ -82,6 +83,15 @@ function createCacheKey(input: ImageCacheInput, cacheSecret: string): string {
     });
 
   return createHmac('sha256', cacheSecret).update(payload).digest('hex');
+}
+
+function getStableCacheIds(input: ImageCacheInput): string[] {
+  return Array.from(new Set([
+    input.cacheId,
+    input.semanticCacheId,
+  ]
+    .map((cacheId) => (typeof cacheId === 'string' ? normalizeCacheId(cacheId) : ''))
+    .filter(Boolean)));
 }
 
 function objectKeyForCacheKey(cacheKey: string): string {
@@ -110,11 +120,12 @@ function dataUrlFromBuffer(buffer: Buffer, contentType: string | undefined): str
   return `data:${mime};base64,${buffer.toString('base64')}`;
 }
 
-export async function getCachedR2Image(input: ImageCacheInput): Promise<CachedImage | null> {
-  const config = getConfig();
-  if (!config) return null;
-
-  const cacheKey = createCacheKey(input, config.cacheSecret);
+async function getCachedR2ImageForKey(
+  input: ImageCacheInput,
+  config: R2ImageCacheConfig,
+  cacheId?: string,
+): Promise<CachedImage | null> {
+  const cacheKey = createCacheKey(input, config.cacheSecret, cacheId);
   const objectKey = objectKeyForCacheKey(cacheKey);
 
   try {
@@ -139,11 +150,27 @@ export async function getCachedR2Image(input: ImageCacheInput): Promise<CachedIm
   }
 }
 
-export async function setCachedR2Image(input: ImageCacheInput, imageBytes: string, contentType: string): Promise<CachedImage | null> {
+export async function getCachedR2Image(input: ImageCacheInput): Promise<CachedImage | null> {
   const config = getConfig();
   if (!config) return null;
 
-  const cacheKey = createCacheKey(input, config.cacheSecret);
+  const stableCacheIds = getStableCacheIds(input);
+  for (const cacheId of stableCacheIds) {
+    const cachedImage = await getCachedR2ImageForKey(input, config, cacheId);
+    if (cachedImage) return cachedImage;
+  }
+
+  return getCachedR2ImageForKey(input, config);
+}
+
+async function setCachedR2ImageForKey(
+  input: ImageCacheInput,
+  imageBytes: string,
+  contentType: string,
+  config: R2ImageCacheConfig,
+  cacheId?: string,
+): Promise<CachedImage | null> {
+  const cacheKey = createCacheKey(input, config.cacheSecret, cacheId);
   const objectKey = objectKeyForCacheKey(cacheKey);
   const buffer = Buffer.from(imageBytes, 'base64');
 
@@ -171,4 +198,24 @@ export async function setCachedR2Image(input: ImageCacheInput, imageBytes: strin
     console.warn('Failed to write saved image data.', statusCode ? { statusCode } : undefined);
     return null;
   }
+}
+
+export async function setCachedR2Image(input: ImageCacheInput, imageBytes: string, contentType: string): Promise<CachedImage | null> {
+  const config = getConfig();
+  if (!config) return null;
+
+  const stableCacheIds = getStableCacheIds(input);
+  if (stableCacheIds.length === 0) {
+    return setCachedR2ImageForKey(input, imageBytes, contentType, config);
+  }
+
+  let firstStoredImage: CachedImage | null = null;
+  for (const cacheId of stableCacheIds) {
+    const storedImage = await setCachedR2ImageForKey(input, imageBytes, contentType, config, cacheId);
+    if (!firstStoredImage && storedImage) {
+      firstStoredImage = storedImage;
+    }
+  }
+
+  return firstStoredImage;
 }
