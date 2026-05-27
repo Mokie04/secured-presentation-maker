@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 
 type R2ImageCacheConfig = {
@@ -225,6 +225,14 @@ function semanticIndexKey(input: ImageCacheInput): string | null {
   return `${SEMANTIC_IMAGE_INDEX_PREFIX}:${semanticCacheId}`;
 }
 
+function semanticIndexObjectKey(input: ImageCacheInput): string | null {
+  const semanticCacheId = input.semanticCacheId ? normalizeCacheId(input.semanticCacheId) : '';
+  if (!semanticCacheId) return null;
+
+  const indexHash = createHash('sha256').update(semanticCacheId).digest('hex');
+  return `${SEMANTIC_IMAGE_CACHE_PREFIX}/_index/${indexHash}.json`;
+}
+
 async function getKvRecord<T>(key: string): Promise<T | null> {
   const config = getKvConfig();
   if (!config) return null;
@@ -276,6 +284,48 @@ async function setKvRecord<T>(key: string, value: T): Promise<boolean> {
     return true;
   } catch {
     console.warn('Failed to write semantic image index.');
+    return false;
+  }
+}
+
+async function getR2JsonRecord<T>(
+  objectKey: string,
+  config: R2ImageCacheConfig,
+): Promise<T | null> {
+  try {
+    const response = await getClient(config).send(new GetObjectCommand({
+      Bucket: config.bucketName,
+      Key: objectKey,
+    }));
+    const buffer = await streamToBuffer(response.Body);
+    if (buffer.length === 0) return null;
+    return JSON.parse(buffer.toString('utf8')) as T;
+  } catch (error) {
+    const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    if (statusCode !== 404) {
+      console.warn('Failed to read semantic image R2 index.', { statusCode });
+    }
+    return null;
+  }
+}
+
+async function setR2JsonRecord<T>(
+  objectKey: string,
+  value: T,
+  config: R2ImageCacheConfig,
+): Promise<boolean> {
+  try {
+    await getClient(config).send(new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: objectKey,
+      Body: JSON.stringify(value),
+      ContentType: 'application/json; charset=utf-8',
+      CacheControl: 'private, max-age=31536000, immutable',
+    }));
+    return true;
+  } catch (error) {
+    const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    console.warn('Failed to write semantic image R2 index.', statusCode ? { statusCode } : undefined);
     return false;
   }
 }
@@ -339,6 +389,15 @@ async function getCachedSemanticR2Image(
   const indexKey = semanticIndexKey(input);
   if (indexKey) {
     const record = await getKvRecord<SemanticImageCacheRecord>(indexKey);
+    if (record?.objectKey) {
+      const indexedImage = await getCachedR2ImageObject(record.objectKey, record.cacheKey || semanticCacheKey, config);
+      if (indexedImage) return indexedImage;
+    }
+  }
+
+  const indexObjectKey = semanticIndexObjectKey(input);
+  if (indexObjectKey) {
+    const record = await getR2JsonRecord<SemanticImageCacheRecord>(indexObjectKey, config);
     if (record?.objectKey) {
       const indexedImage = await getCachedR2ImageObject(record.objectKey, record.cacheKey || semanticCacheKey, config);
       if (indexedImage) return indexedImage;
@@ -453,6 +512,15 @@ async function setCachedSemanticR2Image(
   const objectKey = objectKeyForSemanticCacheKey(input, cacheKey, contentType);
   const metadata = normalizeSemanticMetadata(input.semanticMetadata);
   const promptHash = createPromptHash(input, config.cacheSecret);
+  const record: SemanticImageCacheRecord = {
+    version: SEMANTIC_IMAGE_CACHE_PREFIX,
+    cacheKey,
+    objectKey,
+    contentType,
+    createdAt: new Date().toISOString(),
+    promptHash,
+    metadata,
+  };
 
   try {
     await getClient(config).send(new PutObjectCommand({
@@ -469,15 +537,11 @@ async function setCachedSemanticR2Image(
       },
     }));
 
-    await setKvRecord<SemanticImageCacheRecord>(indexKey, {
-      version: SEMANTIC_IMAGE_CACHE_PREFIX,
-      cacheKey,
-      objectKey,
-      contentType,
-      createdAt: new Date().toISOString(),
-      promptHash,
-      metadata,
-    });
+    const indexObjectKey = semanticIndexObjectKey(input);
+    if (indexObjectKey) {
+      await setR2JsonRecord<SemanticImageCacheRecord>(indexObjectKey, record, config);
+    }
+    await setKvRecord<SemanticImageCacheRecord>(indexKey, record);
 
     return {
       dataUrl: dataUrlFromBuffer(buffer, contentType),
