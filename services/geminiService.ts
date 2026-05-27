@@ -288,9 +288,100 @@ function cleanSlideContent(content: string[]): string[] {
 // --- K-12 GENERATION LOGIC ---
 
 const getPlanUnitLabel = (blueprint: LessonBlueprint): string => blueprint.planUnitLabel?.trim() || 'Day';
+type PlanUnitLabel = 'Day' | 'Session';
+type InferredPlanUnitInfo = {
+    label?: PlanUnitLabel;
+    count?: number;
+};
+
+const clampPlanUnitCount = (count: number): number | undefined => {
+    if (!Number.isFinite(count) || count < 1 || count > 20) return undefined;
+    return count;
+};
+
+const inferPlanUnitInfo = (content: string): InferredPlanUnitInfo => {
+    const normalized = content.replace(/\s+/g, ' ').trim();
+    const sessionNumbers = [...normalized.matchAll(/\b(?:learning\s+session|session|sesyon|sesion)\s*(?:no\.?|#|:|-)?\s*(\d{1,2})\b/gi)]
+        .map((match) => Number.parseInt(match[1], 10))
+        .filter(Number.isFinite);
+    const dayNumbers = [...normalized.matchAll(/\b(?:day|araw)\s*(?:no\.?|#|:|-)?\s*(\d{1,2})\b/gi)]
+        .map((match) => Number.parseInt(match[1], 10))
+        .filter(Number.isFinite);
+
+    const sessionCountMatch = normalized.match(/\b(?:bilang\s+ng\s+(?:mga\s+)?sesyon|number\s+of\s+sessions?|session\s+count)\b\D{0,40}(\d{1,2})/i);
+    const dayCountMatch = normalized.match(/\b(?:number\s+of\s+days?|day\s+count|bilang\s+ng\s+(?:mga\s+)?araw)\b\D{0,40}(\d{1,2})/i);
+    const sessionCount = sessionCountMatch ? clampPlanUnitCount(Number.parseInt(sessionCountMatch[1], 10)) : undefined;
+    const dayCount = dayCountMatch ? clampPlanUnitCount(Number.parseInt(dayCountMatch[1], 10)) : undefined;
+
+    if (sessionNumbers.length > 0 || sessionCount) {
+        return {
+            label: 'Session',
+            count: clampPlanUnitCount(Math.max(...sessionNumbers, sessionCount || 0)) || sessionCount,
+        };
+    }
+
+    if (dayNumbers.length > 0 || dayCount) {
+        return {
+            label: 'Day',
+            count: clampPlanUnitCount(Math.max(...dayNumbers, dayCount || 0)) || dayCount,
+        };
+    }
+
+    return {};
+};
+
+const normalizePlanUnitLabel = (label: string | undefined, fallback: PlanUnitLabel = 'Day'): PlanUnitLabel => {
+    if (label?.trim().toLowerCase() === 'session') return 'Session';
+    if (label?.trim().toLowerCase() === 'day') return 'Day';
+    return fallback;
+};
+
+const normalizeLessonBlueprintUnits = (
+    blueprint: LessonBlueprint,
+    inferred: InferredPlanUnitInfo,
+): LessonBlueprint => {
+    const planUnitLabel = normalizePlanUnitLabel(blueprint.planUnitLabel, inferred.label || 'Day');
+    const normalizedDays = (Array.isArray(blueprint.days) ? blueprint.days : [])
+        .map((day, index) => {
+            const dayNumber = Number.isFinite(day.dayNumber) && day.dayNumber > 0 ? day.dayNumber : index + 1;
+            return {
+                ...day,
+                dayNumber,
+                title: day.title?.trim() || `${planUnitLabel} ${dayNumber}`,
+                focus: day.focus?.trim() || `${planUnitLabel} ${dayNumber} from the uploaded lesson plan`,
+            };
+        })
+        .sort((a, b) => a.dayNumber - b.dayNumber);
+
+    if (!inferred.count) {
+        return {
+            ...blueprint,
+            planUnitLabel,
+            days: normalizedDays,
+        };
+    }
+
+    const byNumber = new Map(normalizedDays.map((day) => [day.dayNumber, day]));
+    const days = Array.from({ length: inferred.count }, (_, index) => {
+        const dayNumber = index + 1;
+        return byNumber.get(dayNumber) || {
+            dayNumber,
+            title: `${planUnitLabel} ${dayNumber}`,
+            focus: `${planUnitLabel} ${dayNumber} from the uploaded lesson plan`,
+            generationStatus: 'pending' as const,
+        };
+    });
+
+    return {
+        ...blueprint,
+        planUnitLabel,
+        days,
+    };
+};
 
 // PHASE 1: DEEP ANALYSIS & BLUEPRINT CREATION
 export async function createK12LessonBlueprint(content: string, format: string, language: 'EN' | 'FIL'): Promise<LessonBlueprint> {
+    const inferredPlanUnitInfo = inferPlanUnitInfo(content);
     const prompt = `
         You are a Master K-12 Teacher and Instructional Designer. Your task is to analyze the provided educational content and create a professional, comprehensive Lesson Blueprint for a school setting.
 
@@ -307,7 +398,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
         **STEP 1: Core Component Identification**
         - **Subject, Grade, Quarter, Title:** Identify the Subject, Grade Level, Quarter, and a creative Main Title for the whole lesson plan.
         - **Learning Competency:** Find the primary Learning Competency code and description (e.g., "S6MT-Ia-c-1: Describe mixtures"). This is the most important anchor for the lesson.
-        - **Planning Unit Label:** Determine whether the input is organized by "Day" or "Session". If the source uses "Learning Session", "Session 1", or similar wording, set \`planUnitLabel\` to "Session". Otherwise set it to "Day".
+        - **Planning Unit Label:** Determine whether the input is organized by "Day" or "Session". If the source uses "Learning Session", "Session 1", "Sesyon 1", "Bilang ng Sesyon", "Number of Sessions", or similar wording, set \`planUnitLabel\` to "Session". Otherwise set it to "Day".
 
         **STEP 2: SMART Objective Formulation (CRITICAL)**
         - **Analyze Existing Objectives:** Review any objectives listed in the content.
@@ -318,7 +409,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
 
         **STEP 3: Plan Unit Structuring**
         - **Breakdown:** Structure the plan using the exact units present in the source material.
-        - **Explicit Sessions/Days Rule:** If the input lists explicit units such as "Learning Session 1" through "Learning Session 4", or only "Learning Session 1" through "Learning Session 2", output exactly those units. Do NOT add extra sessions or force a 5-day plan.
+        - **Explicit Sessions/Days Rule:** If the input lists explicit units such as "Learning Session 1", "Session 1", "Sesyon 1", "Day 1", or "Araw 1", output exactly those numbered units. If the input states a total such as "Bilang ng Sesyon: 5" or "Number of Sessions: 5", output exactly that many Session units.
         - **Fallback Rule:** Only infer a 5-day plan when the source is a traditional weekly DLL without explicit session/day breakdowns.
         - **Unit Focus:** For each unit, provide a concise 'focus' summary (e.g., "Session 1: Introduction to Particle Models", "Day 2: Exploring Homogeneous Mixtures").
         - **Source Fidelity:** Preserve each unit's objective, pre-lesson, flow, resources, assessment, extended learning, and reflection details when the document provides them.
@@ -351,7 +442,7 @@ export async function createK12LessonBlueprint(content: string, format: string, 
                 }
             }
         },
-        required: ["mainTitle", "planUnitLabel", "subject", "learningCompetency", "smartObjectives", "studentFacingObjectives", "days"]
+        required: ["mainTitle", "planUnitLabel", "subject", "gradeLevel", "quarter", "learningCompetency", "smartObjectives", "studentFacingObjectives", "days"]
     };
     
     const response = await callGeminiProxy<GeminiTextResponse>({
@@ -366,7 +457,8 @@ export async function createK12LessonBlueprint(content: string, format: string, 
         },
     });
 
-    return parseJsonModelResponse<LessonBlueprint>(response.text, 'lesson blueprint generation');
+    const blueprint = parseJsonModelResponse<LessonBlueprint>(response.text, 'lesson blueprint generation');
+    return normalizeLessonBlueprintUnits(blueprint, inferredPlanUnitInfo);
 }
 
 
