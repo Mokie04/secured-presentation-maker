@@ -9,11 +9,19 @@ type R2ImageCacheConfig = {
   cacheSecret: string;
 };
 
+type CloudflareKvConfig = {
+  accountId: string;
+  apiToken: string;
+  namespaceId: string;
+};
+
 type CachedImage = {
   dataUrl: string;
   cacheKey: string;
   objectKey: string;
 };
+
+type ImageSemanticMetadata = Record<string, string | undefined>;
 
 type ImageCacheInput = {
   prompt: string;
@@ -21,9 +29,23 @@ type ImageCacheInput = {
   aspectRatio: string;
   cacheId?: string;
   semanticCacheId?: string;
+  semanticMetadata?: ImageSemanticMetadata;
+};
+
+type SemanticImageCacheRecord = {
+  version: 'generated-images/v2';
+  cacheKey: string;
+  objectKey: string;
+  contentType: string;
+  createdAt: string;
+  promptHash: string;
+  metadata: Record<string, string>;
 };
 
 const IMAGE_CACHE_PREFIX = 'generated-images/v1';
+const SEMANTIC_IMAGE_CACHE_PREFIX = 'generated-images/v2';
+const SEMANTIC_IMAGE_INDEX_PREFIX = 'image-semantic:v2';
+const SEMANTIC_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 
 let s3Client: S3Client | null = null;
 let s3ClientAccountId: string | null = null;
@@ -40,6 +62,29 @@ function getConfig(): R2ImageCacheConfig | null {
   }
 
   return { accountId, accessKeyId, secretAccessKey, bucketName, cacheSecret };
+}
+
+function getKvConfig(): CloudflareKvConfig | null {
+  const accountId = (
+    process.env.CLOUDFLARE_ACCOUNT_ID
+    || process.env.CF_ACCOUNT_ID
+    || process.env.R2_ACCOUNT_ID
+  )?.trim();
+  const apiToken = (
+    process.env.CLOUDFLARE_API_TOKEN
+    || process.env.CF_API_TOKEN
+  )?.trim();
+  const namespaceId = (
+    process.env.R2_IMAGE_CACHE_KV_NAMESPACE_ID
+    || process.env.IMAGE_CACHE_KV_NAMESPACE_ID
+    || process.env.CLOUDFLARE_IMAGE_CACHE_KV_NAMESPACE_ID
+  )?.trim();
+
+  if (!accountId || !apiToken || !namespaceId) {
+    return null;
+  }
+
+  return { accountId, apiToken, namespaceId };
 }
 
 function getClient(config: R2ImageCacheConfig): S3Client {
@@ -67,6 +112,52 @@ function normalizeCacheId(cacheId: string): string {
   return cacheId.replace(/\s+/g, ' ').trim();
 }
 
+function normalizeSemanticMetadata(metadata: ImageSemanticMetadata | undefined): Record<string, string> {
+  if (!metadata) return {};
+
+  return Object.keys(metadata)
+    .sort()
+    .reduce<Record<string, string>>((acc, key) => {
+      const value = metadata[key];
+      if (typeof value !== 'string') return acc;
+      const normalizedValue = value.replace(/\s+/g, ' ').trim();
+      if (normalizedValue) {
+        acc[key] = normalizedValue.slice(0, 500);
+      }
+      return acc;
+    }, {});
+}
+
+function slugify(value: string | undefined, fallback: string): string {
+  const slug = (value || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 72);
+
+  return slug || fallback;
+}
+
+function extensionFromContentType(contentType: string): string {
+  const normalized = contentType.toLowerCase();
+  if (normalized.includes('jpeg') || normalized.includes('jpg')) return 'jpg';
+  if (normalized.includes('webp')) return 'webp';
+  return 'png';
+}
+
+function createPromptHash(input: ImageCacheInput, cacheSecret: string): string {
+  return createHmac('sha256', cacheSecret)
+    .update(JSON.stringify({
+      prompt: normalizePrompt(input.prompt),
+      model: input.model.trim(),
+      aspectRatio: input.aspectRatio.trim(),
+      version: SEMANTIC_IMAGE_CACHE_PREFIX,
+    }))
+    .digest('hex');
+}
+
 function createCacheKey(input: ImageCacheInput, cacheSecret: string, cacheId?: string): string {
   const stableCacheId = cacheId ? normalizeCacheId(cacheId) : '';
   const payload = stableCacheId
@@ -85,6 +176,21 @@ function createCacheKey(input: ImageCacheInput, cacheSecret: string, cacheId?: s
   return createHmac('sha256', cacheSecret).update(payload).digest('hex');
 }
 
+function createSemanticCacheKey(input: ImageCacheInput, cacheSecret: string): string | null {
+  const stableSemanticId = input.semanticCacheId ? normalizeCacheId(input.semanticCacheId) : '';
+  if (!stableSemanticId) return null;
+
+  const semanticMetadata = normalizeSemanticMetadata(input.semanticMetadata);
+  const payload = JSON.stringify({
+    semanticCacheId: stableSemanticId,
+    aspectRatio: input.aspectRatio.trim(),
+    style: semanticMetadata.style || '',
+    version: SEMANTIC_IMAGE_CACHE_PREFIX,
+  });
+
+  return createHmac('sha256', cacheSecret).update(payload).digest('hex');
+}
+
 function getStableCacheIds(input: ImageCacheInput): string[] {
   return Array.from(new Set([
     input.cacheId,
@@ -96,6 +202,82 @@ function getStableCacheIds(input: ImageCacheInput): string[] {
 
 function objectKeyForCacheKey(cacheKey: string): string {
   return `${IMAGE_CACHE_PREFIX}/${cacheKey}.png`;
+}
+
+function objectKeyForSemanticCacheKey(
+  input: ImageCacheInput,
+  cacheKey: string,
+  contentType: string,
+): string {
+  const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  const subject = slugify(metadata.subject || metadata.topic, 'general');
+  const role = slugify(metadata.visualRole, 'content');
+  const gradeBand = slugify(metadata.gradeBand, 'all-grades');
+  const extension = extensionFromContentType(contentType);
+
+  return `${SEMANTIC_IMAGE_CACHE_PREFIX}/${subject}/${role}/${gradeBand}/${cacheKey}/image.${extension}`;
+}
+
+function semanticIndexKey(input: ImageCacheInput): string | null {
+  const semanticCacheId = input.semanticCacheId ? normalizeCacheId(input.semanticCacheId) : '';
+  if (!semanticCacheId) return null;
+
+  return `${SEMANTIC_IMAGE_INDEX_PREFIX}:${semanticCacheId}`;
+}
+
+async function getKvRecord<T>(key: string): Promise<T | null> {
+  const config = getKvConfig();
+  if (!config) return null;
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/storage/kv/namespaces/${config.namespaceId}/values/${encodeURIComponent(key)}`;
+
+  try {
+    const response = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (response.status === 404) return null;
+    if (!response.ok) {
+      console.warn('Failed to read semantic image index.', { status: response.status });
+      return null;
+    }
+
+    return await response.json() as T;
+  } catch {
+    console.warn('Failed to read semantic image index.');
+    return null;
+  }
+}
+
+async function setKvRecord<T>(key: string, value: T): Promise<boolean> {
+  const config = getKvConfig();
+  if (!config) return false;
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/storage/kv/namespaces/${config.namespaceId}/values/${encodeURIComponent(key)}`;
+
+  try {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        'Content-Type': 'application/json; charset=utf-8',
+      },
+      body: JSON.stringify(value),
+    });
+
+    if (!response.ok) {
+      console.warn('Failed to write semantic image index.', { status: response.status });
+      return false;
+    }
+
+    return true;
+  } catch {
+    console.warn('Failed to write semantic image index.');
+    return false;
+  }
 }
 
 async function streamToBuffer(body: unknown): Promise<Buffer> {
@@ -118,6 +300,58 @@ async function streamToBuffer(body: unknown): Promise<Buffer> {
 function dataUrlFromBuffer(buffer: Buffer, contentType: string | undefined): string {
   const mime = contentType || 'image/png';
   return `data:${mime};base64,${buffer.toString('base64')}`;
+}
+
+async function getCachedR2ImageObject(
+  objectKey: string,
+  cacheKey: string,
+  config: R2ImageCacheConfig,
+): Promise<CachedImage | null> {
+  try {
+    const response = await getClient(config).send(new GetObjectCommand({
+      Bucket: config.bucketName,
+      Key: objectKey,
+    }));
+    const buffer = await streamToBuffer(response.Body);
+    if (buffer.length === 0) return null;
+
+    return {
+      dataUrl: dataUrlFromBuffer(buffer, response.ContentType),
+      cacheKey,
+      objectKey,
+    };
+  } catch (error) {
+    const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    if (statusCode !== 404) {
+      console.warn('Failed to read saved image data.', { statusCode });
+    }
+    return null;
+  }
+}
+
+async function getCachedSemanticR2Image(
+  input: ImageCacheInput,
+  config: R2ImageCacheConfig,
+): Promise<CachedImage | null> {
+  const semanticCacheKey = createSemanticCacheKey(input, config.cacheSecret);
+  if (!semanticCacheKey) return null;
+
+  const indexKey = semanticIndexKey(input);
+  if (indexKey) {
+    const record = await getKvRecord<SemanticImageCacheRecord>(indexKey);
+    if (record?.objectKey) {
+      const indexedImage = await getCachedR2ImageObject(record.objectKey, record.cacheKey || semanticCacheKey, config);
+      if (indexedImage) return indexedImage;
+    }
+  }
+
+  for (const extension of SEMANTIC_IMAGE_EXTENSIONS) {
+    const objectKey = objectKeyForSemanticCacheKey(input, semanticCacheKey, `image/${extension === 'jpg' ? 'jpeg' : extension}`);
+    const cachedImage = await getCachedR2ImageObject(objectKey, semanticCacheKey, config);
+    if (cachedImage) return cachedImage;
+  }
+
+  return null;
 }
 
 async function getCachedR2ImageForKey(
@@ -153,6 +387,9 @@ async function getCachedR2ImageForKey(
 export async function getCachedR2Image(input: ImageCacheInput): Promise<CachedImage | null> {
   const config = getConfig();
   if (!config) return null;
+
+  const semanticCachedImage = await getCachedSemanticR2Image(input, config);
+  if (semanticCachedImage) return semanticCachedImage;
 
   const stableCacheIds = getStableCacheIds(input);
   for (const cacheId of stableCacheIds) {
@@ -200,9 +437,66 @@ async function setCachedR2ImageForKey(
   }
 }
 
+async function setCachedSemanticR2Image(
+  input: ImageCacheInput,
+  imageBytes: string,
+  contentType: string,
+  config: R2ImageCacheConfig,
+): Promise<CachedImage | null> {
+  const cacheKey = createSemanticCacheKey(input, config.cacheSecret);
+  const indexKey = semanticIndexKey(input);
+  if (!cacheKey || !indexKey) return null;
+
+  const buffer = Buffer.from(imageBytes, 'base64');
+  if (buffer.length === 0) return null;
+
+  const objectKey = objectKeyForSemanticCacheKey(input, cacheKey, contentType);
+  const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  const promptHash = createPromptHash(input, config.cacheSecret);
+
+  try {
+    await getClient(config).send(new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: objectKey,
+      Body: buffer,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+      Metadata: {
+        cacheKey,
+        semanticCacheId: normalizeCacheId(input.semanticCacheId || '').slice(0, 256),
+        subject: (metadata.subject || metadata.topic || 'general').slice(0, 128),
+        visualRole: (metadata.visualRole || 'content').slice(0, 64),
+      },
+    }));
+
+    await setKvRecord<SemanticImageCacheRecord>(indexKey, {
+      version: SEMANTIC_IMAGE_CACHE_PREFIX,
+      cacheKey,
+      objectKey,
+      contentType,
+      createdAt: new Date().toISOString(),
+      promptHash,
+      metadata,
+    });
+
+    return {
+      dataUrl: dataUrlFromBuffer(buffer, contentType),
+      cacheKey,
+      objectKey,
+    };
+  } catch (error) {
+    const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    console.warn('Failed to write semantic image data.', statusCode ? { statusCode } : undefined);
+    return null;
+  }
+}
+
 export async function setCachedR2Image(input: ImageCacheInput, imageBytes: string, contentType: string): Promise<CachedImage | null> {
   const config = getConfig();
   if (!config) return null;
+
+  const semanticStoredImage = await setCachedSemanticR2Image(input, imageBytes, contentType, config);
+  if (semanticStoredImage) return semanticStoredImage;
 
   const stableCacheIds = getStableCacheIds(input);
   if (stableCacheIds.length === 0) {

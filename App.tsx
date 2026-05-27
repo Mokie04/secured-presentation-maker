@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel } from './types';
+import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel, ImageSemanticMetadata } from './types';
 import { IMAGES_DISABLED, cacheUploadedImageForPrompt, createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, getCachedImageForPrompt } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
@@ -170,6 +170,52 @@ const getSlideImageSemanticAnchor = (slide: Slide, prompt: string): string => {
   ].filter(Boolean).join(' '));
 
   return (slideText || normalizeImageSemanticText(prompt)).slice(0, 420);
+};
+
+const getGradeBand = (gradeLevel: string | undefined): string => {
+  const normalized = normalizeImageSemanticText(gradeLevel);
+  const gradeMatch = normalized.match(/\b(?:grade|baitang)\s*(\d{1,2})\b/) || normalized.match(/\b(\d{1,2})\b/);
+  if (!gradeMatch) {
+    return normalized.includes('college') ? 'college' : '';
+  }
+
+  const grade = Number.parseInt(gradeMatch[1], 10);
+  if (!Number.isFinite(grade)) return '';
+  if (grade <= 3) return 'k-3';
+  if (grade <= 6) return '4-6';
+  if (grade <= 10) return '7-10';
+  return '11-12';
+};
+
+const getImageSemanticScopeValue = (scope: unknown, key: string): string => {
+  if (!scope || typeof scope !== 'object') return '';
+  const value = (scope as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : '';
+};
+
+const buildSlideImageSemanticMetadata = (
+  slide: Slide,
+  prompt: string,
+  semanticLanguage: 'EN' | 'FIL',
+  semanticScope?: unknown,
+): ImageSemanticMetadata => {
+  const subject = getImageSemanticScopeValue(semanticScope, 'subject');
+  const topic = getImageSemanticScopeValue(semanticScope, 'topic');
+  const gradeLevel = getImageSemanticScopeValue(semanticScope, 'gradeLevel');
+
+  return {
+    level: getImageSemanticScopeValue(semanticScope, 'level'),
+    format: getImageSemanticScopeValue(semanticScope, 'format'),
+    subject,
+    topic,
+    gradeLevel,
+    gradeBand: getGradeBand(gradeLevel),
+    learningCompetency: getImageSemanticScopeValue(semanticScope, 'learningCompetency'),
+    visualRole: getSlideImageRole(slide),
+    semanticAnchor: getSlideImageSemanticAnchor(slide, prompt),
+    language: semanticLanguage,
+    style: slide.imageStyle || 'illustration',
+  };
 };
 
 const buildK12ImageSemanticScope = (blueprint: Pick<LessonBlueprint, 'subject' | 'gradeLevel' | 'learningCompetency'>) => ({
@@ -531,13 +577,15 @@ const App: React.FC = () => {
       return undefined;
     }
 
+    const semanticMetadata = buildSlideImageSemanticMetadata(slide, prompt, semanticLanguage, semanticScope);
     return buildGenerationCacheKey('image-semantic', [
       IMAGE_SEMANTIC_CACHE_VERSION,
-      semanticScope || 'general',
+      semanticMetadata.level || 'general',
+      semanticMetadata.subject || semanticMetadata.topic || 'general',
       semanticLanguage,
       slide.imageStyle || 'illustration',
-      getSlideImageRole(slide),
-      getSlideImageSemanticAnchor(slide, prompt),
+      semanticMetadata.visualRole,
+      semanticMetadata.semanticAnchor,
     ]);
   }, [buildFallbackImagePrompt]);
 
@@ -555,11 +603,18 @@ const App: React.FC = () => {
           language,
           options?.imageSemanticScope
         );
+        const imageSemanticMetadata = slide.imageSemanticMetadata || buildSlideImageSemanticMetadata(
+          slideWithPrompt,
+          imagePrompt,
+          language,
+          options?.imageSemanticScope
+        );
 
         return {
           ...slideWithPrompt,
           imageCacheId: slide.imageCacheId || buildSlideImageCacheId(options?.imageCacheScope, slideIndex),
           ...(imageSemanticCacheId ? { imageSemanticCacheId } : {}),
+          imageSemanticMetadata,
         };
     };
 
@@ -610,7 +665,8 @@ const App: React.FC = () => {
                   newSlide.imageStyle,
                   language,
                   newSlide.imageCacheId,
-                  newSlide.imageSemanticCacheId
+                  newSlide.imageSemanticCacheId,
+                  newSlide.imageSemanticMetadata
                 );
                 if (cachedImageUrl) {
                     newSlide.imageUrl = cachedImageUrl;
@@ -650,7 +706,8 @@ const App: React.FC = () => {
                       newSlide.imageStyle,
                       language,
                       newSlide.imageCacheId,
-                      newSlide.imageSemanticCacheId
+                      newSlide.imageSemanticCacheId,
+                      newSlide.imageSemanticMetadata
                     );
                     newSlide.imageUrl = imageUrl;
                     if (!adminImageLimitBypassed) {
@@ -696,9 +753,16 @@ const App: React.FC = () => {
           refreshLanguage,
           imageSemanticScope
         );
+        const imageSemanticMetadata = baseSlide.imageSemanticMetadata || buildSlideImageSemanticMetadata(
+          baseSlide,
+          baseSlide.imagePrompt || buildFallbackImagePrompt(baseSlide),
+          refreshLanguage,
+          imageSemanticScope
+        );
         const slide = {
             ...baseSlide,
             ...(imageSemanticCacheId ? { imageSemanticCacheId } : {}),
+            imageSemanticMetadata,
         };
         const prompt = (slide.imagePrompt || '').trim();
         if (!prompt || slide.imageStyle === 'none') {
@@ -712,7 +776,8 @@ const App: React.FC = () => {
               slide.imageStyle,
               refreshLanguage,
               slide.imageCacheId,
-              slide.imageSemanticCacheId
+              slide.imageSemanticCacheId,
+              slide.imageSemanticMetadata
             );
             refreshedSlides.push(cachedImageUrl ? { ...slide, imageUrl: cachedImageUrl } : slide);
         } catch {
@@ -1413,7 +1478,8 @@ const App: React.FC = () => {
             originalSlideStyle,
             language,
             originalSlide.imageCacheId,
-            originalSlide.imageSemanticCacheId
+            originalSlide.imageSemanticCacheId,
+            originalSlide.imageSemanticMetadata
         );
         if (!adminImageLimitBypassed) {
             incrementCount('images');
@@ -1458,6 +1524,7 @@ const App: React.FC = () => {
     const styleForCache = slideForCache?.imageStyle;
     const imageCacheId = slideForCache?.imageCacheId;
     const imageSemanticCacheId = slideForCache?.imageSemanticCacheId;
+    const imageSemanticMetadata = slideForCache?.imageSemanticMetadata;
     const reader = new FileReader();
     reader.onload = (event) => {
         const imageUrl = event.target?.result as string;
@@ -1472,7 +1539,7 @@ const App: React.FC = () => {
         });
 
         if (promptForCache) {
-            cacheUploadedImageForPrompt(promptForCache, imageUrl, styleForCache, language, imageCacheId, imageSemanticCacheId).then((cached) => {
+            cacheUploadedImageForPrompt(promptForCache, imageUrl, styleForCache, language, imageCacheId, imageSemanticCacheId, imageSemanticMetadata).then((cached) => {
                 if (!cached) {
                     console.warn('Uploaded image was not saved for reuse.');
                 }

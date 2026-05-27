@@ -1,5 +1,5 @@
 
-import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle } from '../types';
+import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata } from '../types';
 
 type ClientEnv = {
     VITE_GEMINI_PROXY_BASE_URL?: string;
@@ -706,7 +706,7 @@ export function buildFinalImagePrompt(prompt: string, style: ImageStyle = 'illus
     return `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
 }
 
-export async function getCachedImageForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string): Promise<string | null> {
+export async function getCachedImageForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<string | null> {
     if (!prompt || style === 'none' || IMAGES_DISABLED) {
         return null;
     }
@@ -720,6 +720,7 @@ export async function getCachedImageForPrompt(prompt: string, style: ImageStyle 
             prompt: finalPrompt,
             ...(cacheId ? { cacheId } : {}),
             ...(semanticCacheId ? { semanticCacheId } : {}),
+            ...(semanticMetadata ? { semanticMetadata } : {}),
         },
         config: {
             imageConfig: {
@@ -731,7 +732,7 @@ export async function getCachedImageForPrompt(prompt: string, style: ImageStyle 
     return response.dataUrl || null;
 }
 
-export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string): Promise<boolean> {
+export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<boolean> {
     if (!prompt || !dataUrl || style === 'none' || IMAGES_DISABLED) {
         return false;
     }
@@ -746,6 +747,7 @@ export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: strin
             dataUrl,
             ...(cacheId ? { cacheId } : {}),
             ...(semanticCacheId ? { semanticCacheId } : {}),
+            ...(semanticMetadata ? { semanticMetadata } : {}),
         },
         config: {
             imageConfig: {
@@ -757,7 +759,7 @@ export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: strin
     return response.ok === true;
 }
 
-export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string): Promise<string> {
+export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<string> {
     if (!prompt || style === 'none') {
         return Promise.resolve('');
     }
@@ -772,6 +774,7 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
                 parts: [{ text: finalPrompt }],
                 ...(cacheId ? { cacheId } : {}),
                 ...(semanticCacheId ? { semanticCacheId } : {}),
+                ...(semanticMetadata ? { semanticMetadata } : {}),
             },
             config: {
                 imageConfig: {

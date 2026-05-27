@@ -10,6 +10,20 @@ export interface ImageOverlayLabel {
   fontSize?: number; // Label text size in px for on-slide editing.
 }
 
+export interface ImageSemanticMetadata {
+  level?: string;
+  format?: string;
+  subject?: string;
+  topic?: string;
+  gradeLevel?: string;
+  gradeBand?: string;
+  learningCompetency?: string;
+  visualRole?: string;
+  semanticAnchor?: string;
+  language?: 'EN' | 'FIL';
+  style?: ImageStyle;
+}
+
 export interface Slide {
   title: string;
   content: string[]; // An array of strings, where each string is a bullet point or paragraph.
@@ -18,6 +32,7 @@ export interface Slide {
   imageUrl?: string; // The data URL of the generated image.
   imageCacheId?: string; // Stable cache key for reusing the same image across matching generations.
   imageSemanticCacheId?: string; // Concept-level cache key for reusing images across similar slide contexts.
+  imageSemanticMetadata?: ImageSemanticMetadata; // Structured semantic cache metadata for cross-lesson reuse.
   imageOverlays?: ImageOverlayLabel[]; // Manual label overlays rendered above the image.
   speakerNotes: string; // Notes for the teacher presenting the slide.
 }

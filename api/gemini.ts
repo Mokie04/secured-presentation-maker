@@ -26,7 +26,10 @@ type ImageRequestDetails = {
   aspectRatio: string;
   cacheId?: string;
   semanticCacheId?: string;
+  semanticMetadata?: ImageSemanticMetadata;
 };
+
+type ImageSemanticMetadata = Record<string, string>;
 
 type TextGenerationResponse = {
   text: string;
@@ -117,6 +120,7 @@ async function getCachedImageWithPromptFallback(input: {
   aspectRatio: string;
   cacheId?: string;
   semanticCacheId?: string;
+  semanticMetadata?: ImageSemanticMetadata;
 }) {
   const stableCachedImage = await getCachedR2Image(input);
   if (stableCachedImage || (!input.cacheId && !input.semanticCacheId)) {
@@ -293,13 +297,35 @@ function getImageRequestDetails(contents: unknown, requestConfig: Record<string,
     : typeof imageConfig.semanticCacheId === 'string'
       ? imageConfig.semanticCacheId.trim()
       : '';
+  const rawSemanticMetadata = (contents as any)?.semanticMetadata || imageConfig.semanticMetadata;
+  const semanticMetadata = normalizeImageSemanticMetadata(rawSemanticMetadata);
 
   return {
     prompt: imagePrompt,
     aspectRatio: imageConfig.aspectRatio || '16:9',
     ...(cacheId ? { cacheId } : {}),
     ...(semanticCacheId ? { semanticCacheId } : {}),
+    ...(semanticMetadata ? { semanticMetadata } : {}),
   };
+}
+
+function normalizeImageSemanticMetadata(value: unknown): ImageSemanticMetadata | undefined {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const normalized = Object.entries(value as Record<string, unknown>)
+    .reduce<ImageSemanticMetadata>((acc, [key, rawValue]) => {
+      if (typeof rawValue !== 'string') return acc;
+      const normalizedKey = key.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 48);
+      const normalizedValue = rawValue.replace(/\s+/g, ' ').trim().slice(0, 500);
+      if (normalizedKey && normalizedValue) {
+        acc[normalizedKey] = normalizedValue;
+      }
+      return acc;
+    }, {});
+
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
 }
 
 function parseUploadedImageDataUrl(contents: unknown): { base64: string; mime: string } | null {
@@ -773,6 +799,7 @@ export default async function handler(req: any, res: any) {
             aspectRatio: imageRequest.aspectRatio,
             cacheId: imageRequest.cacheId,
             semanticCacheId: imageRequest.semanticCacheId,
+            semanticMetadata: imageRequest.semanticMetadata,
           });
 
           if (cachedImage) {
@@ -814,6 +841,7 @@ export default async function handler(req: any, res: any) {
         aspectRatio: imageRequest.aspectRatio,
         cacheId: imageRequest.cacheId,
         semanticCacheId: imageRequest.semanticCacheId,
+        semanticMetadata: imageRequest.semanticMetadata,
       }, uploadedImage.base64, uploadedImage.mime);
 
       console.info('Manual image cache write', {
@@ -877,6 +905,7 @@ export default async function handler(req: any, res: any) {
                 aspectRatio: imageRequest.aspectRatio,
                 cacheId: imageRequest.cacheId,
                 semanticCacheId: imageRequest.semanticCacheId,
+                semanticMetadata: imageRequest.semanticMetadata,
               })
               : null;
 
@@ -905,6 +934,7 @@ export default async function handler(req: any, res: any) {
               aspectRatio: imageRequest.aspectRatio,
               cacheId: imageRequest.cacheId,
               semanticCacheId: imageRequest.semanticCacheId,
+              semanticMetadata: imageRequest.semanticMetadata,
             }, generatedImage.base64, generatedImage.mime);
             console.info('Generated image cache write', {
               imageProvider: 'xai',
@@ -965,6 +995,7 @@ export default async function handler(req: any, res: any) {
                 aspectRatio: imageRequest.aspectRatio,
                 cacheId: imageRequest.cacheId,
                 semanticCacheId: imageRequest.semanticCacheId,
+                semanticMetadata: imageRequest.semanticMetadata,
               })
               : null;
 
@@ -1042,6 +1073,7 @@ export default async function handler(req: any, res: any) {
           aspectRatio: imageRequest.aspectRatio,
           cacheId: imageRequest.cacheId,
           semanticCacheId: imageRequest.semanticCacheId,
+          semanticMetadata: imageRequest.semanticMetadata,
         }, inline, mime);
         console.info('Generated image cache write', {
           imageProvider: 'gemini',
