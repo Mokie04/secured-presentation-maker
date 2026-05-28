@@ -483,6 +483,118 @@ const sessionSlides: Record<number, Slide[]> = {
   ],
 };
 
+const sessionDetailSlides: Record<number, Slide[]> = {
+  1: [
+    slide(
+      'Session 1 Flow and Timing',
+      ['5 min: quick claims', '4 min: air demo', 'Two 6 min stations', '8 min: transfer model', '7 min: exit slip'],
+      'Use this slide as the teacher pacing guide. Keep the activity moving so learners have time to revise their model before the exit slip.',
+      '',
+    ),
+    slide(
+      'Evidence Table Routine',
+      ['Observe without disturbing', 'Record what changed or stayed', 'Infer particle behavior', 'Choose the strongest evidence'],
+      'This is the core student task. Learners should not simply draw; they must connect observation, inference, and evidence.',
+      'A clean science worksheet visual with three observation rows, particle icons, and a highlighted evidence choice, no readable text or labels.',
+      'particle-evidence',
+      'practice',
+      'illustration',
+    ),
+    slide(
+      'Support, Safety, and Output',
+      ['Use sentence stems', 'Use particle word bank', 'Do not taste solutions', 'Wipe spills immediately', 'Submit table and model'],
+      'Give sentence stems to learners who need support: I observed ____. I infer that particles ____. My evidence is ____.',
+      '',
+    ),
+  ],
+  2: [
+    slide(
+      'Session 2 Flow and Timing',
+      ['5 min: prediction markup', '15 min: timing test', '10 min: motion model', '12 min: transfer chain', '8 min: quick check'],
+      'The timing test should drive the explanation. Do not let learners jump to a memorized rule without evidence.',
+      '',
+    ),
+    slide(
+      'Fair-Test Evidence',
+      ['Same cup size', 'Same color amount', 'Same start time', 'No stirring', 'Compare spread over time'],
+      'Ask learners which variables must stay the same. The warm/cold comparison only works if the test is fair.',
+      'Two matched cups with identical drops of color entering still water, one cool and one warm, with a timer icon and no readable text or labels.',
+      'diffusion-temperature',
+      'practice',
+      'diagram',
+    ),
+    slide(
+      'Support, Safety, and Output',
+      ['Use motion word bank', 'Use cause-effect stem', 'Teacher handles warm water', 'Submit data table', 'Submit transfer chain'],
+      'Use the stem: Higher temperature -> particles move ____ -> spreading or dissolving happens ____ because ____.',
+      '',
+    ),
+  ],
+  3: [
+    slide(
+      'Session 3 Flow and Timing',
+      ['5 min: state prediction', '8 min: diagram tagging', '15 min: three-panel build', '12 min: mystery revision', '10 min: mini check'],
+      'Keep the emphasis on scientific diagrams, not decoration. Each drawing must explain spacing, arrangement, and motion.',
+      '',
+    ),
+    slide(
+      'Diagram Criteria',
+      ['Spacing matches the state', 'Arrangement matches the state', 'Motion arrows are accurate', 'Labels explain evidence'],
+      'Use these criteria before peer feedback. Common errors: liquid too far apart, no motion in solids, and different particle sizes by state.',
+      'A three-panel particle diagram showing solid, liquid, and gas with spacing, arrangement, and motion-arrow differences, no words or labels.',
+      'particle-states',
+      'success-criteria',
+      'diagram',
+    ),
+    slide(
+      'Support, Safety, and Output',
+      ['Use visual state cards', 'Use diagram checklist', 'Keep water off walkways', 'Do not inflate balloons by mouth', 'Submit revised diagram set'],
+      'Give checklist support before groups revise. The concrete output is the three-state particle diagram with a mystery-sample inset and revision note.',
+      '',
+    ),
+  ],
+  4: [
+    slide(
+      'Session 4 Flow and Timing',
+      ['6 min: energy probe', '12 min: card sequence', '12 min: explanation table', '10 min: everyday CER', '10 min: mastery check'],
+      'This session should make energy direction explicit. Keep returning to starting state, ending state, particle motion, and energy transfer.',
+      '',
+    ),
+    slide(
+      'Energy Evidence Rules',
+      ['Name starting state', 'Name ending state', 'Track arrangement change', 'Track motion change', 'Decide absorbed or released'],
+      'Use this rule set when learners defend melting, evaporation, condensation, and freezing explanations.',
+      'A clean phase-change particle diagram with warm and cool arrows moving between solid, liquid, and vapor particle arrangements, no words or labels.',
+      'phase-change-energy',
+      'success-criteria',
+      'diagram',
+    ),
+    slide(
+      'Support, Safety, and Output',
+      ['Use phase-change word bank', 'Use partially filled table', 'Teacher handles warm water', 'Submit sequence table', 'Submit everyday CER'],
+      'For condensation, explicitly correct the misconception that outside droplets come from inside the bottle.',
+      '',
+    ),
+  ],
+};
+
+const getSessionSlides = (dayNumber: number): Slide[] => {
+  const slides = sessionSlides[dayNumber];
+  if (!slides) return [];
+
+  const [goalSlide, ...remainingSlides] = slides;
+  return [
+    goalSlide,
+    ...(sessionDetailSlides[dayNumber] || []),
+    ...remainingSlides,
+  ];
+};
+
+const getCompletePresentationSlides = (): Slide[] => [
+  ...initialSlides,
+  ...particleModelBlueprint.days.flatMap((day) => getSessionSlides(day.dayNumber)),
+];
+
 const particleModelSignals = [
   'particle model of matter',
   'tiny particles',
@@ -551,6 +663,22 @@ export const getReusableK12PlanUnitSlidesSeed = (
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
   if (language !== 'EN' || !isReusableParticleModelLesson(content)) return null;
-  const slides = sessionSlides[dayNumber];
-  return slides ? cloneSlides(slides) : null;
+  const slides = getSessionSlides(dayNumber);
+  return slides.length > 0 ? cloneSlides(slides) : null;
+};
+
+export const getReusableK12CompleteLessonPlanSeed = (
+  content: string,
+  language: 'EN' | 'FIL',
+): CachedLessonPlanSeed | null => {
+  if (language !== 'EN' || !isReusableParticleModelLesson(content)) return null;
+
+  const blueprint = cloneBlueprint();
+  return {
+    blueprint,
+    initialPresentation: {
+      title: blueprint.mainTitle,
+      slides: cloneSlides(getCompletePresentationSlides()),
+    },
+  };
 };

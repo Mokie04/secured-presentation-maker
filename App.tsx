@@ -15,7 +15,7 @@ import { useLanguage } from './contexts/LanguageContext';
 import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
-import { getReusableK12LessonPlanSeed, getReusableK12PlanUnitSlidesSeed } from './lib/reusableLessonSeeds';
+import { getReusableK12CompleteLessonPlanSeed, getReusableK12PlanUnitSlidesSeed } from './lib/reusableLessonSeeds';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -369,6 +369,11 @@ const buildTopicImageSemanticScope = (level: TeachingLevel, topic: string, forma
 const resetBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint => ({
   ...blueprint,
   days: blueprint.days.map((day) => ({ ...day, generationStatus: 'pending' as const })),
+});
+
+const completeBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint => ({
+  ...blueprint,
+  days: blueprint.days.map((day) => ({ ...day, generationStatus: 'done' as const })),
 });
 
 const hasAdminImageBypass = (user: SessionUser | null): boolean => {
@@ -814,6 +819,13 @@ const App: React.FC = () => {
                 newSlide.imagePrompt = promptForGeneration;
             }
 
+            const curatedStaticImageUrl = getCuratedStaticImageUrl(newSlide.imageSemanticMetadata);
+            if (curatedStaticImageUrl) {
+                newSlide.imageUrl = curatedStaticImageUrl;
+                slidesWithImages.push(newSlide);
+                continue;
+            }
+
             try {
                 const cachedImageUrl = await getCachedImageForPrompt(
                   promptForGeneration,
@@ -830,13 +842,6 @@ const App: React.FC = () => {
                 }
             } catch {
                 console.warn('Failed to check saved slide image before generation.');
-            }
-
-            const curatedStaticImageUrl = getCuratedStaticImageUrl(newSlide.imageSemanticMetadata);
-            if (curatedStaticImageUrl) {
-                newSlide.imageUrl = curatedStaticImageUrl;
-                slidesWithImages.push(newSlide);
-                continue;
             }
 
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
@@ -932,6 +937,12 @@ const App: React.FC = () => {
             continue;
         }
 
+        const curatedStaticImageUrl = getCuratedStaticImageUrl(slide.imageSemanticMetadata);
+        if (curatedStaticImageUrl) {
+            refreshedSlides.push({ ...slide, imageUrl: curatedStaticImageUrl });
+            continue;
+        }
+
         try {
             const cachedImageUrl = await getCachedImageForPrompt(
               prompt,
@@ -941,13 +952,10 @@ const App: React.FC = () => {
               slide.imageSemanticCacheId,
               slide.imageSemanticMetadata
             );
-            const curatedStaticImageUrl = getCuratedStaticImageUrl(slide.imageSemanticMetadata);
-            const imageUrl = cachedImageUrl || curatedStaticImageUrl;
-            refreshedSlides.push(imageUrl ? { ...slide, imageUrl } : slide);
+            refreshedSlides.push(cachedImageUrl ? { ...slide, imageUrl: cachedImageUrl } : slide);
         } catch {
             console.warn('Failed to refresh a saved slide image.');
-            const curatedStaticImageUrl = getCuratedStaticImageUrl(slide.imageSemanticMetadata);
-            refreshedSlides.push(curatedStaticImageUrl ? { ...slide, imageUrl: curatedStaticImageUrl } : slide);
+            refreshedSlides.push(slide);
         }
     }
 
@@ -1062,20 +1070,10 @@ const App: React.FC = () => {
                   DEFAULT_LESSON_FORMAT,
                   language,
                 ]);
-                const cachedPlan = await getCachedGeneration<CachedLessonPlan>(cacheKey);
-                if (cachedPlan) {
-                  await waitForCacheHitLoading();
-                  const imageSemanticScope = buildK12ImageSemanticScope(cachedPlan.blueprint);
-                  const refreshedInitialSlides = await refreshSlidesWithCachedImages(cachedPlan.initialPresentation.slides, language, cacheKey, imageSemanticScope);
-                  setLessonBlueprint(resetBlueprintStatus(cachedPlan.blueprint));
-                  setPresentation({ ...cachedPlan.initialPresentation, slides: refreshedInitialSlides });
-                  setAppStep('planning');
-                  return;
-                }
 
-                const reusablePlan = getReusableK12LessonPlanSeed(content, language);
+                const reusablePlan = getReusableK12CompleteLessonPlanSeed(content, language);
                 if (reusablePlan) {
-                  const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
+                  const blueprintWithStatus = completeBlueprintStatus(reusablePlan.blueprint);
                   const imageSemanticScope = buildK12ImageSemanticScope(reusablePlan.blueprint);
                   const processedInitialSlides = await processSlidesForImages(
                     reusablePlan.initialPresentation.slides,
@@ -1090,11 +1088,25 @@ const App: React.FC = () => {
                   setLessonBlueprint(blueprintWithStatus);
                   setPresentation(initialPresentation);
                   await setCachedGeneration(cacheKey, {
-                    blueprint: reusablePlan.blueprint,
+                    blueprint: blueprintWithStatus,
                     initialPresentation,
                   });
 
-                  setAppStep('planning');
+                  setCurrentSlide(0);
+                  setAppStep('presenting');
+                  return;
+                }
+
+                const cachedPlan = await getCachedGeneration<CachedLessonPlan>(cacheKey);
+                if (cachedPlan) {
+                  await waitForCacheHitLoading();
+                  const imageSemanticScope = buildK12ImageSemanticScope(cachedPlan.blueprint);
+                  const refreshedInitialSlides = await refreshSlidesWithCachedImages(cachedPlan.initialPresentation.slides, language, cacheKey, imageSemanticScope);
+                  const shouldTreatAsComplete = cachedPlan.blueprint.days.every((day) => day.generationStatus === 'done')
+                    && refreshedInitialSlides.length > 2;
+                  setLessonBlueprint(shouldTreatAsComplete ? completeBlueprintStatus(cachedPlan.blueprint) : resetBlueprintStatus(cachedPlan.blueprint));
+                  setPresentation({ ...cachedPlan.initialPresentation, slides: refreshedInitialSlides });
+                  setAppStep(shouldTreatAsComplete ? 'presenting' : 'planning');
                   return;
                 }
 
@@ -1448,10 +1460,34 @@ const App: React.FC = () => {
     }
   };
 
+  const rasterizeSvgForPptx = useCallback(async (svgDataUrl: string): Promise<string> => {
+    const image = new Image();
+    const imageLoaded = new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Failed to load SVG for PPTX export.'));
+    });
+    image.src = svgDataUrl;
+    await imageLoaded;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 900;
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Canvas is unavailable for PPTX image export.');
+    }
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  }, []);
+
   const resolveImageForPptx = useCallback(async (imageUrl: string | undefined): Promise<string | null> => {
     if (!imageUrl) return null;
     if (NON_EXPORTABLE_IMAGE_STATES.has(imageUrl)) return null;
-    if (imageUrl.startsWith('data:')) return imageUrl;
+    if (imageUrl.startsWith('data:')) {
+      return imageUrl.startsWith('data:image/svg+xml')
+        ? rasterizeSvgForPptx(imageUrl)
+        : imageUrl;
+    }
 
     try {
       const response = await fetch(imageUrl);
@@ -1459,6 +1495,7 @@ const App: React.FC = () => {
 
       const blob = await response.blob();
       if (!blob.type.startsWith('image/')) return null;
+      const isSvg = blob.type.includes('svg') || imageUrl.split('?')[0].toLowerCase().endsWith('.svg');
 
       const dataUrl = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
@@ -1467,12 +1504,12 @@ const App: React.FC = () => {
         reader.readAsDataURL(blob);
       });
 
-      return dataUrl;
+      return isSvg ? await rasterizeSvgForPptx(dataUrl) : dataUrl;
     } catch (error) {
       console.warn('Failed to resolve image for PPTX export:', error);
       return null;
     }
-  }, []);
+  }, [rasterizeSvgForPptx]);
 
   const handleExportAsPPTX = useCallback(async () => {
     if (!presentation) return;
@@ -1552,7 +1589,11 @@ const App: React.FC = () => {
                     if (!imageData) {
                         throw new Error('No valid image data available for export.');
                     }
-                    slide.addImage({ data: imageData, x: 0.5, y: 0.5, w: 4.3, h: 4.625 });
+                    const imageX = 0.55;
+                    const imageY = 1.35;
+                    const imageW = 4.35;
+                    const imageH = 2.45;
+                    slide.addImage({ data: imageData, x: imageX, y: imageY, w: imageW, h: imageH });
 
                     const overlays = (slideData.imageOverlays || []).filter(o => o.text && o.text.trim().length > 0);
                     for (const overlay of overlays) {
@@ -1563,10 +1604,6 @@ const App: React.FC = () => {
                         const pptFontSize = Math.max(10, Math.min(28, Math.round(uiFontSize * 0.78)));
                         const labelW = Math.max(1.0, Math.min(2.8, (0.058 * (uiFontSize / 16) * labelText.length) + 0.72));
                         const labelH = Math.max(0.36, Math.min(0.9, 0.12 + (uiFontSize * 0.018)));
-                        const imageX = 0.5;
-                        const imageY = 0.5;
-                        const imageW = 4.3;
-                        const imageH = 4.625;
 
                         let boxX = imageX + (normalizedX / 100) * imageW - (labelW / 2);
                         let boxY = imageY + (normalizedY / 100) * imageH - (labelH / 2);
@@ -1597,34 +1634,47 @@ const App: React.FC = () => {
                     }
                 } catch (e) { 
                     console.error("Failed to add image to PPTX slide:", e);
-                    slide.addText('Image could not be loaded.', { x: 0.5, y: 0.5, w: 4.3, h: 4.625, color: 'FF0000', align: 'center', valign: 'middle' });
+                    slide.addText('Image could not be loaded.', { x: 0.55, y: 1.35, w: 4.35, h: 2.45, color: 'FF0000', align: 'center', valign: 'middle' });
                 }
-                
-                slide.addText(slideData.title, { 
-                    x: 5.2, y: 0.5, w: 4.3, h: 1.0, 
-                    fontSize: 36, bold: true, color: brandColor, 
+
+                const titleFontSize = slideData.title.length > 58
+                    ? 22
+                    : slideData.title.length > 38
+                        ? 26
+                        : 30;
+
+                slide.addText(slideData.title, {
+                    x: 0.55, y: 0.35, w: 9.0, h: 0.75,
+                    fontSize: titleFontSize, bold: true, color: brandColor,
                     valign: 'top', fontFace: 'Poppins', fit: 'shrink'
                 });
 
                 if(hasContent) {
-                    slide.addText(contentForPptx, { 
-                        x: 5.2, y: 1.5, w: 4.3, h: 3.7, 
-                        color: textColor, valign: 'top', fontSize: 22, 
-                        lineSpacing: 33, fit: 'shrink'
+                    const contentFontSize = contentForPptx.length > 10 ? 16 : 18;
+                    slide.addText(contentForPptx, {
+                        x: 5.25, y: 1.35, w: 4.25, h: 3.75,
+                        color: textColor, valign: 'top', fontSize: contentFontSize,
+                        lineSpacing: contentFontSize === 16 ? 22 : 25, fit: 'shrink'
                     });
                 }
             } else {
-                slide.addText(slideData.title, { 
-                    x: 0.5, y: 0.5, w: 9.0, h: 1.2, 
-                    fontSize: 40, bold: true, color: brandColor, 
+                const titleFontSize = slideData.title.length > 58
+                    ? 24
+                    : slideData.title.length > 38
+                        ? 28
+                        : 32;
+                slide.addText(slideData.title, {
+                    x: 0.55, y: 0.45, w: 8.9, h: 0.9,
+                    fontSize: titleFontSize, bold: true, color: brandColor,
                     valign: 'top', fontFace: 'Poppins', fit: 'shrink'
                 });
-                
+
                 if (hasContent) {
-                    slide.addText(contentForPptx, { 
-                        x: 0.5, y: 1.7, w: 9.0, h: 3.6, 
-                        color: textColor, valign: 'top', 
-                        fontSize: 24, lineSpacing: 36, fit: 'shrink'
+                    const contentFontSize = contentForPptx.length > 10 ? 19 : 21;
+                    slide.addText(contentForPptx, {
+                        x: 0.75, y: 1.55, w: 8.5, h: 3.7,
+                        color: textColor, valign: 'top',
+                        fontSize: contentFontSize, lineSpacing: contentFontSize === 19 ? 26 : 30, fit: 'shrink'
                     });
                 }
             }
