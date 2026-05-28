@@ -19,6 +19,7 @@ export interface ImageSemanticMetadata {
   gradeBand?: string;
   learningCompetency?: string;
   visualRole?: string;
+  slideTemplate?: string;
   semanticAnchor?: string;
   language?: 'EN' | 'FIL';
   style?: ImageStyle;

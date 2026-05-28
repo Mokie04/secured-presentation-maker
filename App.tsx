@@ -66,7 +66,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v2';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v1';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v2';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
@@ -162,6 +162,27 @@ const getSlideImageRole = (slide: Slide): string => {
   return 'content';
 };
 
+const getSlideImageTemplateKey = (slide: Slide): string => {
+  const text = normalizeImageSemanticText([
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.speakerNotes,
+  ].filter(Boolean).join(' '));
+
+  if (/\b(assignment|homework|takdang|gawain sa bahay)\b/.test(text)) return 'assignment';
+  if (/\b(evaluation|assessment|quiz|test|exit ticket|evaluating|pagtataya|tsek)\b/.test(text)) return 'assessment';
+  if (/\b(generalization|summary|conclusion|synthesis|key takeaways|paglalahat|pagwawakas|pagninilay)\b/.test(text)) return 'generalization';
+  if (/\b(criteria|success|rubric|pamantayan|tagumpay)\b/.test(text)) return 'success-criteria';
+  if (/\b(application|paglalapat|individual work|sarili)\b/.test(text)) return 'application';
+  if (/\b(practice|drill|guided practice|pair activity|independent practice|pagsasanay)\b/.test(text)) return 'practice';
+  if (/\b(discussion|model|modelo|guro|how do we use)\b/.test(text)) return 'model';
+  if (/\b(motivation|story|scenario|situation|sitwasyon|paunang)\b/.test(text)) return 'situation';
+  if (/\b(review|recap|recall|balik-aral|balikan)\b/.test(text)) return 'review';
+  if (/\b(welcome|objective|goal|layunin|session|sesyon|focus|title|agenda|overview)\b/.test(text)) return 'overview';
+  if (/\b(content|concept development|core concept|gabay|kaisipan|evidence note|isip|kilos-loob)\b/.test(text)) return 'concept';
+  return getSlideImageRole(slide);
+};
+
 const getSlideImageSemanticAnchor = (slide: Slide, prompt: string): string => {
   const slideText = normalizeImageSemanticText([
     slide.title,
@@ -212,6 +233,7 @@ const buildSlideImageSemanticMetadata = (
     gradeBand: getGradeBand(gradeLevel),
     learningCompetency: getImageSemanticScopeValue(semanticScope, 'learningCompetency'),
     visualRole: getSlideImageRole(slide),
+    slideTemplate: getSlideImageTemplateKey(slide),
     semanticAnchor: getSlideImageSemanticAnchor(slide, prompt),
     language: semanticLanguage,
     style: slide.imageStyle || 'illustration',
@@ -583,9 +605,7 @@ const App: React.FC = () => {
       semanticMetadata.level || 'general',
       semanticMetadata.subject || semanticMetadata.topic || 'general',
       semanticLanguage,
-      slide.imageStyle || 'illustration',
-      semanticMetadata.visualRole,
-      semanticMetadata.semanticAnchor,
+      semanticMetadata.slideTemplate || semanticMetadata.visualRole || 'content',
     ]);
   }, [buildFallbackImagePrompt]);
 
