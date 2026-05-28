@@ -173,6 +173,26 @@ function semanticSubjectSlug(metadata: Record<string, string>): string {
     return 'values-education';
   }
 
+  const searchable = slugify([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '), 'general');
+  const hasScienceSubject = subjectSlug === 'science'
+    || subjectSlug.includes('science')
+    || searchable.includes('science');
+  const hasParticleModelTopic = searchable.includes('particle-model')
+    || searchable.includes('particle-motion')
+    || searchable.includes('particle-arrangement')
+    || searchable.includes('states-of-matter')
+    || searchable.includes('changes-of-state')
+    || searchable.includes('phase-change')
+    || (searchable.includes('particle') && searchable.includes('matter'));
+  if (hasScienceSubject && hasParticleModelTopic) {
+    return 'science-particle-model';
+  }
+
   return subjectSlug;
 }
 

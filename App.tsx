@@ -15,6 +15,7 @@ import { useLanguage } from './contexts/LanguageContext';
 import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
+import { getReusableK12LessonPlanSeed, getReusableK12PlanUnitSlidesSeed } from './lib/reusableLessonSeeds';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -66,26 +67,54 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v3';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v2';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v3';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
-const CURATED_STATIC_IMAGE_BASE_PATH = '/curated-images/values-education';
-const CURATED_STATIC_IMAGE_BY_TEMPLATE: Record<string, string> = {
-  activity: 'practice.jpg',
-  application: 'application.jpg',
-  assignment: 'assignment.jpg',
-  assessment: 'assessment.jpg',
-  concept: 'concept.jpg',
-  content: 'concept.jpg',
-  generalization: 'generalization.jpg',
-  model: 'model.jpg',
-  objectives: 'overview.jpg',
-  overview: 'overview.jpg',
-  practice: 'practice.jpg',
-  review: 'review.jpg',
-  situation: 'situation.jpg',
-  summary: 'generalization.jpg',
-  'success-criteria': 'success-criteria.jpg',
+const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
+  'values-education': '/curated-images/values-education',
+  'science-particle-model': '/curated-images/science/particle-model',
+};
+const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string, string>> = {
+  'values-education': {
+    activity: 'practice.jpg',
+    application: 'application.jpg',
+    assignment: 'assignment.jpg',
+    assessment: 'assessment.jpg',
+    concept: 'concept.jpg',
+    content: 'concept.jpg',
+    generalization: 'generalization.jpg',
+    model: 'model.jpg',
+    objectives: 'overview.jpg',
+    overview: 'overview.jpg',
+    practice: 'practice.jpg',
+    review: 'review.jpg',
+    situation: 'situation.jpg',
+    summary: 'generalization.jpg',
+    'success-criteria': 'success-criteria.jpg',
+  },
+  'science-particle-model': {
+    activity: 'particle-evidence.svg',
+    application: 'phase-change-energy.svg',
+    assignment: 'assignment.svg',
+    assessment: 'assessment.svg',
+    'air-compression': 'air-compression.svg',
+    concept: 'particle-model.svg',
+    content: 'particle-model.svg',
+    'diffusion-temperature': 'diffusion-temperature.svg',
+    'dissolving-diffusion': 'dissolving-diffusion.svg',
+    generalization: 'generalization.svg',
+    model: 'particle-model.svg',
+    objectives: 'overview.svg',
+    overview: 'overview.svg',
+    'particle-evidence': 'particle-evidence.svg',
+    'particle-states': 'particle-states.svg',
+    'phase-change-energy': 'phase-change-energy.svg',
+    practice: 'particle-evidence.svg',
+    review: 'particle-evidence.svg',
+    situation: 'particle-evidence.svg',
+    summary: 'generalization.svg',
+    'success-criteria': 'particle-states.svg',
+  },
 };
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
@@ -184,13 +213,46 @@ const isValuesEducationSemanticSubject = (value: string | undefined): boolean =>
     || parts.includes('esp');
 };
 
+const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasScienceSubject = subjectSlug === 'science'
+    || subjectSlug.includes('science')
+    || searchable.includes('science');
+  const hasParticleModelTopic = searchable.includes('particle-model')
+    || searchable.includes('particle-motion')
+    || searchable.includes('particle-arrangement')
+    || searchable.includes('states-of-matter')
+    || searchable.includes('changes-of-state')
+    || searchable.includes('phase-change')
+    || (searchable.includes('particle') && searchable.includes('matter'));
+
+  return hasScienceSubject && hasParticleModelTopic;
+};
+
+const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
+  if (!metadata) return undefined;
+  if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isScienceParticleModelSemanticSubject(metadata)) return 'science-particle-model';
+  return undefined;
+};
+
 const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
-  if (!isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return undefined;
+  const collection = getCuratedStaticImageCollection(metadata);
+  if (!collection) return undefined;
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const fileName = CURATED_STATIC_IMAGE_BY_TEMPLATE[template] || CURATED_STATIC_IMAGE_BY_TEMPLATE.content;
-  return fileName ? `${CURATED_STATIC_IMAGE_BASE_PATH}/${fileName}` : undefined;
+  const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
+  const fileName = collectionMap?.[template] || collectionMap?.content;
+  const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
+  return fileName && basePath ? `${basePath}/${fileName}` : undefined;
 };
 
 const getSlideImageRole = (slide: Slide): string => {
@@ -289,10 +351,11 @@ const buildSlideImageSemanticMetadata = (
   };
 };
 
-const buildK12ImageSemanticScope = (blueprint: Pick<LessonBlueprint, 'subject' | 'gradeLevel' | 'learningCompetency'>) => ({
+const buildK12ImageSemanticScope = (blueprint: Pick<LessonBlueprint, 'mainTitle' | 'subject' | 'gradeLevel' | 'learningCompetency'>) => ({
   level: 'k12',
   format: DEFAULT_LESSON_FORMAT,
   subject: blueprint.subject,
+  topic: blueprint.mainTitle,
   gradeLevel: blueprint.gradeLevel,
   learningCompetency: blueprint.learningCompetency,
 });
@@ -632,31 +695,51 @@ const App: React.FC = () => {
   }, []);
 
   const buildImagePromptCandidates = useCallback((slide: Slide): string[] => {
+    if (slide.imageStyle === 'none') {
+      return [];
+    }
+
     const primary = (slide.imagePrompt || '').trim();
     const fallback = buildFallbackImagePrompt(slide);
     const bestPrompt = primary || fallback;
     return bestPrompt ? [bestPrompt] : [];
   }, [buildFallbackImagePrompt]);
 
+  const buildImageSemanticCacheId = useCallback(async (
+    semanticMetadata: ImageSemanticMetadata,
+    semanticLanguage: 'EN' | 'FIL',
+  ): Promise<string | undefined> => {
+    const template = semanticMetadata.slideTemplate || semanticMetadata.visualRole || 'content';
+    if (!template || semanticMetadata.style === 'none') {
+      return undefined;
+    }
+
+    return buildGenerationCacheKey('image-semantic', [
+      IMAGE_SEMANTIC_CACHE_VERSION,
+      semanticMetadata.level || 'general',
+      semanticMetadata.subject || 'general',
+      semanticMetadata.topic || 'general',
+      semanticMetadata.gradeBand || semanticMetadata.gradeLevel || 'all-grades',
+      semanticLanguage,
+      template,
+    ]);
+  }, []);
+
   const buildSlideImageSemanticCacheId = useCallback(async (
     slide: Slide,
     semanticLanguage: 'EN' | 'FIL',
-    semanticScope?: unknown
+    semanticScope?: unknown,
+    existingSemanticMetadata?: ImageSemanticMetadata
   ): Promise<string | undefined> => {
     const prompt = (slide.imagePrompt || buildFallbackImagePrompt(slide)).trim();
     if (!prompt || slide.imageStyle === 'none') {
       return undefined;
     }
 
-    const semanticMetadata = buildSlideImageSemanticMetadata(slide, prompt, semanticLanguage, semanticScope);
-    return buildGenerationCacheKey('image-semantic', [
-      IMAGE_SEMANTIC_CACHE_VERSION,
-      semanticMetadata.level || 'general',
-      semanticMetadata.subject || semanticMetadata.topic || 'general',
-      semanticLanguage,
-      semanticMetadata.slideTemplate || semanticMetadata.visualRole || 'content',
-    ]);
-  }, [buildFallbackImagePrompt]);
+    const semanticMetadata = existingSemanticMetadata
+      || buildSlideImageSemanticMetadata(slide, prompt, semanticLanguage, semanticScope);
+    return buildImageSemanticCacheId(semanticMetadata, semanticLanguage);
+  }, [buildFallbackImagePrompt, buildImageSemanticCacheId]);
 
   const processSlidesForImages = async (
     slidesWithPrompts: Slide[],
@@ -665,18 +748,21 @@ const App: React.FC = () => {
   ): Promise<Slide[]> => {
     const muteProgress = options?.muteProgress === true;
     const attachImageCacheIds = async (slide: Slide, slideIndex: number): Promise<Slide> => {
-        const imagePrompt = slide.imagePrompt || buildFallbackImagePrompt(slide);
+        const imagePrompt = slide.imageStyle === 'none'
+          ? (slide.imagePrompt || '')
+          : (slide.imagePrompt || buildFallbackImagePrompt(slide));
         const slideWithPrompt = { ...slide, imagePrompt };
-        const imageSemanticCacheId = slide.imageSemanticCacheId || await buildSlideImageSemanticCacheId(
-          slideWithPrompt,
-          language,
-          options?.imageSemanticScope
-        );
         const imageSemanticMetadata = slide.imageSemanticMetadata || buildSlideImageSemanticMetadata(
           slideWithPrompt,
           imagePrompt,
           language,
           options?.imageSemanticScope
+        );
+        const imageSemanticCacheId = slide.imageSemanticCacheId || await buildSlideImageSemanticCacheId(
+          slideWithPrompt,
+          language,
+          options?.imageSemanticScope,
+          imageSemanticMetadata
         );
 
         return {
@@ -987,6 +1073,31 @@ const App: React.FC = () => {
                   return;
                 }
 
+                const reusablePlan = getReusableK12LessonPlanSeed(content, language);
+                if (reusablePlan) {
+                  const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
+                  const imageSemanticScope = buildK12ImageSemanticScope(reusablePlan.blueprint);
+                  const processedInitialSlides = await processSlidesForImages(
+                    reusablePlan.initialPresentation.slides,
+                    language,
+                    { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope }
+                  );
+                  const initialPresentation = {
+                    ...reusablePlan.initialPresentation,
+                    slides: processedInitialSlides,
+                  };
+
+                  setLessonBlueprint(blueprintWithStatus);
+                  setPresentation(initialPresentation);
+                  await setCachedGeneration(cacheKey, {
+                    blueprint: reusablePlan.blueprint,
+                    initialPresentation,
+                  });
+
+                  setAppStep('planning');
+                  return;
+                }
+
                 const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, language);
                 const blueprintWithStatus = resetBlueprintStatus(blueprint);
                 const imageSemanticScope = buildK12ImageSemanticScope(blueprint);
@@ -1099,6 +1210,30 @@ const App: React.FC = () => {
             setCurrentSlide(slideIndexOfNewDay);
             setAppStep('presenting');
             shouldRollbackGeneration = false;
+            return;
+        }
+
+        const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, language);
+        if (reusableSlides) {
+            setLoadingMessage(t.presentation.loadingTables);
+            const slidesWithTables = await processSlidesForTables(reusableSlides);
+            const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope });
+
+            setPresentation(prev => ({
+                title: prev?.title ?? lessonBlueprint.mainTitle,
+                slides: [...(prev?.slides ?? []), ...finalSlides]
+            }));
+            await setCachedGeneration(cacheKey, finalSlides);
+
+            setLessonBlueprint(prev => {
+                if (!prev) return null;
+                const newDays = [...prev.days];
+                newDays[dayIndex].generationStatus = 'done';
+                return {...prev, days: newDays};
+            });
+
+            setCurrentSlide(slideIndexOfNewDay);
+            setAppStep('presenting');
             return;
         }
 

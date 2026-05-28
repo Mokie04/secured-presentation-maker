@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" role="img" aria-label="Phase change energy particle diagram">
+  <defs>
+    <linearGradient id="bg" x1="0" x2="1" y1="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#fff7ed"/>
+    </linearGradient>
+    <marker id="hotArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10z" fill="#f97316"/>
+    </marker>
+    <marker id="coolArrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="9" markerHeight="9" orient="auto">
+      <path d="M0 0 L10 5 L0 10z" fill="#0284c7"/>
+    </marker>
+  </defs>
+  <rect width="1600" height="900" fill="url(#bg)"/>
+  <g transform="translate(110 160)">
+    <rect x="0" y="0" width="1380" height="560" rx="70" fill="#ffffff" stroke="#fed7aa" stroke-width="10"/>
+    <g transform="translate(84 170)" fill="#2563eb">
+      <circle cx="0" cy="0" r="25"/><circle cx="62" cy="0" r="25"/><circle cx="124" cy="0" r="25"/>
+      <circle cx="0" cy="62" r="25"/><circle cx="62" cy="62" r="25"/><circle cx="124" cy="62" r="25"/>
+      <circle cx="0" cy="124" r="25"/><circle cx="62" cy="124" r="25"/><circle cx="124" cy="124" r="25"/>
+    </g>
+    <path d="M294 250 H420" stroke="#f97316" stroke-width="15" stroke-linecap="round" marker-end="url(#hotArrow)"/>
+    <g transform="translate(466 166)" fill="#10b981">
+      <circle cx="38" cy="44" r="27"/><circle cx="104" cy="32" r="27"/><circle cx="172" cy="62" r="27"/>
+      <circle cx="70" cy="126" r="27"/><circle cx="142" cy="144" r="27"/><circle cx="214" cy="116" r="27"/>
+      <circle cx="110" cy="214" r="27"/><circle cx="188" cy="220" r="27"/>
+    </g>
+    <path d="M738 250 H864" stroke="#f97316" stroke-width="15" stroke-linecap="round" marker-end="url(#hotArrow)"/>
+    <g transform="translate(928 120)" fill="#ef4444">
+      <circle cx="30" cy="52" r="23"/><circle cx="190" cy="36" r="23"/><circle cx="310" cy="126" r="23"/>
+      <circle cx="92" cy="202" r="23"/><circle cx="248" cy="252" r="23"/><circle cx="62" cy="334" r="23"/>
+      <circle cx="334" cy="356" r="23"/>
+    </g>
+    <path d="M884 410 H758" stroke="#0284c7" stroke-width="13" stroke-linecap="round" marker-end="url(#coolArrow)" opacity="0.86"/>
+    <path d="M430 410 H304" stroke="#0284c7" stroke-width="13" stroke-linecap="round" marker-end="url(#coolArrow)" opacity="0.86"/>
+    <g fill="none" stroke-width="7" stroke-linecap="round" opacity="0.52">
+      <path d="M538 208 C560 230 590 226 612 202" stroke="#059669" marker-end="url(#coolArrow)"/>
+      <path d="M980 168 L1034 138" stroke="#dc2626" marker-end="url(#hotArrow)"/>
+      <path d="M1248 476 L1192 430" stroke="#dc2626" marker-end="url(#hotArrow)"/>
+    </g>
+  </g>
+  <g transform="translate(295 740)" opacity="0.88">
+    <path d="M0 0 C80 -42 126 -42 200 0" fill="none" stroke="#f97316" stroke-width="12" stroke-linecap="round" marker-end="url(#hotArrow)"/>
+    <path d="M1010 0 C930 42 884 42 810 0" fill="none" stroke="#0284c7" stroke-width="12" stroke-linecap="round" marker-end="url(#coolArrow)"/>
+  </g>
+</svg>
