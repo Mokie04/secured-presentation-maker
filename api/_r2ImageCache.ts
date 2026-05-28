@@ -50,6 +50,7 @@ const SEMANTIC_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 let s3Client: S3Client | null = null;
 let s3ClientAccountId: string | null = null;
 let loggedMissingConfig = false;
+let kvAccessDisabledReason: string | null = null;
 
 function getConfig(): R2ImageCacheConfig | null {
   const accountId = process.env.R2_ACCOUNT_ID?.trim();
@@ -76,6 +77,10 @@ function getConfig(): R2ImageCacheConfig | null {
 }
 
 function getKvConfig(): CloudflareKvConfig | null {
+  if (process.env.R2_IMAGE_CACHE_KV_DISABLED === 'true' || kvAccessDisabledReason) {
+    return null;
+  }
+
   const accountId = (
     process.env.CLOUDFLARE_ACCOUNT_ID
     || process.env.CF_ACCOUNT_ID
@@ -96,6 +101,12 @@ function getKvConfig(): CloudflareKvConfig | null {
   }
 
   return { accountId, apiToken, namespaceId };
+}
+
+function disableKvAccess(reason: string, status?: number): void {
+  if (kvAccessDisabledReason) return;
+  kvAccessDisabledReason = reason;
+  console.warn('Semantic image KV index disabled for this runtime.', status ? { reason, status } : { reason });
 }
 
 function getClient(config: R2ImageCacheConfig): S3Client {
@@ -324,6 +335,9 @@ async function getKvRecord<T>(key: string): Promise<T | null> {
 
     if (response.status === 404) return null;
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        disableKvAccess('cloudflare-api-token-rejected', response.status);
+      }
       console.warn('Failed to read semantic image index.', { status: response.status });
       return null;
     }
@@ -352,6 +366,9 @@ async function setKvRecord<T>(key: string, value: T): Promise<boolean> {
     });
 
     if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        disableKvAccess('cloudflare-api-token-rejected', response.status);
+      }
       console.warn('Failed to write semantic image index.', { status: response.status });
       return false;
     }
@@ -463,18 +480,18 @@ async function getCachedSemanticR2Image(
     return getCachedCuratedSemanticR2Image(input, config, createPromptHash(input, config.cacheSecret));
   }
 
-  const indexKey = semanticIndexKey(input);
-  if (indexKey) {
-    const record = await getKvRecord<SemanticImageCacheRecord>(indexKey);
+  const indexObjectKey = semanticIndexObjectKey(input);
+  if (indexObjectKey) {
+    const record = await getR2JsonRecord<SemanticImageCacheRecord>(indexObjectKey, config);
     if (record?.objectKey) {
       const indexedImage = await getCachedR2ImageObject(record.objectKey, record.cacheKey || semanticCacheKey, config);
       if (indexedImage) return indexedImage;
     }
   }
 
-  const indexObjectKey = semanticIndexObjectKey(input);
-  if (indexObjectKey) {
-    const record = await getR2JsonRecord<SemanticImageCacheRecord>(indexObjectKey, config);
+  const indexKey = semanticIndexKey(input);
+  if (indexKey) {
+    const record = await getKvRecord<SemanticImageCacheRecord>(indexKey);
     if (record?.objectKey) {
       const indexedImage = await getCachedR2ImageObject(record.objectKey, record.cacheKey || semanticCacheKey, config);
       if (indexedImage) return indexedImage;
