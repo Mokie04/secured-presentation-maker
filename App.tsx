@@ -93,27 +93,27 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     'success-criteria': 'success-criteria.jpg',
   },
   'science-particle-model': {
-    activity: 'particle-evidence.svg',
-    application: 'phase-change-energy.svg',
-    assignment: 'assignment.svg',
-    assessment: 'assessment.svg',
-    'air-compression': 'air-compression.svg',
-    concept: 'particle-model.svg',
-    content: 'particle-model.svg',
-    'diffusion-temperature': 'diffusion-temperature.svg',
-    'dissolving-diffusion': 'dissolving-diffusion.svg',
-    generalization: 'generalization.svg',
-    model: 'particle-model.svg',
-    objectives: 'overview.svg',
-    overview: 'overview.svg',
-    'particle-evidence': 'particle-evidence.svg',
-    'particle-states': 'particle-states.svg',
-    'phase-change-energy': 'phase-change-energy.svg',
-    practice: 'particle-evidence.svg',
-    review: 'particle-evidence.svg',
-    situation: 'particle-evidence.svg',
-    summary: 'generalization.svg',
-    'success-criteria': 'particle-states.svg',
+    activity: 'particle-evidence.png',
+    application: 'phase-change-energy.png',
+    assignment: 'assignment.png',
+    assessment: 'assessment.png',
+    'air-compression': 'air-compression.png',
+    concept: 'particle-model.png',
+    content: 'particle-model.png',
+    'diffusion-temperature': 'diffusion-temperature.png',
+    'dissolving-diffusion': 'dissolving-diffusion.png',
+    generalization: 'generalization.png',
+    model: 'particle-model.png',
+    objectives: 'overview.png',
+    overview: 'overview.png',
+    'particle-evidence': 'particle-evidence.png',
+    'particle-states': 'particle-states.png',
+    'phase-change-energy': 'phase-change-energy.png',
+    practice: 'particle-evidence.png',
+    review: 'particle-evidence.png',
+    situation: 'particle-evidence.png',
+    summary: 'generalization.png',
+    'success-criteria': 'particle-states.png',
   },
 };
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
@@ -1590,9 +1590,9 @@ const App: React.FC = () => {
                         throw new Error('No valid image data available for export.');
                     }
                     const imageX = 0.55;
-                    const imageY = 1.35;
-                    const imageW = 4.35;
-                    const imageH = 2.45;
+                    const imageY = 1.2;
+                    const imageW = 3.55;
+                    const imageH = 4.0;
                     slide.addImage({ data: imageData, x: imageX, y: imageY, w: imageW, h: imageH });
 
                     const overlays = (slideData.imageOverlays || []).filter(o => o.text && o.text.trim().length > 0);
@@ -1634,7 +1634,7 @@ const App: React.FC = () => {
                     }
                 } catch (e) { 
                     console.error("Failed to add image to PPTX slide:", e);
-                    slide.addText('Image could not be loaded.', { x: 0.55, y: 1.35, w: 4.35, h: 2.45, color: 'FF0000', align: 'center', valign: 'middle' });
+                    slide.addText('Image could not be loaded.', { x: 0.55, y: 1.2, w: 3.55, h: 4.0, color: 'FF0000', align: 'center', valign: 'middle' });
                 }
 
                 const titleFontSize = slideData.title.length > 58
@@ -1652,7 +1652,7 @@ const App: React.FC = () => {
                 if(hasContent) {
                     const contentFontSize = contentForPptx.length > 10 ? 16 : 18;
                     slide.addText(contentForPptx, {
-                        x: 5.25, y: 1.35, w: 4.25, h: 3.75,
+                        x: 4.45, y: 1.35, w: 5.05, h: 3.75,
                         color: textColor, valign: 'top', fontSize: contentFontSize,
                         lineSpacing: contentFontSize === 16 ? 22 : 25, fit: 'shrink'
                     });
