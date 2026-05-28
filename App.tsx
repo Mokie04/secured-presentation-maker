@@ -15,7 +15,7 @@ import { useLanguage } from './contexts/LanguageContext';
 import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
-import { getReusableK12CompleteLessonPlanSeed, getReusableK12PlanUnitSlidesSeed } from './lib/reusableLessonSeeds';
+import { getReusableK12LessonPlanSeed, getReusableK12PlanUnitSlidesSeed } from './lib/reusableLessonSeeds';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -66,7 +66,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v3';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v4';
 const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v3';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
@@ -1071,9 +1071,9 @@ const App: React.FC = () => {
                   language,
                 ]);
 
-                const reusablePlan = getReusableK12CompleteLessonPlanSeed(content, language);
+                const reusablePlan = getReusableK12LessonPlanSeed(content, language);
                 if (reusablePlan) {
-                  const blueprintWithStatus = completeBlueprintStatus(reusablePlan.blueprint);
+                  const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
                   const imageSemanticScope = buildK12ImageSemanticScope(reusablePlan.blueprint);
                   const processedInitialSlides = await processSlidesForImages(
                     reusablePlan.initialPresentation.slides,
@@ -1092,8 +1092,7 @@ const App: React.FC = () => {
                     initialPresentation,
                   });
 
-                  setCurrentSlide(0);
-                  setAppStep('presenting');
+                  setAppStep('planning');
                   return;
                 }
 
@@ -1201,6 +1200,19 @@ const App: React.FC = () => {
             .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
         );
 
+        const hasQuota = tryIncrementCount('generations');
+        if (!hasQuota) {
+          setError(t.presentation.errorGenerationLimit);
+          setLessonBlueprint(prev => {
+              if (!prev) return null;
+              const newDays = [...prev.days];
+              newDays[dayIndex].generationStatus = 'pending';
+              return {...prev, days: newDays};
+          });
+          return;
+        }
+
+        shouldRollbackGeneration = true;
         const cachedSlides = await getCachedGeneration<Slide[]>(cacheKey);
         const slideIndexOfNewDay = presentation?.slides.length ?? 0;
 
@@ -1246,22 +1258,10 @@ const App: React.FC = () => {
 
             setCurrentSlide(slideIndexOfNewDay);
             setAppStep('presenting');
+            shouldRollbackGeneration = false;
             return;
         }
 
-        const hasQuota = tryIncrementCount('generations');
-        if (!hasQuota) {
-          setError(t.presentation.errorGenerationLimit);
-          setLessonBlueprint(prev => {
-              if (!prev) return null;
-              const newDays = [...prev.days];
-              newDays[dayIndex].generationStatus = 'pending';
-              return {...prev, days: newDays};
-          });
-          return;
-        }
-
-        shouldRollbackGeneration = true;
         const dailySlides = await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, language);
         
         setLoadingMessage(t.presentation.loadingTables);
@@ -1818,6 +1818,7 @@ const App: React.FC = () => {
   const renderWeeklyBlueprintView = () => {
     if (!lessonBlueprint) return null;
     const unitLabel = getPlanUnitLabel(lessonBlueprint);
+    const hasGeneratedPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'done');
 
     return (
         <div className="w-full max-w-5xl bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed animate-fade-in">
@@ -1872,7 +1873,7 @@ const App: React.FC = () => {
                 </button>
                  <button 
                     onClick={() => { setCurrentSlide(0); setAppStep('presenting'); }} 
-                    disabled={!presentation || presentation.slides.length === 0}
+                    disabled={!presentation || presentation.slides.length === 0 || !hasGeneratedPlanUnit}
                     className="px-6 py-3 text-base font-semibold bg-brand text-brand-contrast rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                      {t.presentation.viewPresentationButton}
