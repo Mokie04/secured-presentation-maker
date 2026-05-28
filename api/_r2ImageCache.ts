@@ -151,6 +151,20 @@ function slugify(value: string | undefined, fallback: string): string {
   return slug || fallback;
 }
 
+function semanticSubjectSlug(metadata: Record<string, string>): string {
+  const subjectSlug = slugify(metadata.subject || metadata.topic, 'general');
+  const parts = subjectSlug.split('-');
+  if (
+    subjectSlug.includes('values-education')
+    || subjectSlug.includes('edukasyon-sa-pagpapakatao')
+    || parts.includes('esp')
+  ) {
+    return 'values-education';
+  }
+
+  return subjectSlug;
+}
+
 function extensionFromContentType(contentType: string): string {
   const normalized = contentType.toLowerCase();
   if (normalized.includes('jpeg') || normalized.includes('jpg')) return 'jpg';
@@ -231,7 +245,7 @@ function objectKeyForSemanticCacheKey(
 
 function curatedObjectKeysForSemanticMetadata(input: ImageCacheInput): string[] {
   const metadata = normalizeSemanticMetadata(input.semanticMetadata);
-  const subject = slugify(metadata.subject || metadata.topic, 'general');
+  const subject = semanticSubjectSlug(metadata);
   const template = slugify(metadata.slideTemplate || metadata.visualRole, 'content');
   const gradeBand = slugify(metadata.gradeBand, 'all-grades');
 

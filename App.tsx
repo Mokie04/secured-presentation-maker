@@ -172,12 +172,16 @@ const slugifyImageSemanticText = (value: string | undefined): string => (
 
 const isValuesEducationSemanticSubject = (value: string | undefined): boolean => {
   const subjectSlug = slugifyImageSemanticText(value);
+  const parts = subjectSlug.split('-');
   return subjectSlug === 'values-education'
     || subjectSlug === 'values-ed'
     || subjectSlug === 'esp'
     || subjectSlug === 'edukasyon-sa-pagpapakatao'
     || subjectSlug === 'edukasyon-sa-pagpapakatao-esp'
-    || subjectSlug === 'values-education-esp';
+    || subjectSlug === 'values-education-esp'
+    || subjectSlug.includes('values-education')
+    || subjectSlug.includes('edukasyon-sa-pagpapakatao')
+    || parts.includes('esp');
 };
 
 const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
