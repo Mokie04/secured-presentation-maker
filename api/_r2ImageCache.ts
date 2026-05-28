@@ -218,6 +218,18 @@ function objectKeyForSemanticCacheKey(
   return `${SEMANTIC_IMAGE_CACHE_PREFIX}/${subject}/${role}/${gradeBand}/${cacheKey}/image.${extension}`;
 }
 
+function curatedObjectKeysForSemanticMetadata(input: ImageCacheInput): string[] {
+  const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  const subject = slugify(metadata.subject || metadata.topic, 'general');
+  const template = slugify(metadata.slideTemplate || metadata.visualRole, 'content');
+  const gradeBand = slugify(metadata.gradeBand, 'all-grades');
+
+  return SEMANTIC_IMAGE_EXTENSIONS.flatMap((extension) => [
+    `${SEMANTIC_IMAGE_CACHE_PREFIX}/_curated/${subject}/${template}/${gradeBand}/image.${extension}`,
+    `${SEMANTIC_IMAGE_CACHE_PREFIX}/_curated/${subject}/${template}/all-grades/image.${extension}`,
+  ]);
+}
+
 function semanticIndexKey(input: ImageCacheInput): string | null {
   const semanticCacheId = input.semanticCacheId ? normalizeCacheId(input.semanticCacheId) : '';
   if (!semanticCacheId) return null;
@@ -402,6 +414,11 @@ async function getCachedSemanticR2Image(
       const indexedImage = await getCachedR2ImageObject(record.objectKey, record.cacheKey || semanticCacheKey, config);
       if (indexedImage) return indexedImage;
     }
+  }
+
+  for (const objectKey of curatedObjectKeysForSemanticMetadata(input)) {
+    const curatedImage = await getCachedR2ImageObject(objectKey, semanticCacheKey, config);
+    if (curatedImage) return curatedImage;
   }
 
   for (const extension of SEMANTIC_IMAGE_EXTENSIONS) {
