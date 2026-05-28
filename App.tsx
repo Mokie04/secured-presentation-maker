@@ -69,6 +69,24 @@ const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v3';
 const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v2';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
+const CURATED_STATIC_IMAGE_BASE_PATH = '/curated-images/values-education';
+const CURATED_STATIC_IMAGE_BY_TEMPLATE: Record<string, string> = {
+  activity: 'practice.jpg',
+  application: 'application.jpg',
+  assignment: 'assignment.jpg',
+  assessment: 'assessment.jpg',
+  concept: 'concept.jpg',
+  content: 'concept.jpg',
+  generalization: 'generalization.jpg',
+  model: 'model.jpg',
+  objectives: 'overview.jpg',
+  overview: 'overview.jpg',
+  practice: 'practice.jpg',
+  review: 'review.jpg',
+  situation: 'situation.jpg',
+  summary: 'generalization.jpg',
+  'success-criteria': 'success-criteria.jpg',
+};
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
 const IMAGE_SKIPPED_PLACEHOLDER = 'image_generation_skipped';
@@ -143,6 +161,33 @@ const buildSlideImageCacheId = (scope: string | undefined, slideIndex: number): 
 const normalizeImageSemanticText = (value: string | undefined): string => (
   (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
 );
+
+const slugifyImageSemanticText = (value: string | undefined): string => (
+  normalizeImageSemanticText(value)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+);
+
+const isValuesEducationSemanticSubject = (value: string | undefined): boolean => {
+  const subjectSlug = slugifyImageSemanticText(value);
+  return subjectSlug === 'values-education'
+    || subjectSlug === 'values-ed'
+    || subjectSlug === 'esp'
+    || subjectSlug === 'edukasyon-sa-pagpapakatao'
+    || subjectSlug === 'edukasyon-sa-pagpapakatao-esp'
+    || subjectSlug === 'values-education-esp';
+};
+
+const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
+  if (!metadata) return undefined;
+  if (!isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return undefined;
+
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const fileName = CURATED_STATIC_IMAGE_BY_TEMPLATE[template] || CURATED_STATIC_IMAGE_BY_TEMPLATE.content;
+  return fileName ? `${CURATED_STATIC_IMAGE_BASE_PATH}/${fileName}` : undefined;
+};
 
 const getSlideImageRole = (slide: Slide): string => {
   const text = normalizeImageSemanticText([
@@ -697,6 +742,13 @@ const App: React.FC = () => {
                 console.warn('Failed to check saved slide image before generation.');
             }
 
+            const curatedStaticImageUrl = getCuratedStaticImageUrl(newSlide.imageSemanticMetadata);
+            if (curatedStaticImageUrl) {
+                newSlide.imageUrl = curatedStaticImageUrl;
+                slidesWithImages.push(newSlide);
+                continue;
+            }
+
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
             if (imageAttemptsUsed >= imageAttemptsAllowed) {
                 newSlide.imageUrl = adminImageLimitBypassed ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER;
@@ -799,10 +851,13 @@ const App: React.FC = () => {
               slide.imageSemanticCacheId,
               slide.imageSemanticMetadata
             );
-            refreshedSlides.push(cachedImageUrl ? { ...slide, imageUrl: cachedImageUrl } : slide);
+            const curatedStaticImageUrl = getCuratedStaticImageUrl(slide.imageSemanticMetadata);
+            const imageUrl = cachedImageUrl || curatedStaticImageUrl;
+            refreshedSlides.push(imageUrl ? { ...slide, imageUrl } : slide);
         } catch {
             console.warn('Failed to refresh a saved slide image.');
-            refreshedSlides.push(slide);
+            const curatedStaticImageUrl = getCuratedStaticImageUrl(slide.imageSemanticMetadata);
+            refreshedSlides.push(curatedStaticImageUrl ? { ...slide, imageUrl: curatedStaticImageUrl } : slide);
         }
     }
 

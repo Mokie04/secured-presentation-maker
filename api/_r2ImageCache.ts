@@ -49,6 +49,7 @@ const SEMANTIC_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 
 let s3Client: S3Client | null = null;
 let s3ClientAccountId: string | null = null;
+let loggedMissingConfig = false;
 
 function getConfig(): R2ImageCacheConfig | null {
   const accountId = process.env.R2_ACCOUNT_ID?.trim();
@@ -58,6 +59,16 @@ function getConfig(): R2ImageCacheConfig | null {
   const cacheSecret = process.env.R2_IMAGE_CACHE_SECRET?.trim();
 
   if (!accountId || !accessKeyId || !secretAccessKey || !bucketName || !cacheSecret) {
+    if (!loggedMissingConfig) {
+      loggedMissingConfig = true;
+      console.warn('R2 image cache disabled because required configuration is missing.', {
+        hasAccountId: Boolean(accountId),
+        hasAccessKeyId: Boolean(accessKeyId),
+        hasSecretAccessKey: Boolean(secretAccessKey),
+        hasBucketName: Boolean(bucketName),
+        hasCacheSecret: Boolean(cacheSecret),
+      });
+    }
     return null;
   }
 
@@ -230,6 +241,44 @@ function curatedObjectKeysForSemanticMetadata(input: ImageCacheInput): string[] 
   ]);
 }
 
+function semanticLookupLogMetadata(input: ImageCacheInput, config: R2ImageCacheConfig): Record<string, string> {
+  const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  return {
+    bucketName: config.bucketName,
+    subject: metadata.subject || metadata.topic || '',
+    template: metadata.slideTemplate || metadata.visualRole || '',
+    gradeBand: metadata.gradeBand || '',
+  };
+}
+
+async function getCachedCuratedSemanticR2Image(
+  input: ImageCacheInput,
+  config: R2ImageCacheConfig,
+  cacheKey: string,
+): Promise<CachedImage | null> {
+  const curatedObjectKeys = curatedObjectKeysForSemanticMetadata(input);
+  for (const objectKey of curatedObjectKeys) {
+    const curatedImage = await getCachedR2ImageObject(objectKey, cacheKey, config);
+    if (curatedImage) {
+      console.info('Curated semantic image fallback hit.', {
+        ...semanticLookupLogMetadata(input, config),
+        objectKey,
+      });
+      return curatedImage;
+    }
+  }
+
+  if (curatedObjectKeys.length > 0) {
+    console.info('Curated semantic image fallback missed.', {
+      ...semanticLookupLogMetadata(input, config),
+      firstObjectKey: curatedObjectKeys[0],
+      keyCount: curatedObjectKeys.length,
+    });
+  }
+
+  return null;
+}
+
 function semanticIndexKey(input: ImageCacheInput): string | null {
   const semanticCacheId = input.semanticCacheId ? normalizeCacheId(input.semanticCacheId) : '';
   if (!semanticCacheId) return null;
@@ -396,7 +445,9 @@ async function getCachedSemanticR2Image(
   config: R2ImageCacheConfig,
 ): Promise<CachedImage | null> {
   const semanticCacheKey = createSemanticCacheKey(input, config.cacheSecret);
-  if (!semanticCacheKey) return null;
+  if (!semanticCacheKey) {
+    return getCachedCuratedSemanticR2Image(input, config, createPromptHash(input, config.cacheSecret));
+  }
 
   const indexKey = semanticIndexKey(input);
   if (indexKey) {
@@ -416,10 +467,8 @@ async function getCachedSemanticR2Image(
     }
   }
 
-  for (const objectKey of curatedObjectKeysForSemanticMetadata(input)) {
-    const curatedImage = await getCachedR2ImageObject(objectKey, semanticCacheKey, config);
-    if (curatedImage) return curatedImage;
-  }
+  const curatedImage = await getCachedCuratedSemanticR2Image(input, config, semanticCacheKey);
+  if (curatedImage) return curatedImage;
 
   for (const extension of SEMANTIC_IMAGE_EXTENSIONS) {
     const objectKey = objectKeyForSemanticCacheKey(input, semanticCacheKey, `image/${extension === 'jpg' ? 'jpeg' : extension}`);
