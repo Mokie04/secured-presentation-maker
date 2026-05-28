@@ -1061,7 +1061,6 @@ const App: React.FC = () => {
             }
             // DepEd Weekly Plan Flow (default)
             else if (depEdMode === 'weekly') {
-                // No generation quota consumed for creating the weekly blueprint.
                 setLoadingDuration(20);
                 setLoadingMessage(t.presentation.loadingBlueprint);
                 const cacheKey = await buildGenerationCacheKey('k12-lesson-plan', [
@@ -1070,6 +1069,14 @@ const App: React.FC = () => {
                   DEFAULT_LESSON_FORMAT,
                   language,
                 ]);
+
+                const hasQuota = tryIncrementCount('generations');
+                if (!hasQuota) {
+                  setIsLoading(false);
+                  setError(t.presentation.errorGenerationLimit);
+                  return;
+                }
+                shouldRollbackGeneration = true;
 
                 const reusablePlan = getReusableK12LessonPlanSeed(content, language);
                 if (reusablePlan) {
@@ -1093,6 +1100,7 @@ const App: React.FC = () => {
                   });
 
                   setAppStep('planning');
+                  shouldRollbackGeneration = false;
                   return;
                 }
 
@@ -1106,6 +1114,7 @@ const App: React.FC = () => {
                   setLessonBlueprint(shouldTreatAsComplete ? completeBlueprintStatus(cachedPlan.blueprint) : resetBlueprintStatus(cachedPlan.blueprint));
                   setPresentation({ ...cachedPlan.initialPresentation, slides: refreshedInitialSlides });
                   setAppStep(shouldTreatAsComplete ? 'presenting' : 'planning');
+                  shouldRollbackGeneration = false;
                   return;
                 }
 
@@ -1997,7 +2006,7 @@ const App: React.FC = () => {
   };
 
   const renderInputView = () => {
-    const shouldRequireGenerationQuota = teachingLevel === 'College' || (teachingLevel === 'K-12' && depEdMode === 'single');
+    const shouldRequireGenerationQuota = teachingLevel === 'College' || teachingLevel === 'K-12';
 
     const renderDepEdInputs = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
