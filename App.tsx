@@ -23,6 +23,7 @@ type TransitionDirection = 'next' | 'prev' | null;
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
+type LoadingProgressSetter = React.Dispatch<React.SetStateAction<number | null>>;
 type SessionUser = {
   sub?: string;
   email?: string;
@@ -183,13 +184,49 @@ const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
   blueprint?.planUnitLabel?.trim() || DEFAULT_PLAN_UNIT_LABEL
 );
 
-const waitForCacheHitLoading = (): Promise<void> => (
-  new Promise((resolve) => setTimeout(resolve, CACHE_HIT_LOADING_DELAY_MS))
+const waitForDuration = (durationMs: number): Promise<void> => (
+  new Promise((resolve) => setTimeout(resolve, durationMs))
 );
 
-const waitForReusableGenerationLoading = (): Promise<void> => (
-  new Promise((resolve) => setTimeout(resolve, REUSABLE_GENERATION_LOADING_DELAY_MS))
+const waitWithLoadingProgress = (
+  setProgress: LoadingProgressSetter,
+  durationMs: number,
+  startProgress = 8,
+  endProgress = 88,
+): Promise<void> => {
+  setProgress(startProgress);
+
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const interval = window.setInterval(() => {
+      const elapsedRatio = Math.min((Date.now() - startedAt) / durationMs, 1);
+      const easedRatio = 1 - Math.pow(1 - elapsedRatio, 3);
+      setProgress(startProgress + ((endProgress - startProgress) * easedRatio));
+
+      if (elapsedRatio >= 1) {
+        window.clearInterval(interval);
+        resolve();
+      }
+    }, 80);
+  });
+};
+
+const waitForCacheHitLoading = (setProgress?: LoadingProgressSetter): Promise<void> => (
+  setProgress
+    ? waitWithLoadingProgress(setProgress, CACHE_HIT_LOADING_DELAY_MS, 18, 82)
+    : waitForDuration(CACHE_HIT_LOADING_DELAY_MS)
 );
+
+const waitForReusableGenerationLoading = (setProgress?: LoadingProgressSetter): Promise<void> => (
+  setProgress
+    ? waitWithLoadingProgress(setProgress, REUSABLE_GENERATION_LOADING_DELAY_MS, 12, 86)
+    : waitForDuration(REUSABLE_GENERATION_LOADING_DELAY_MS)
+);
+
+const finishLoadingProgress = async (setProgress: LoadingProgressSetter): Promise<void> => {
+  setProgress(100);
+  await waitForDuration(250);
+};
 
 const buildSlideImageCacheId = (scope: string | undefined, slideIndex: number): string | undefined => (
   scope ? `${scope}:image:${slideIndex}` : undefined
@@ -1185,10 +1222,11 @@ const App: React.FC = () => {
             const imageSemanticScope = buildTopicImageSemanticScope('College', `${topicContext}\n${objectivesContext}`);
             const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
             if (cachedPresentation) {
-              await waitForCacheHitLoading();
+              await waitForCacheHitLoading(setLoadingProgress);
               const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, language, cacheKey, imageSemanticScope);
               setPresentation({ ...cachedPresentation, slides: refreshedSlides });
               setCurrentSlide(0);
+              await finishLoadingProgress(setLoadingProgress);
               setAppStep('presenting');
               return;
             }
@@ -1209,6 +1247,7 @@ const App: React.FC = () => {
             setPresentation(finalPresentation);
             await setCachedGeneration(cacheKey, finalPresentation);
             setCurrentSlide(0);
+            await finishLoadingProgress(setLoadingProgress);
             setAppStep('presenting');
         } 
         // DepEd Flows
@@ -1226,10 +1265,11 @@ const App: React.FC = () => {
                 const imageSemanticScope = buildTopicImageSemanticScope('K-12', content, DEFAULT_LESSON_FORMAT);
                 const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
                 if (cachedPresentation) {
-                  await waitForCacheHitLoading();
+                  await waitForCacheHitLoading(setLoadingProgress);
                   const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, language, cacheKey, imageSemanticScope);
                   setPresentation({ ...cachedPresentation, slides: refreshedSlides });
                   setCurrentSlide(0);
+                  await finishLoadingProgress(setLoadingProgress);
                   setAppStep('presenting');
                   return;
                 }
@@ -1250,6 +1290,7 @@ const App: React.FC = () => {
                 setPresentation(finalPresentation);
                 await setCachedGeneration(cacheKey, finalPresentation);
                 setCurrentSlide(0);
+                await finishLoadingProgress(setLoadingProgress);
                 setAppStep('presenting');
             }
             // DepEd Weekly Plan Flow (default)
@@ -1273,7 +1314,7 @@ const App: React.FC = () => {
                       language,
                       { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope }
                     ),
-                    waitForReusableGenerationLoading(),
+                    waitForReusableGenerationLoading(setLoadingProgress),
                   ]);
                   const initialPresentation = {
                     ...reusablePlan.initialPresentation,
@@ -1287,6 +1328,7 @@ const App: React.FC = () => {
                     initialPresentation,
                   });
 
+                  await finishLoadingProgress(setLoadingProgress);
                   setAppStep('planning');
                   shouldRollbackGeneration = false;
                   return;
@@ -1294,13 +1336,14 @@ const App: React.FC = () => {
 
                 const cachedPlan = await getCachedGeneration<CachedLessonPlan>(cacheKey);
                 if (cachedPlan) {
-                  await waitForCacheHitLoading();
+                  await waitForCacheHitLoading(setLoadingProgress);
                   const imageSemanticScope = buildK12ImageSemanticScope(cachedPlan.blueprint);
                   const refreshedInitialSlides = await refreshSlidesWithCachedImages(cachedPlan.initialPresentation.slides, language, cacheKey, imageSemanticScope);
                   const shouldTreatAsComplete = cachedPlan.blueprint.days.every((day) => day.generationStatus === 'done')
                     && refreshedInitialSlides.length > 2;
                   setLessonBlueprint(shouldTreatAsComplete ? completeBlueprintStatus(cachedPlan.blueprint) : resetBlueprintStatus(cachedPlan.blueprint));
                   setPresentation({ ...cachedPlan.initialPresentation, slides: refreshedInitialSlides });
+                  await finishLoadingProgress(setLoadingProgress);
                   setAppStep(shouldTreatAsComplete ? 'presenting' : 'planning');
                   shouldRollbackGeneration = false;
                   return;
@@ -1333,6 +1376,7 @@ const App: React.FC = () => {
                 setPresentation(initialPresentation);
                 await setCachedGeneration(cacheKey, { blueprint, initialPresentation });
 
+                await finishLoadingProgress(setLoadingProgress);
                 setAppStep('planning');
             }
         }
@@ -1414,7 +1458,7 @@ const App: React.FC = () => {
         const slideIndexOfNewDay = presentation?.slides.length ?? 0;
 
         if (cachedSlides) {
-            await waitForCacheHitLoading();
+            await waitForCacheHitLoading(setLoadingProgress);
             const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, language, imageCacheScope, imageSemanticScope);
             setPresentation(prev => ({
                 title: prev?.title ?? lessonBlueprint.mainTitle,
@@ -1429,6 +1473,7 @@ const App: React.FC = () => {
             });
 
             setCurrentSlide(slideIndexOfNewDay);
+            await finishLoadingProgress(setLoadingProgress);
             setAppStep('presenting');
             shouldRollbackGeneration = false;
             return;
@@ -1436,7 +1481,7 @@ const App: React.FC = () => {
 
         const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, language);
         if (reusableSlides) {
-            await waitForReusableGenerationLoading();
+            await waitForReusableGenerationLoading(setLoadingProgress);
             setLoadingMessage(t.presentation.loadingTables);
             const slidesWithTables = await processSlidesForTables(reusableSlides);
             const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope });
@@ -1455,6 +1500,7 @@ const App: React.FC = () => {
             });
 
             setCurrentSlide(slideIndexOfNewDay);
+            await finishLoadingProgress(setLoadingProgress);
             setAppStep('presenting');
             shouldRollbackGeneration = false;
             return;
@@ -1481,6 +1527,7 @@ const App: React.FC = () => {
         });
 
         setCurrentSlide(slideIndexOfNewDay);
+        await finishLoadingProgress(setLoadingProgress);
         setAppStep('presenting');
         shouldRollbackGeneration = false;
 
