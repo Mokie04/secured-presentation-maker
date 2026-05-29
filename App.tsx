@@ -1216,14 +1216,6 @@ const App: React.FC = () => {
                   language,
                 ]);
 
-                const hasQuota = tryIncrementCount('generations');
-                if (!hasQuota) {
-                  setIsLoading(false);
-                  setError(t.presentation.errorGenerationLimit);
-                  return;
-                }
-                shouldRollbackGeneration = true;
-
                 const reusablePlan = getReusableK12LessonPlanSeed(content, language);
                 if (reusablePlan) {
                   const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
@@ -2152,7 +2144,7 @@ const App: React.FC = () => {
   };
 
   const renderInputView = () => {
-    const shouldRequireGenerationQuota = teachingLevel === 'College' || teachingLevel === 'K-12';
+    const shouldRequireGenerationQuota = teachingLevel === 'College' || depEdMode === 'single';
 
     const renderDepEdInputs = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
