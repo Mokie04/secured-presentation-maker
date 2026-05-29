@@ -67,14 +67,14 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v12';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v7';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v13';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v8';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Keep particle-model visuals generated/cached as HD raster images; the old static set was too generic for classroom science.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = false;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260529-session1-hd2';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260529-session1-hd3';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
@@ -298,16 +298,16 @@ const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): 
     metadata.topic,
   ].filter(Boolean).join(' '));
   const slideSpecificImageByToken: Array<[string, string]> = [
-    ['evidence-table-routine', 's1-evidence-table.png'],
-    ['matter-mystery-claims', 's1-mystery-claims.png'],
-    ['observe-infer-or-unsure', 's1-observe-infer.png'],
-    ['air-is-matter-too', 's1-air-compression.png'],
-    ['sugar-did-not-vanish', 's1-sugar-dissolving.png'],
-    ['color-spreads-without-stirring', 's1-color-diffusion.png'],
-    ['evidence-board', 's1-evidence-board.png'],
-    ['build-a-particle-model', 's1-build-model.png'],
-    ['new-case-transfer', 's1-transfer.png'],
-    ['exit-slip', 's1-exit-slip.png'],
+    ['evidence-table-routine', 's1-hd-evidence-table.png'],
+    ['matter-mystery-claims', 's1-hd-mystery-claims.png'],
+    ['observe-infer-or-unsure', 's1-hd-observe-infer.png'],
+    ['air-is-matter-too', 's1-hd-air-compression.png'],
+    ['sugar-did-not-vanish', 's1-hd-sugar-dissolving.png'],
+    ['color-spreads-without-stirring', 's1-hd-color-diffusion.png'],
+    ['evidence-board', 's1-hd-evidence-board.png'],
+    ['build-a-particle-model', 's1-hd-build-model.png'],
+    ['new-case-transfer', 's1-hd-transfer.png'],
+    ['exit-slip', 's1-hd-exit-slip.png'],
     ['fair-test-evidence', 's2-fair-test-evidence.png'],
     ['cold-or-warm-prediction', 's2-prediction.png'],
     ['fair-test-setup', 's2-fair-test-setup.png'],
