@@ -66,13 +66,14 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v11';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v6';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v12';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v7';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Keep particle-model visuals generated/cached as HD raster images; the old static set was too generic for classroom science.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = false;
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260529-session1-hd2';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
@@ -394,6 +395,10 @@ const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): 
   return undefined;
 };
 
+const buildCuratedStaticImageUrl = (basePath: string, fileName: string): string => (
+  `${basePath}/${fileName}?v=${CURATED_STATIC_IMAGE_ASSET_VERSION}`
+);
+
 const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
@@ -408,7 +413,7 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
     ? getScienceParticleModelImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
     : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
-  return fileName && basePath ? `${basePath}/${fileName}` : undefined;
+  return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
 
 const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
@@ -420,7 +425,7 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
   const fileName = getScienceParticleModelImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
-  return fileName && basePath ? `${basePath}/${fileName}` : undefined;
+  return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
 
 const getSlideImageRole = (slide: Slide): string => {
@@ -1716,10 +1721,6 @@ const App: React.FC = () => {
 
   const handleExportAsPPTX = useCallback(async () => {
     if (!presentation) return;
-    if (lessonBlueprint?.days.some((day) => day.generationStatus !== 'done')) {
-        setError(t.presentation.errorIncompletePlanExport);
-        return;
-    }
 
     setError(null);
     setIsExporting(true);
@@ -2108,7 +2109,7 @@ const App: React.FC = () => {
             </div>
             {!hasCompletedAllPlanUnits && (
                 <p className="mt-4 text-center text-sm text-secondary">
-                    {t.presentation.errorIncompletePlanExport}
+                    {t.presentation.partialPlanExportNote}
                 </p>
             )}
         </div>

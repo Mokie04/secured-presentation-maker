@@ -218,10 +218,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Build a Particle Model',
       ['Choose one case', 'Use a different symbol for each substance', 'Show spacing or motion', 'Link the model to evidence'],
       'Pairs create the four-box organizer. Check that different pure substances use different symbols and that dissolving does not imply particles changed size or disappeared.',
-      'A clean before-and-after particle model for a dissolving substance in water, using two different particle shapes or colors and no text, labels, letters, or numbers.',
+      'A high-resolution realistic classroom photo of a student worksheet for building a before-and-after particle model after a dissolving demo, with colored dot particles for two substances, colored pencils, a clear cup of water, and a few sugar crystals nearby, no readable writing, no labels, no text.',
       'particle-evidence',
       'application',
-      'diagram',
+      'photorealistic',
       [
         { id: 'model-substance-a', text: 'Substance A', x: 30, y: 22, fontSize: 16 },
         { id: 'model-water', text: 'Water particles', x: 65, y: 72, fontSize: 16 },

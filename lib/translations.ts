@@ -78,6 +78,7 @@ export const translations = {
         errorNoCollegeTopic: 'Please provide both a lecture topic and learning objectives.',
         errorPptx: 'An error occurred while generating the PowerPoint file.',
         errorIncompletePlanExport: 'Generate all sessions before exporting the complete PowerPoint deck.',
+        partialPlanExportNote: 'You can export the generated sessions now. Generate all sessions only when you need the complete deck.',
         errorGenerationLimit: 'You have reached your daily generation limit. Please try again tomorrow.',
         errorImageLimit: "Daily image generation limit ({limit}) reached. Please try again tomorrow."
     },
@@ -174,6 +175,7 @@ export const translations = {
         errorNoCollegeTopic: 'Pakibigay ang paksa ng lektura at mga layunin sa pag-aaral.',
         errorPptx: 'Nagkaroon ng error habang binubuo ang PowerPoint file.',
         errorIncompletePlanExport: 'Buuin muna ang lahat ng session bago i-export ang kumpletong PowerPoint deck.',
+        partialPlanExportNote: 'Maaari mong i-export ngayon ang mga nabuong session. Buuin ang lahat ng session kapag kailangan ang kumpletong deck.',
         errorGenerationLimit: 'Naabot mo na ang iyong araw-araw na limitasyon sa pagbuo. Pakisubukang muli bukas.',
         errorImageLimit: "Naabot na ang araw-araw na limitasyon sa pagbuo ng imahe ({limit}). Pakisubukang muli bukas."
     },
