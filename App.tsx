@@ -66,11 +66,13 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v9';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v4';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v10';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v5';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
-const ADMIN_IMAGE_BATCH_LIMIT = 8;
+const ADMIN_IMAGE_BATCH_LIMIT = 12;
+// Keep particle-model visuals generated/cached as HD raster images; the old static set was too generic for classroom science.
+const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = false;
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
@@ -400,7 +402,7 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (!collection) return undefined;
-  if (collection === 'science-particle-model' && metadata.style === 'photorealistic') {
+  if (collection === 'science-particle-model' && !USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES) {
     return undefined;
   }
 
@@ -876,6 +878,7 @@ const App: React.FC = () => {
     if (!template || semanticMetadata.style === 'none') {
       return undefined;
     }
+    const semanticAnchor = slugifyImageSemanticText(semanticMetadata.semanticAnchor || template).slice(0, 120);
 
     return buildGenerationCacheKey('image-semantic', [
       IMAGE_SEMANTIC_CACHE_VERSION,
@@ -885,6 +888,9 @@ const App: React.FC = () => {
       semanticMetadata.gradeBand || semanticMetadata.gradeLevel || 'all-grades',
       semanticLanguage,
       template,
+      semanticMetadata.visualRole || 'content',
+      semanticMetadata.style || 'illustration',
+      semanticAnchor || template,
     ]);
   }, []);
 
