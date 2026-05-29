@@ -66,8 +66,8 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v8';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v3';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v9';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v4';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
@@ -249,6 +249,10 @@ const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undef
 };
 
 const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): string | undefined => {
+  if (metadata.style === 'photorealistic') {
+    return undefined;
+  }
+
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
   const searchable = slugifyImageSemanticText([
@@ -396,6 +400,9 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (!collection) return undefined;
+  if (collection === 'science-particle-model' && metadata.style === 'photorealistic') {
+    return undefined;
+  }
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
@@ -1459,6 +1466,16 @@ const App: React.FC = () => {
     }
   }, [lessonBlueprint, dllContent, topicContext, theme, presentation, language, t, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages]);
 
+  const handleGenerateAllDailySlides = useCallback(async () => {
+    if (!lessonBlueprint || isLoading) return;
+
+    for (let dayIndex = 0; dayIndex < lessonBlueprint.days.length; dayIndex += 1) {
+      if (lessonBlueprint.days[dayIndex].generationStatus !== 'done') {
+        await handleGenerateDailySlides(dayIndex);
+      }
+    }
+  }, [lessonBlueprint, isLoading, handleGenerateDailySlides]);
+
   const handleNextSlide = useCallback(() => {
     if (presentation && currentSlide < presentation.slides.length - 1) {
       setTransitionDirection('next');
@@ -1669,6 +1686,12 @@ const App: React.FC = () => {
 
   const handleExportAsPPTX = useCallback(async () => {
     if (!presentation) return;
+    if (lessonBlueprint?.days.some((day) => day.generationStatus !== 'done')) {
+        setError(t.presentation.errorIncompletePlanExport);
+        return;
+    }
+
+    setError(null);
     setIsExporting(true);
     setExportMessage(t.presentation.exportingMessage);
     try {
@@ -1740,57 +1763,59 @@ const App: React.FC = () => {
             }
 
             if (hasImage) {
-                try { 
+                const imageX = 0.55;
+                const imageY = 1.2;
+                const imageW = 3.55;
+                const imageH = 4.0;
+                let imageAdded = false;
+                try {
                     const imageData = await resolveImageForPptx(slideData.imageUrl);
                     if (!imageData) {
                         throw new Error('No valid image data available for export.');
                     }
-                    const imageX = 0.55;
-                    const imageY = 1.2;
-                    const imageW = 3.55;
-                    const imageH = 4.0;
                     slide.addImage({ data: imageData, x: imageX, y: imageY, w: imageW, h: imageH });
-
-                    const overlays = (slideData.imageOverlays || []).filter(o => o.text && o.text.trim().length > 0);
-                    for (const overlay of overlays) {
-                        const normalizedX = Math.max(0, Math.min(100, overlay.x));
-                        const normalizedY = Math.max(0, Math.min(100, overlay.y));
-                        const labelText = overlay.text.trim();
-                        const uiFontSize = Math.max(12, Math.min(42, Math.round(overlay.fontSize ?? 16)));
-                        const pptFontSize = Math.max(10, Math.min(28, Math.round(uiFontSize * 0.78)));
-                        const labelW = Math.max(1.0, Math.min(2.8, (0.058 * (uiFontSize / 16) * labelText.length) + 0.72));
-                        const labelH = Math.max(0.36, Math.min(0.9, 0.12 + (uiFontSize * 0.018)));
-
-                        let boxX = imageX + (normalizedX / 100) * imageW - (labelW / 2);
-                        let boxY = imageY + (normalizedY / 100) * imageH - (labelH / 2);
-                        boxX = Math.max(imageX, Math.min(imageX + imageW - labelW, boxX));
-                        boxY = Math.max(imageY, Math.min(imageY + imageH - labelH, boxY));
-
-                        slide.addShape(PptxGenJS.ShapeType.roundRect, {
-                            x: boxX,
-                            y: boxY,
-                            w: labelW,
-                            h: labelH,
-                            fill: { color: '111827', transparency: 20 },
-                            line: { color: '111827', transparency: 100 },
-                        });
-                        slide.addText(labelText, {
-                            x: boxX + 0.03,
-                            y: boxY + 0.01,
-                            w: Math.max(0.1, labelW - 0.06),
-                            h: Math.max(0.1, labelH - 0.02),
-                            fontSize: pptFontSize,
-                            bold: true,
-                            color: 'FFFFFF',
-                            align: 'center',
-                            valign: 'middle',
-                            fit: 'shrink',
-                            fontFace: 'Poppins',
-                        });
-                    }
-                } catch (e) { 
+                    imageAdded = true;
+                } catch (e) {
                     console.error("Failed to add image to PPTX slide:", e);
-                    slide.addText('Image could not be loaded.', { x: 0.55, y: 1.2, w: 3.55, h: 4.0, color: 'FF0000', align: 'center', valign: 'middle' });
+                    slide.addText('Image could not be loaded.', { x: imageX, y: imageY, w: imageW, h: imageH, color: 'FF0000', align: 'center', valign: 'middle' });
+                }
+
+                if (imageAdded) {
+                    const overlays = (slideData.imageOverlays || []).filter(o => o.text && o.text.trim().length > 0);
+                    try {
+                        for (const overlay of overlays) {
+                            const normalizedX = Math.max(0, Math.min(100, overlay.x));
+                            const normalizedY = Math.max(0, Math.min(100, overlay.y));
+                            const labelText = overlay.text.trim();
+                            const uiFontSize = Math.max(12, Math.min(42, Math.round(overlay.fontSize ?? 16)));
+                            const pptFontSize = Math.max(10, Math.min(28, Math.round(uiFontSize * 0.78)));
+                            const labelW = Math.max(1.0, Math.min(2.8, (0.058 * (uiFontSize / 16) * labelText.length) + 0.72));
+                            const labelH = Math.max(0.36, Math.min(0.9, 0.12 + (uiFontSize * 0.018)));
+
+                            let boxX = imageX + (normalizedX / 100) * imageW - (labelW / 2);
+                            let boxY = imageY + (normalizedY / 100) * imageH - (labelH / 2);
+                            boxX = Math.max(imageX, Math.min(imageX + imageW - labelW, boxX));
+                            boxY = Math.max(imageY, Math.min(imageY + imageH - labelH, boxY));
+
+                            slide.addText(labelText, {
+                                x: boxX,
+                                y: boxY,
+                                w: labelW,
+                                h: labelH,
+                                fontSize: pptFontSize,
+                                bold: true,
+                                color: 'FFFFFF',
+                                align: 'center',
+                                valign: 'middle',
+                                fit: 'shrink',
+                                fontFace: 'Poppins',
+                                fill: { color: '111827', transparency: 20 },
+                                line: { color: '111827', transparency: 100 },
+                            });
+                        }
+                    } catch (overlayError) {
+                        console.warn('Failed to add image labels to PPTX slide:', overlayError);
+                    }
                 }
 
                 const titleFontSize = slideData.title.length > 58
@@ -1848,7 +1873,7 @@ const App: React.FC = () => {
         setIsExporting(false);
         setExportMessage('');
     }
-  }, [presentation, theme, t, resolveImageForPptx]);
+  }, [presentation, lessonBlueprint, theme, t, resolveImageForPptx]);
 
   const handleRegenerateImage = useCallback(async (slideIndex: number, newPrompt: string) => {
     const trimmedPrompt = newPrompt.trim();
@@ -1975,6 +2000,13 @@ const App: React.FC = () => {
     if (!lessonBlueprint) return null;
     const unitLabel = getPlanUnitLabel(lessonBlueprint);
     const hasGeneratedPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'done');
+    const hasCompletedAllPlanUnits = lessonBlueprint.days.every((day) => day.generationStatus === 'done');
+    const isGeneratingPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'loading');
+    const pendingPlanUnitCount = lessonBlueprint.days.filter((day) => day.generationStatus !== 'done').length;
+    const generationSlotsAvailable = Math.max(0, limits.generations - generations);
+    const canGenerateAllPlanUnits = pendingPlanUnitCount > 0
+      && pendingPlanUnitCount <= generationSlotsAvailable
+      && !isGeneratingPlanUnit;
 
     return (
         <div className="w-full max-w-5xl bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed animate-fade-in">
@@ -2027,6 +2059,14 @@ const App: React.FC = () => {
                     <RefreshCwIcon className="w-5 h-5 inline-block mr-2" />
                     {t.presentation.startOverButton}
                 </button>
+                <button
+                    onClick={handleGenerateAllDailySlides}
+                    disabled={!canGenerateAllPlanUnits}
+                    className="px-6 py-3 text-base font-semibold bg-surface text-primary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                    <MagicWandIcon className="w-5 h-5 inline-block mr-2" />
+                    {t.presentation.generateAllSlidesButton}
+                </button>
                  <button 
                     onClick={() => { setCurrentSlide(0); setAppStep('presenting'); }} 
                     disabled={!presentation || presentation.slides.length === 0 || !hasGeneratedPlanUnit}
@@ -2036,6 +2076,11 @@ const App: React.FC = () => {
                      <ArrowRightIcon className="w-5 h-5 inline-block ml-2" />
                 </button>
             </div>
+            {!hasCompletedAllPlanUnits && (
+                <p className="mt-4 text-center text-sm text-secondary">
+                    {t.presentation.errorIncompletePlanExport}
+                </p>
+            )}
         </div>
     );
   };
@@ -2119,6 +2164,11 @@ const App: React.FC = () => {
                     </div>
 
                     <div className="flex justify-center items-center gap-2 mt-4 text-xs text-secondary">{isExporting && exportMessage}</div>
+                    {error && (
+                        <p className="mt-3 text-xs text-center text-red-500 bg-red-500/10 rounded-lg px-3 py-2">
+                            {error}
+                        </p>
+                    )}
                     
                     <div className="mt-4 border-t border-themed pt-4 flex gap-2">
                        {isPlanViewAvailable && (

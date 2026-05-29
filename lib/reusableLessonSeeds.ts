@@ -103,10 +103,10 @@ const initialSlides: Slide[] = [
     particleModelBlueprint.mainTitle,
     ['Subject: Science', 'Grade Level: Grade 7', 'Term: First Term'],
     'Introduce the week as a sequence: evidence first, then particle motion, diagrams, and phase-change explanations.',
-    'A clean classroom science illustration showing water, ice, vapor, colored particles, and simple particle diagrams arranged as one coherent lesson visual, no words or labels.',
+    'A professional high-resolution realistic classroom science photo showing a Grade 7 lab table with clear cups of water, sugar, food coloring, ice, a cold bottle with condensation, and a safe needle-free syringe, natural classroom lighting, no words, no labels, no text.',
     'overview',
     'overview',
-    'illustration',
+    'photorealistic',
   ),
   slide(
     'Learning Objectives',
@@ -140,10 +140,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Matter Mystery Claims',
       ['Sugar seems to disappear', 'A smell spreads across space', 'Air can be compressed'],
       'Show the three setup cards or demonstrations. Ask learners to write one observation and one possible explanation.',
-      'Three classroom science setups on a table: sugar dissolving in a clear cup, a drop of colored liquid spreading in still water, and a sealed needle-free syringe with air particles shown inside, no words or labels.',
+      'A high-resolution realistic classroom science photo of three safe demo setups on one lab table: sugar dissolving in a clear cup of water, a drop of food coloring spreading in still water, and a sealed needle-free syringe for air compression, natural light, accurate materials, no words, no labels, no text.',
       'particle-evidence',
       'situation',
-      'illustration',
+      'photorealistic',
     ),
     slide(
       'Observe, Infer, or Unsure?',
@@ -164,10 +164,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Air Is Matter Too',
       ['The syringe volume changes', 'Air resists full compression', 'Particles move closer together'],
       'Demonstrate the needle-free sealed syringe. Ask which observation proves air is present even when unseen.',
-      'A side-by-side science diagram of a needle-free syringe before and after gentle compression, with air particles farther apart first and closer together second, one broad arrow showing compression, no words or labels.',
+      'A high-resolution realistic classroom science photo showing a teacher hand gently compressing a clear needle-free plastic syringe filled with air beside an uncompressed syringe comparison, safe classroom demo, sharp focus, no needle, no words, no labels, no text.',
       'air-compression',
       'model',
-      'diagram',
+      'photorealistic',
       [
         { id: 'air-before', text: 'Before', x: 25, y: 15, fontSize: 18 },
         { id: 'air-after', text: 'After', x: 75, y: 15, fontSize: 18 },
@@ -178,10 +178,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Sugar Did Not Vanish',
       ['Sugar particles spread through water', 'The mixture still contains matter', 'Evidence comes from the solution'],
       'Guide learners away from “disappeared.” Ask what evidence would show that sugar is still present without tasting.',
-      'A transparent cup of water with sugar crystals at the bottom transitioning into many tiny particles spread evenly through the liquid, no words or labels.',
+      'A high-resolution realistic close-up classroom photo of sugar crystals dissolving in a transparent cup of water on a lab table, some crystals still visible at the bottom and the water slightly disturbed, accurate scale, no spoon, no words, no labels, no text.',
       'dissolving-diffusion',
       'concept',
-      'diagram',
+      'photorealistic',
       [
         { id: 'sugar-crystals', text: 'Sugar crystals', x: 31, y: 77, fontSize: 16 },
         { id: 'sugar-particles', text: 'Particles spread', x: 68, y: 42, fontSize: 16 },
@@ -191,10 +191,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Color Spreads Without Stirring',
       ['Color particles move through water', 'Spreading takes time', 'Still water gives better evidence'],
       'Let learners observe without stirring. Ask what changed and what stayed the same in the cup.',
-      'A clear beaker of still water with one drop of colored liquid diffusing outward as many tiny particles and soft trails, no spoon, no stirring, no text or labels.',
+      'A high-resolution realistic classroom science photo of a single drop of blue food coloring diffusing through still water in a clear beaker, no stirring, visible plume spreading naturally, lab table background, no words, no labels, no text.',
       'dissolving-diffusion',
       'practice',
-      'diagram',
+      'photorealistic',
       [
         { id: 'color-drop', text: 'Initial drop', x: 43, y: 24, fontSize: 16 },
         { id: 'color-trail', text: 'Spreading trail', x: 63, y: 58, fontSize: 16 },
@@ -238,10 +238,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'New Case Transfer',
       ['Powdered juice mixing', 'Salt dissolving in soup', 'Smell spreading in a room'],
       'Let pairs choose one new case. Require one evidence link from the stations before drawing their model.',
-      'Three small classroom-safe everyday science scenes shown as icons: powder mixing into water, salt entering soup, and scent particles spreading through a room, no text or labels.',
+      'A high-resolution realistic classroom-safe collage photo on a lab table showing powdered drink mix entering a clear glass of water, salt beside a small bowl of soup, and a small covered scent container for smell diffusion, natural lighting, no words, no labels, no text.',
       'dissolving-diffusion',
       'application',
-      'illustration',
+      'photorealistic',
     ),
     slide(
       'Exit Slip',
@@ -270,10 +270,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Cold or Warm Prediction',
       ['Predict which spreads faster', 'Underline the motion idea', 'Keep the same color amount'],
       'Ask learners to commit to a prediction before the test. Listen for “heat adds particles” as a misconception.',
-      'Two clear cups of water side by side, one visually cool and one visually warm, each receiving the same small colored drop, no words, labels, letters, or numbers.',
+      'A high-resolution realistic classroom science photo of two clear cups of water side by side on a lab table, one with ice nearby to imply cold water and one with gentle steam nearby to imply warm water, identical droppers adding the same small blue food-coloring drop, no words, no labels, no text.',
       'diffusion-temperature',
       'situation',
-      'diagram',
+      'photorealistic',
       [
         { id: 'cold-cup', text: 'Cold', x: 26, y: 18, fontSize: 18 },
         { id: 'warm-cup', text: 'Warm', x: 74, y: 18, fontSize: 18 },
@@ -283,10 +283,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Fair Test Setup',
       ['Same cup size', 'Same water amount', 'Same color drop', 'Same start time', 'No stirring'],
       'Have pairs identify what must stay the same before any drops are added. Teacher handles or approves warm water.',
-      'A clean science fair-test setup with two matching clear cups, two identical droppers, a simple timer icon, and still water, no readable text or labels.',
+      'A high-resolution realistic classroom lab photo of a fair-test setup: two identical clear cups with equal amounts of water, two identical droppers with blue food coloring, and a plain stopwatch nearby, no stirring tools, no words, no labels, no text.',
       'diffusion-temperature',
       'practice',
-      'illustration',
+      'photorealistic',
       [
         { id: 'fair-same-cups', text: 'Same setup', x: 50, y: 22, fontSize: 16 },
         { id: 'fair-no-stir', text: 'No stirring', x: 50, y: 76, fontSize: 16 },
@@ -296,10 +296,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Watch the Spread',
       ['Record the start', 'Observe after 30 seconds', 'Observe after 2 minutes'],
       'Tell learners to observe silently for the first interval. They should describe spread, not just color.',
-      'A three-stage visual sequence of colored particles spreading through water over time, with the warm side spreading wider than the cold side, no numbers or labels.',
+      'A high-resolution realistic classroom science photo sequence in one image showing blue food coloring spreading through clear water at three moments, with a warmer-water cup visibly spreading farther than a colder-water cup, accurate diffusion plumes, no words, no labels, no text.',
       'diffusion-temperature',
       'practice',
-      'diagram',
+      'photorealistic',
       [
         { id: 'watch-start', text: 'Start', x: 18, y: 16, fontSize: 16 },
         { id: 'watch-mid', text: '30 sec', x: 50, y: 16, fontSize: 16 },
@@ -316,10 +316,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'What Pattern Appeared?',
       ['Warm water spreads faster', 'The color amount stayed same', 'Motion evidence changed'],
       'Build the class pattern from actual observations. If results vary, discuss handling error or temperature differences.',
-      'Two transparent cups with colored particles: one compact slow plume in cool blue water and one wider fast plume in warm tinted water, no text or labels.',
+      'A high-resolution realistic close-up classroom photo comparing two transparent cups after the same blue food-coloring drop: one cold-water cup with a compact plume and one warm-water cup with a wider plume, same amount of color, no words, no labels, no text.',
       'diffusion-temperature',
       'generalization',
-      'diagram',
+      'photorealistic',
     ),
     slide(
       'Particles Move Faster',
@@ -353,10 +353,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Warm Drink Transfer',
       ['Sugar dissolves faster when warm', 'Particles move more quickly', 'The amount of sugar is unchanged'],
       'Learners complete the four-box transfer organizer. Require the cause-effect chain before final sharing.',
-      'A cup of warm drink with sugar particles dispersing quickly through the liquid, with gentle steam and particle motion trails, no text or labels.',
+      'A high-resolution realistic classroom-safe photo of sugar being added to a warm clear drink in a cup, gentle steam visible, spoon resting nearby but not stirring, lab table setting, no words, no labels, no text.',
       'diffusion-temperature',
       'application',
-      'illustration',
+      'photorealistic',
     ),
     slide(
       'Misconception Check',
@@ -394,10 +394,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Three Samples, Three States',
       ['Solid sample', 'Liquid sample', 'Gas in a sealed bag'],
       'Show the samples. Ask how a particle diagram can show each state without drawing the object itself.',
-      'A classroom science table with a solid object, a clear cup of water, and a sealed transparent bag containing air particles, no text or labels.',
+      'A high-resolution realistic classroom science photo of three state-of-matter samples on a lab table: an ice cube or small solid object, a clear cup of water, and a sealed transparent plastic bag filled with air, accurate scale, no words, no labels, no text.',
       'particle-states',
       'situation',
-      'illustration',
+      'photorealistic',
       [
         { id: 'sample-solid', text: 'Solid sample', x: 22, y: 74, fontSize: 16 },
         { id: 'sample-liquid', text: 'Liquid sample', x: 52, y: 74, fontSize: 16 },
@@ -527,10 +527,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Melting and Droplets Probe',
       ['Ice changes to liquid water', 'Droplets form outside cold surfaces', 'Energy direction matters'],
       'Ask learners where the outside droplets came from. Use answers to surface the condensation misconception.',
-      'A realistic classroom science scene with melting ice beside a cold bottle covered with outside droplets, plus subtle particle visuals around them, no text or labels.',
+      'A high-resolution realistic classroom science photo of melting ice on a tray beside a cold bottle with water droplets forming on the outside, clear evidence of condensation, natural classroom lighting, no words, no labels, no text.',
       'phase-change-energy',
       'situation',
-      'illustration',
+      'photorealistic',
       [
         { id: 'probe-melting', text: 'Melting', x: 24, y: 72, fontSize: 16 },
         { id: 'probe-droplets', text: 'Outside droplets', x: 72, y: 24, fontSize: 16 },
@@ -601,10 +601,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Where Did Droplets Come From?',
       ['Water vapor was in the air', 'The cold surface removed energy', 'Vapor changed to liquid droplets'],
       'Directly correct the idea that droplets came from inside the bottle. Ask what evidence rules it out.',
-      'A cold bottle with water droplets forming on the outside from nearby vapor particles in the air, with particles slowing and clustering on the surface, no text or labels.',
+      'A high-resolution realistic close-up classroom photo of a cold glass bottle with water droplets clearly forming only on the outside surface, dry table visible around it, accurate condensation evidence, no words, no labels, no text.',
       'phase-change-energy',
       'application',
-      'diagram',
+      'photorealistic',
       [
         { id: 'droplet-vapor', text: 'Water vapor', x: 25, y: 30, fontSize: 16 },
         { id: 'droplet-cooling', text: 'Loses energy', x: 62, y: 20, fontSize: 16 },
@@ -615,10 +615,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Everyday Phase-Change CER',
       ['Claim names the phase change', 'Evidence points to a clue', 'Reasoning explains energy direction'],
       'Groups choose cases like foggy mirror, drying clothes, melting ice cream, droplets outside a bottle, or freezing juice.',
-      'Everyday phase-change scenes in a classroom-safe collage: foggy mirror, drying cloth, melting ice cream, cold bottle droplets, and freezing juice, no text or labels.',
+      'A high-resolution realistic photo collage of everyday phase changes: a foggy mirror, a drying cloth, melting ice cream in a cup, droplets outside a cold bottle, and juice freezing in a tray, clean classroom-safe composition, no words, no labels, no text.',
       'phase-change-energy',
       'application',
-      'illustration',
+      'photorealistic',
     ),
     slide(
       'Defend the Explanation',
@@ -642,10 +642,10 @@ const sessionSlides: Record<number, Slide[]> = {
       'Assignment and Reflection',
       ['Document one home phase change', 'Explain starting and ending states', 'Include motion and energy direction'],
       'Assign the home connection and collect one teacher reflection note: which phase change caused the most confusion, and what evidence helped learners correct it. Remind learners that a written observation or simple sketch is enough.',
-      'A notebook beside a glass with condensation and a small melting ice cube, with simple particle sketch icons but no readable text or labels.',
+      'A high-resolution realistic classroom photo of a science notebook beside a cold glass with condensation and a small melting ice cube on a tray, pencil nearby, no readable writing, no words, no labels, no text.',
       'assignment',
       'assignment',
-      'illustration',
+      'photorealistic',
     ),
   ],
 };
@@ -755,10 +755,16 @@ const getSessionSlides = (dayNumber: number): Slide[] => {
   if (!slides) return [];
 
   const [goalSlide, ...remainingSlides] = slides;
+  const detailSlides = sessionDetailSlides[dayNumber] || [];
+  const studentRoutineSlides = detailSlides.filter((detailSlide) => !/flow and timing/i.test(detailSlide.title));
+  const openingSlides = remainingSlides.slice(0, 2);
+  const lessonSlides = remainingSlides.slice(2);
+
   return [
     goalSlide,
-    ...(sessionDetailSlides[dayNumber] || []),
-    ...remainingSlides,
+    ...openingSlides,
+    ...studentRoutineSlides,
+    ...lessonSlides,
   ];
 };
 

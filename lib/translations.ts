@@ -42,6 +42,7 @@ export const translations = {
         lessonBlueprintTitle: 'Your Lesson Blueprint',
         day: 'DAY',
         generateSlidesButton: 'Generate Slides',
+        generateAllSlidesButton: 'Generate All Sessions',
         generatingButton: 'Generating...',
         completeStatus: 'Complete',
         startOverButton: 'Start Over',
@@ -76,6 +77,7 @@ export const translations = {
         errorNoFileOrTopic: 'Please upload a lesson log or enter a topic.',
         errorNoCollegeTopic: 'Please provide both a lecture topic and learning objectives.',
         errorPptx: 'An error occurred while generating the PowerPoint file.',
+        errorIncompletePlanExport: 'Generate all sessions before exporting the complete PowerPoint deck.',
         errorGenerationLimit: 'You have reached your daily generation limit. Please try again tomorrow.',
         errorImageLimit: "Daily image generation limit ({limit}) reached. Please try again tomorrow."
     },
@@ -136,6 +138,7 @@ export const translations = {
         lessonBlueprintTitle: 'Ang Iyong Balangkas ng Aralin',
         day: 'ARAW',
         generateSlidesButton: 'Bumuo ng mga Slide',
+        generateAllSlidesButton: 'Bumuo ng Lahat ng Session',
         generatingButton: 'Binubuo...',
         completeStatus: 'Kumpleto',
         startOverButton: 'Magsimulang Muli',
@@ -170,6 +173,7 @@ export const translations = {
         errorNoFileOrTopic: 'Mangyaring mag-upload ng lesson log o maglagay ng paksa.',
         errorNoCollegeTopic: 'Pakibigay ang paksa ng lektura at mga layunin sa pag-aaral.',
         errorPptx: 'Nagkaroon ng error habang binubuo ang PowerPoint file.',
+        errorIncompletePlanExport: 'Buuin muna ang lahat ng session bago i-export ang kumpletong PowerPoint deck.',
         errorGenerationLimit: 'Naabot mo na ang iyong araw-araw na limitasyon sa pagbuo. Pakisubukang muli bukas.',
         errorImageLimit: "Naabot na ang araw-araw na limitasyon sa pagbuo ng imahe ({limit}). Pakisubukang muli bukas."
     },
