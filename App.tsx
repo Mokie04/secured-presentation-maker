@@ -67,8 +67,8 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v13';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v8';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v14';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v9';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -300,6 +300,7 @@ const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): 
   const slideSpecificImageByToken: Array<[string, string]> = [
     ['evidence-table-routine', 's1-hd-evidence-table.png'],
     ['matter-mystery-claims', 's1-hd-mystery-claims.png'],
+    ['observe-infer-model', 's1-hd-observe-infer.png'],
     ['observe-infer-or-unsure', 's1-hd-observe-infer.png'],
     ['air-is-matter-too', 's1-hd-air-compression.png'],
     ['sugar-did-not-vanish', 's1-hd-sugar-dissolving.png'],
@@ -337,10 +338,12 @@ const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): 
     ['where-did-droplets-come-from', 's4-droplets-source.png'],
     ['everyday-phase-change-cer', 's4-cer.png'],
     ['defend-the-explanation', 's4-defend.png'],
+    ['energy-direction-mastery', 'assessment.png'],
     ['assignment-and-reflection', 's4-assignment.png'],
   ];
   const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
     semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
   ));
   if (slideSpecificImage) {
     return slideSpecificImage[1];
