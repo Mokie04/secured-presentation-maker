@@ -69,6 +69,7 @@ const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v7';
 const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v3';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
+const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
@@ -181,6 +182,10 @@ const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
 
 const waitForCacheHitLoading = (): Promise<void> => (
   new Promise((resolve) => setTimeout(resolve, CACHE_HIT_LOADING_DELAY_MS))
+);
+
+const waitForReusableGenerationLoading = (): Promise<void> => (
+  new Promise((resolve) => setTimeout(resolve, REUSABLE_GENERATION_LOADING_DELAY_MS))
 );
 
 const buildSlideImageCacheId = (scope: string | undefined, slideIndex: number): string | undefined => (
@@ -1220,11 +1225,14 @@ const App: React.FC = () => {
                 if (reusablePlan) {
                   const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
                   const imageSemanticScope = buildK12ImageSemanticScope(reusablePlan.blueprint);
-                  const processedInitialSlides = await processSlidesForImages(
-                    reusablePlan.initialPresentation.slides,
-                    language,
-                    { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope }
-                  );
+                  const [processedInitialSlides] = await Promise.all([
+                    processSlidesForImages(
+                      reusablePlan.initialPresentation.slides,
+                      language,
+                      { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope }
+                    ),
+                    waitForReusableGenerationLoading(),
+                  ]);
                   const initialPresentation = {
                     ...reusablePlan.initialPresentation,
                     slides: processedInitialSlides,
@@ -1386,6 +1394,7 @@ const App: React.FC = () => {
 
         const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, language);
         if (reusableSlides) {
+            await waitForReusableGenerationLoading();
             setLoadingMessage(t.presentation.loadingTables);
             const slidesWithTables = await processSlidesForTables(reusableSlides);
             const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope });
