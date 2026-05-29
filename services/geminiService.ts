@@ -470,20 +470,23 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
     **CRITICAL DIRECTIVES:**
     1.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
     2.  **IMAGE PROMPTS REQUIRED (CRITICAL FOR ACCURACY):** For EVERY slide, you MUST include the \`imagePrompt\` and \`imageStyle\` fields.
+        - **Instructional Visuals:** Prefer visuals that help the teacher teach: before/after comparisons, process diagrams, evidence tables, classroom demos, sorting tasks, or misconception contrasts. Avoid stock-photo style decorative images.
         - **Specificity is Key:** The \`imagePrompt\` must be highly descriptive, detailed, and directly tied to the slide's title and content to ensure visual accuracy. For abstract topics, use a concrete visual metaphor. The prompt MUST be in English.
         - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
         - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
         - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
     3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
-    4.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, you MUST provide practical, actionable speaker notes to guide the teacher. Examples: "Ask students: 'What do you notice?'", "Distribute materials.", "Emphasize the key difference is...".
-    5.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must strictly follow the sections for the **${format}** model. However, slide titles must be creative and directly reflect the content, NOT the section name. For example, instead of a slide titled "Explore", a better title is "Activity: Classifying Mixtures". Generic titles like "Review" or "Assignment" are acceptable.
-    6.  **CONTENT & CLARITY (CRITICAL):**
+    4.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
+    5.  **CLASSROOM-READY FLOW:** Include concrete teacher-use slide types when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
+    6.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
+    7.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must strictly follow the sections for the **${format}** model. However, slide titles must be creative and directly reflect the content, NOT the section name. For example, instead of a slide titled "Explore", a better title is "Activity: Classifying Mixtures". Generic titles like "Review" or "Assignment" are acceptable.
+    8.  **CONTENT & CLARITY (CRITICAL):**
         - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
         - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of volcanoes), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
         - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs.
         - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
-    7.  **UNIT GOAL SLIDE:** If generating for ${unitLabel} 2 or later, the first slide should be "Today's Goal". Do NOT generate a full "Learning Objectives" slide.
-    8.  **CONCLUDING SLIDE (MANDATORY):** The very last slide generated MUST serve as a conclusion for the ${unitLabel.toLowerCase()}'s lesson. This slide should typically cover the 'Evaluation' or 'Assignment' section and provide a clear end to the presentation.
+    9.  **UNIT GOAL SLIDE:** If generating for ${unitLabel} 2 or later, the first slide should be "Today's Goal". Do NOT generate a full "Learning Objectives" slide.
+    10. **CONCLUDING SLIDE (MANDATORY):** The very last slide generated MUST serve as a conclusion for the ${unitLabel.toLowerCase()}'s lesson. This slide should typically cover the 'Evaluation' or 'Assignment' section and provide a clear end to the presentation.
     `;
     
     let sections = "";
@@ -515,7 +518,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         \`\`\`
 
         **TASK:**
-        Generate a set of 10-12 slides for ${unitLabel} ${day.dayNumber} ONLY, following the **${format}** model.
+        Generate a set of 12-15 slides for ${unitLabel} ${day.dayNumber} ONLY, following the **${format}** model.
         If the reference content includes session-specific columns or rows, use only the details tied to ${unitLabel} ${day.dayNumber} for the main lesson flow.
 
         **REQUIRED SECTIONS:**
@@ -607,20 +610,23 @@ export async function generateK12SingleLessonSlides(content: string, format: str
         **CRITICAL DIRECTIVES:**
         1.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
         2.  **IMAGE PROMPTS REQUIRED (CRITICAL FOR ACCURACY):** For EVERY slide, you MUST include the \`imagePrompt\` and \`imageStyle\` fields.
+            - **Instructional Visuals:** Prefer visuals that help the teacher teach: before/after comparisons, process diagrams, evidence tables, classroom demos, sorting tasks, or misconception contrasts. Avoid stock-photo style decorative images.
             - **Specificity is Key:** The \`imagePrompt\` must be highly descriptive, detailed, and directly tied to the slide's title and content to ensure visual accuracy. For abstract topics, use a concrete visual metaphor. The prompt MUST be in English.
             - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
             - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
             - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
         3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
         4.  **INITIAL SLIDES:** The first two slides MUST be a 'Title Slide' and a 'Learning Objectives' slide.
-        5.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, you MUST provide practical, actionable speaker notes to guide the teacher.
-        6.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the structure of the **${format}** model. However, slide titles must be creative and directly reflect the content, NOT the section name. For example, instead of a slide titled "Explore", a better title is "Activity: Classifying Mixtures". Generic titles like "Review" or "Assignment" are acceptable.
-        7.  **CONTENT & CLARITY (CRITICAL):**
+        5.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
+        6.  **CLASSROOM-READY FLOW:** Include concrete teacher-use slide types when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
+        7.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
+        8.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the structure of the **${format}** model. However, slide titles must be creative and directly reflect the content, NOT the section name. For example, instead of a slide titled "Explore", a better title is "Activity: Classifying Mixtures". Generic titles like "Review" or "Assignment" are acceptable.
+        9.  **CONTENT & CLARITY (CRITICAL):**
             - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
             - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of rocks), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
             - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs. Use markdown bolding (\`**term**\`) for key terminology.
             - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
-        8.  **CONCLUDING SLIDE (MANDATORY):** The final slide generated MUST be an 'Assignment' or 'Summary' slide, providing a clear conclusion to the lesson.
+        10. **CONCLUDING SLIDE (MANDATORY):** The final slide generated MUST be an 'Assignment' or 'Summary' slide, providing a clear conclusion to the lesson.
 
         **OUTPUT (JSON FORMAT ONLY):**
         Return a single JSON object. Do not add any extra text.
