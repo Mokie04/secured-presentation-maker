@@ -66,7 +66,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v4';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v5';
 const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v3';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
@@ -243,6 +243,101 @@ const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undef
   return undefined;
 };
 
+const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const directAssetTemplates = new Set([
+    'air-compression',
+    'assessment',
+    'assignment',
+    'diffusion-temperature',
+    'dissolving-diffusion',
+    'generalization',
+    'overview',
+    'particle-evidence',
+    'particle-model',
+    'particle-states',
+    'phase-change-energy',
+  ]);
+
+  if (directAssetTemplates.has(template)) {
+    return `${template}.png`;
+  }
+
+  if (template === 'assessment') return 'assessment.png';
+  if (template === 'assignment') return 'assignment.png';
+  if (template === 'overview' || template === 'objectives') return 'overview.png';
+  if (template === 'generalization' || template === 'summary') return 'generalization.png';
+
+  const searchable = slugifyImageSemanticText([
+    metadata.slideTemplate,
+    metadata.visualRole,
+    metadata.semanticAnchor,
+    metadata.topic,
+  ].filter(Boolean).join(' '));
+
+  if (searchable.includes('air-compression') || searchable.includes('syringe') || searchable.includes('compressed-air')) {
+    return 'air-compression.png';
+  }
+
+  if (
+    searchable.includes('temperature')
+    || searchable.includes('warm-water')
+    || searchable.includes('cold-water')
+    || searchable.includes('faster-motion')
+    || searchable.includes('fair-test')
+  ) {
+    return 'diffusion-temperature.png';
+  }
+
+  if (
+    searchable.includes('dissolving')
+    || searchable.includes('sugar')
+    || searchable.includes('color-spreads')
+    || searchable.includes('without-stirring')
+  ) {
+    return 'dissolving-diffusion.png';
+  }
+
+  if (
+    searchable.includes('solid')
+    || searchable.includes('liquid')
+    || searchable.includes('gas')
+    || searchable.includes('states-of-matter')
+    || searchable.includes('particle-arrangement')
+    || searchable.includes('particle-diagram')
+    || searchable.includes('spacing')
+  ) {
+    return 'particle-states.png';
+  }
+
+  if (
+    searchable.includes('phase-change')
+    || searchable.includes('change-of-state')
+    || searchable.includes('melting')
+    || searchable.includes('evaporation')
+    || searchable.includes('condensation')
+    || searchable.includes('freezing')
+    || searchable.includes('energy-direction')
+    || searchable.includes('droplets')
+    || searchable.includes('heating')
+    || searchable.includes('cooling')
+  ) {
+    return 'phase-change-energy.png';
+  }
+
+  if (
+    searchable.includes('evidence')
+    || searchable.includes('observe')
+    || searchable.includes('infer')
+    || searchable.includes('claim')
+    || searchable.includes('mystery')
+  ) {
+    return 'particle-evidence.png';
+  }
+
+  return undefined;
+};
+
 const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
@@ -250,7 +345,9 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'science-particle-model'
+    ? getScienceParticleModelImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? `${basePath}/${fileName}` : undefined;
 };
