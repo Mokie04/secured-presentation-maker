@@ -66,7 +66,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v5';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v6';
 const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v3';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const ADMIN_IMAGE_BATCH_LIMIT = 8;
@@ -245,6 +245,62 @@ const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undef
 
 const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): string | undefined => {
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const searchable = slugifyImageSemanticText([
+    metadata.slideTemplate,
+    metadata.visualRole,
+    metadata.semanticAnchor,
+    metadata.topic,
+  ].filter(Boolean).join(' '));
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['evidence-table-routine', 's1-evidence-table.png'],
+    ['matter-mystery-claims', 's1-mystery-claims.png'],
+    ['observe-infer-or-unsure', 's1-observe-infer.png'],
+    ['air-is-matter-too', 's1-air-compression.png'],
+    ['sugar-did-not-vanish', 's1-sugar-dissolving.png'],
+    ['color-spreads-without-stirring', 's1-color-diffusion.png'],
+    ['evidence-board', 's1-evidence-board.png'],
+    ['build-a-particle-model', 's1-build-model.png'],
+    ['new-case-transfer', 's1-transfer.png'],
+    ['exit-slip', 's1-exit-slip.png'],
+    ['fair-test-evidence', 's2-fair-test-evidence.png'],
+    ['cold-or-warm-prediction', 's2-prediction.png'],
+    ['fair-test-setup', 's2-fair-test-setup.png'],
+    ['watch-the-spread', 's2-watch-spread.png'],
+    ['what-pattern-appeared', 's2-pattern.png'],
+    ['particles-move-faster', 's2-faster-motion.png'],
+    ['spacing-and-attraction', 's2-spacing-attraction.png'],
+    ['warm-drink-transfer', 's2-warm-drink.png'],
+    ['misconception-check', 's2-misconception.png'],
+    ['motion-mastery-check', 's2-mastery-check.png'],
+    ['diagram-criteria', 's3-diagram-criteria.png'],
+    ['three-samples-three-states', 's3-three-samples.png'],
+    ['diagram-quality-checklist', 's3-diagram-checklist.png'],
+    ['solid-particles', 's3-solid.png'],
+    ['liquid-particles', 's3-liquid.png'],
+    ['gas-particles', 's3-gas.png'],
+    ['compare-the-three-states', 's3-compare.png'],
+    ['mystery-state-revision', 's3-mystery-revision.png'],
+    ['peer-feedback-rule', 's3-peer-feedback.png'],
+    ['mini-diagram-check', 's3-mini-check.png'],
+    ['energy-evidence-rules', 's4-energy-rules.png'],
+    ['melting-and-droplets-probe', 's4-melting-droplets.png'],
+    ['energy-direction-sort', 's4-energy-sort.png'],
+    ['heating-row', 's4-heating-row.png'],
+    ['cooling-row', 's4-cooling-row.png'],
+    ['four-phase-changes', 's4-four-phase-changes.png'],
+    ['where-did-droplets-come-from', 's4-droplets-source.png'],
+    ['everyday-phase-change-cer', 's4-cer.png'],
+    ['defend-the-explanation', 's4-defend.png'],
+    ['assignment-and-reflection', 's4-assignment.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+
   const directAssetTemplates = new Set([
     'air-compression',
     'assessment',
@@ -267,13 +323,6 @@ const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): 
   if (template === 'assignment') return 'assignment.png';
   if (template === 'overview' || template === 'objectives') return 'overview.png';
   if (template === 'generalization' || template === 'summary') return 'generalization.png';
-
-  const searchable = slugifyImageSemanticText([
-    metadata.slideTemplate,
-    metadata.visualRole,
-    metadata.semanticAnchor,
-    metadata.topic,
-  ].filter(Boolean).join(' '));
 
   if (searchable.includes('air-compression') || searchable.includes('syringe') || searchable.includes('compressed-air')) {
     return 'air-compression.png';
