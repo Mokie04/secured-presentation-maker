@@ -24,7 +24,8 @@ const particleModelBlueprint: LessonBlueprint = {
   studentFacingObjectives: [
     'I can use evidence to explain unseen particles.',
     'I can compare particle motion in different conditions.',
-    'I can model solids, liquids, gases, and phase changes.',
+    'I can model solids, liquids, and gases accurately.',
+    'I can explain phase changes using particle energy.',
   ],
   days: [
     {
@@ -119,8 +120,8 @@ const sessionSlides: Record<number, Slide[]> = {
   1: [
     slide(
       "Today's Goal",
-      ['Use evidence from three cases', 'Explain unseen particles clearly', 'Avoid saying matter disappears'],
-      'Set the success target: learners must connect an observation to a particle-model claim.',
+      ['Use evidence from three cases', 'Represent different substances clearly', 'Avoid saying matter disappears'],
+      'Begin with the brief attendance and wellbeing bridge, then set the success target: learners must connect an observation to a particle-model claim.',
       '',
     ),
     slide(
@@ -179,8 +180,8 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     slide(
       'Build a Particle Model',
-      ['Choose one case', 'Use one symbol per substance', 'Show spacing or motion', 'Link the model to evidence'],
-      'Pairs create the four-box organizer. Check that symbols do not imply particles changed size.',
+      ['Choose one case', 'Use a different symbol for each substance', 'Show spacing or motion', 'Link the model to evidence'],
+      'Pairs create the four-box organizer. Check that different pure substances use different symbols and that dissolving does not imply particles changed size or disappeared.',
       'A clean before-and-after particle model for a dissolving substance in water, using two different particle shapes or colors and no text, labels, letters, or numbers.',
       'particle-evidence',
       'application',
@@ -197,8 +198,8 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     slide(
       'Exit Slip',
-      ['Choose the stronger diagram', 'Explain dissolved sugar', 'Write one CER sentence'],
-      'Use the exit slip to identify who still thinks dissolved matter is gone or that models are exact pictures.',
+      ['Choose the stronger diagram', 'Explain dissolved sugar', 'Write one CER sentence', 'Find one home mixing example'],
+      'Use the exit slip to identify who still thinks dissolved matter is gone or that models are exact pictures. The home example prepares the Session 2 evidence callback.',
       'A simple science exit-slip visual with a paper, a check mark, and a small particle diagram, no readable text or labels.',
       'assessment',
       'assessment',
@@ -208,8 +209,8 @@ const sessionSlides: Record<number, Slide[]> = {
   2: [
     slide(
       "Today's Goal",
-      ['Compare cold and warm water', 'Use timing evidence', 'Explain faster particle motion'],
-      'Remind learners that today they are testing what temperature changes about particle motion.',
+      ["Return to yesterday's evidence", 'Compare cold and warm water', 'Explain faster particle motion'],
+      'Start by revisiting the Session 1 evidence board. Remind learners that today they are testing what temperature changes about particle motion.',
       '',
     ),
     slide(
@@ -263,7 +264,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     slide(
       'Spacing and Attraction',
-      ['Particles have spaces', 'Particles attract each other', 'Motion can overcome attraction'],
+      ['Particles have spaces', 'Solids attract most strongly', 'Liquids attract moderately', 'Gases attract weakest'],
       'Use hand models while seated. Keep the point qualitative: strongest attraction in solids, weakest in gases.',
       'A clean particle diagram showing close particles with subtle attraction lines and moving particles with curved motion arrows, no text or labels.',
       'particle-states',
@@ -302,7 +303,7 @@ const sessionSlides: Record<number, Slide[]> = {
     slide(
       "Today's Goal",
       ['Model all three states', 'Use spacing and motion', 'Revise diagrams with evidence'],
-      'Tell learners that drawings must communicate science, not decoration.',
+      'Begin with the quick state prediction bridge, then tell learners that drawings must communicate science, not decoration.',
       '',
     ),
     slide(
@@ -316,7 +317,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     slide(
       'Diagram Quality Checklist',
-      ['Arrangement matches the state', 'Spacing is believable', 'Motion arrows are clear', 'Labels explain the model'],
+      ['Tag one strong diagram', 'Tag one flawed diagram', 'Name the misleading feature', 'Fix it with evidence'],
       'Pairs tag one strong and one flawed diagram. Focus feedback on exact features that could mislead a learner.',
       'Two side-by-side particle diagrams, one scientifically organized and one visibly flawed with incorrect spacing, plus check icons, no words, letters, or labels.',
       'particle-states',
@@ -384,8 +385,8 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     slide(
       'Mini Diagram Check',
-      ['Draw all three states', 'Write two comparisons', 'Circle one part to revise'],
-      'Collect the independent diagrams. Look for spacing and motion errors before Session 4.',
+      ['Draw all three states', 'Write two comparisons', 'Circle one part to revise', 'Bring one phase-change example'],
+      'Collect the independent diagrams. Look for spacing and motion errors before Session 4. The home example sets up the energy-direction probe.',
       'A clean mini assessment sheet with three empty diagram boxes represented visually and particle icons, no readable text or labels.',
       'assessment',
       'assessment',
@@ -472,9 +473,18 @@ const sessionSlides: Record<number, Slide[]> = {
       'illustration',
     ),
     slide(
+      'Energy Direction Mastery Check',
+      ['Name the phase change', 'Identify start and end states', 'Choose absorbed or released', 'Explain the particle change'],
+      'Give the independent six-item check from the lesson plan: melting ice, drying puddle, foggy mirror, cold bottle droplets, freezing juice, and steam cooling on a lid. Score for state change, energy direction, and particle explanation.',
+      'A clean science mastery-check visual showing six small phase-change cases with particle arrangements and energy arrows, no readable text, no letters, and no labels.',
+      'assessment',
+      'assessment',
+      'illustration',
+    ),
+    slide(
       'Assignment and Reflection',
       ['Document one home phase change', 'Explain starting and ending states', 'Include motion and energy direction'],
-      'Assign the home connection. Remind learners that a written observation or simple sketch is enough.',
+      'Assign the home connection and collect one teacher reflection note: which phase change caused the most confusion, and what evidence helped learners correct it. Remind learners that a written observation or simple sketch is enough.',
       'A notebook beside a glass with condensation and a small melting ice cube, with simple particle sketch icons but no readable text or labels.',
       'assignment',
       'assignment',
