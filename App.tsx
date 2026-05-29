@@ -66,8 +66,8 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v10';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v5';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v11';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v6';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -251,10 +251,6 @@ const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undef
 };
 
 const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): string | undefined => {
-  if (metadata.style === 'photorealistic') {
-    return undefined;
-  }
-
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
   const searchable = slugifyImageSemanticText([
@@ -411,6 +407,18 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
   const fileName = collection === 'science-particle-model'
     ? getScienceParticleModelImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
     : collectionMap?.[template] || collectionMap?.content;
+  const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
+  return fileName && basePath ? `${basePath}/${fileName}` : undefined;
+};
+
+const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
+  if (!metadata) return undefined;
+  const collection = getCuratedStaticImageCollection(metadata);
+  if (collection !== 'science-particle-model') return undefined;
+
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
+  const fileName = getScienceParticleModelImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? `${basePath}/${fileName}` : undefined;
 };
@@ -1010,7 +1018,10 @@ const App: React.FC = () => {
 
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
             if (imageAttemptsUsed >= imageAttemptsAllowed) {
-                newSlide.imageUrl = adminImageLimitBypassed ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER;
+                const fallbackImageUrl = adminImageLimitBypassed
+                  ? getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata)
+                  : undefined;
+                newSlide.imageUrl = fallbackImageUrl || (adminImageLimitBypassed ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER);
                 slidesWithImages.push(newSlide);
                 continue;
             }
@@ -1018,7 +1029,7 @@ const App: React.FC = () => {
             if (!adminImageLimitBypassed && !canGenerateImage) {
                 newSlide.imageUrl = USER_IMAGE_LIMIT_PLACEHOLDER;
             } else if (rateLimitWasHit) {
-                newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
+                newSlide.imageUrl = getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata) || PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
             } else {
                 imagesAttemptedCounter++;
                 imageAttemptsUsed++;
@@ -1048,8 +1059,13 @@ const App: React.FC = () => {
                     console.error('Image generation failed.');
                     if (isImageProviderLimitError(imgError)) {
                         rateLimitWasHit = true;
-                        setError(IMAGE_LIMIT_BATCH_ERROR);
-                        newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
+                        const fallbackImageUrl = getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata);
+                        if (fallbackImageUrl) {
+                            newSlide.imageUrl = fallbackImageUrl;
+                        } else {
+                            setError(IMAGE_LIMIT_BATCH_ERROR);
+                            newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
+                        }
                     } else {
                         handleApiError(imgError);
                         newSlide.imageUrl = 'error';
@@ -1095,6 +1111,14 @@ const App: React.FC = () => {
             ...(imageSemanticCacheId ? { imageSemanticCacheId } : {}),
             imageSemanticMetadata,
         };
+        if (slide.imageUrl && NON_EXPORTABLE_IMAGE_STATES.has(slide.imageUrl)) {
+            const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
+            if (fallbackImageUrl) {
+                refreshedSlides.push({ ...slide, imageUrl: fallbackImageUrl });
+                continue;
+            }
+        }
+
         const prompt = (slide.imagePrompt || '').trim();
         if (!prompt || slide.imageStyle === 'none') {
             refreshedSlides.push(slide);
