@@ -16,6 +16,7 @@ import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
 import { getReusableK12LessonPlanSeed, getReusableK12PlanUnitSlidesSeed } from './lib/reusableLessonSeeds';
+import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from './lib/branding';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -1738,6 +1739,51 @@ const App: React.FC = () => {
     return canvas.toDataURL('image/png');
   }, []);
 
+  const loadCanvasImage = useCallback(async (imageUrl: string): Promise<HTMLImageElement> => {
+    const image = new Image();
+    const imageLoaded = new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Failed to load image for canvas processing.'));
+    });
+    image.src = imageUrl;
+    await imageLoaded;
+    return image;
+  }, []);
+
+  const applySayunaWatermarkToImageData = useCallback(async (imageData: string, watermarkData: string): Promise<string> => {
+    const [baseImage, watermarkImage] = await Promise.all([
+      loadCanvasImage(imageData),
+      loadCanvasImage(watermarkData),
+    ]);
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, baseImage.naturalWidth || baseImage.width);
+    canvas.height = Math.max(1, baseImage.naturalHeight || baseImage.height);
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Canvas is unavailable for image watermarking.');
+    }
+
+    context.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
+
+    const watermarkW = Math.round(canvas.width * 0.16);
+    const watermarkH = Math.round(watermarkW * ((watermarkImage.naturalHeight || watermarkImage.height) / (watermarkImage.naturalWidth || watermarkImage.width)));
+    const margin = Math.round(canvas.width * 0.035);
+
+    context.globalAlpha = 0.5;
+    context.drawImage(
+      watermarkImage,
+      canvas.width - watermarkW - margin,
+      canvas.height - watermarkH - margin,
+      watermarkW,
+      watermarkH,
+    );
+    context.globalAlpha = 1;
+
+    return canvas.toDataURL('image/png');
+  }, [loadCanvasImage]);
+
   const resolveImageForPptx = useCallback(async (imageUrl: string | undefined): Promise<string | null> => {
     if (!imageUrl) return null;
     if (NON_EXPORTABLE_IMAGE_STATES.has(imageUrl)) return null;
@@ -1786,6 +1832,7 @@ const App: React.FC = () => {
         const backgroundColor = computedStyle.getPropertyValue('--bg-surface').trim().replace('#', '');
         const brandColor = computedStyle.getPropertyValue('--brand').trim().replace('#', '');
         const textColor = computedStyle.getPropertyValue('--text-primary').trim().replace('#', '');
+        const watermarkImageData = await resolveImageForPptx(SAYUNA_IMAGE_WATERMARK_LOGO_URL);
 
         for (let i = 0; i < presentation.slides.length; i++) {
             setExportMessage(t.presentation.exportingSlideMessage.replace('{current}', (i + 1).toString()).replace('{total}', presentation.slides.length.toString()));
@@ -1854,7 +1901,15 @@ const App: React.FC = () => {
                     if (!imageData) {
                         throw new Error('No valid image data available for export.');
                     }
-                    slide.addImage({ data: imageData, x: imageX, y: imageY, w: imageW, h: imageH });
+                    let exportImageData = imageData;
+                    if (watermarkImageData) {
+                        try {
+                            exportImageData = await applySayunaWatermarkToImageData(imageData, watermarkImageData);
+                        } catch (watermarkError) {
+                            console.warn('Failed to apply Sayuna watermark to image:', watermarkError);
+                        }
+                    }
+                    slide.addImage({ data: exportImageData, x: imageX, y: imageY, w: imageW, h: imageH });
                     imageAdded = true;
                 } catch (e) {
                     console.error("Failed to add image to PPTX slide:", e);
@@ -1954,7 +2009,7 @@ const App: React.FC = () => {
         setIsExporting(false);
         setExportMessage('');
     }
-  }, [presentation, lessonBlueprint, theme, t, resolveImageForPptx]);
+  }, [presentation, lessonBlueprint, theme, t, resolveImageForPptx, applySayunaWatermarkToImageData]);
 
   const handleRegenerateImage = useCallback(async (slideIndex: number, newPrompt: string) => {
     const trimmedPrompt = newPrompt.trim();

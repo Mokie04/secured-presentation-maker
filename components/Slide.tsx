@@ -3,6 +3,7 @@ import { Slide, ImageOverlayLabel } from '../types';
 import { ImageIcon, RefreshCwIcon, UploadCloudIcon, FileTextIcon, XIcon } from './IconComponents';
 import { useLanguage } from '../contexts/LanguageContext';
 import { translations } from '../lib/translations';
+import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from '../lib/branding';
 
 interface SlideProps {
   slide: Slide;
@@ -335,6 +336,13 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
                 src={slide.imageUrl}
                 alt={slide.title}
                 className="w-full h-full object-cover pointer-events-none select-none"
+                draggable={false}
+              />
+              <img
+                src={SAYUNA_IMAGE_WATERMARK_LOGO_URL}
+                alt=""
+                aria-hidden="true"
+                className="absolute bottom-4 right-4 w-[17%] min-w-12 max-w-24 opacity-[0.45] pointer-events-none select-none drop-shadow-[0_1px_4px_rgba(0,0,0,0.25)]"
                 draggable={false}
               />
 
