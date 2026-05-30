@@ -68,14 +68,14 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v24';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v16';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v25';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v17';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Keep particle-model visuals generated/cached as HD raster images; the old static set was too generic for classroom science.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = false;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260530-digestive-hd1';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260530-digestive-body-hd1';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',

@@ -7,6 +7,8 @@ type CachedLessonPlanSeed = {
 
 const DIGESTIVE_TOPIC = 'Digestive Tract and Digestive Processes';
 const DIGESTIVE_COMPETENCY = 'Using a labeled diagram, trace how food travels through the digestive tract and explain mechanical processing, secretion, digestion, absorption, and elimination. Use models, flow charts, diagrams, and simulations to explain how body systems work together, such as digestion and excretion.';
+const DIGESTIVE_BODY_SYSTEM_IMAGE_STYLE = 'HD realistic anatomical educational illustration of the human digestive body system, accurate Grade 8 science anatomy, transparent torso cutaway, shaded organs, clear food-path arrows, clean medical-education lighting';
+const DIGESTIVE_BODY_SYSTEM_IMAGE_AVOID = 'Avoid classroom tables, worksheets, printed cards, student hands, clip-art, cheap SVG style, decorative cartoons, unreadable labels, and any in-image text.';
 
 const DIGESTIVE_LEARNING_OBJECTIVES = [
   'By the end of Session 1, learners identify the digestive tract organs, sequence the movement of food from mouth to anus, and distinguish tract organs from accessory organs using an annotated pathway map.',
@@ -76,6 +78,22 @@ const metadataFor = (
   style,
 });
 
+const normalizeDigestiveImagePrompt = (imagePrompt: string): string => {
+  if (!imagePrompt) return '';
+
+  const concept = imagePrompt
+    .replace(/^A high-resolution realistic classroom science photo of /, '')
+    .replace(/^A high-resolution realistic classroom photo of /, '')
+    .replace(/no readable writing, no labels, no text\.?$/i, '')
+    .replace(/\b(classroom|student hands|students|teacher hand|teacher table|science table|clean classroom table|table|desk|printed|worksheet|organ cards?|process cards?|evidence cards?|helper-organ cards?|role cards?|cards?|sticky notes?|colored pencils?|pencils?|pencil|paper cracker pieces?|clear bag|water cup|droppers?|timer|exit slips?|peer-audit checklist|planning table|model materials?)\b/gi, '')
+    .replace(/\s+([,.;:])/g, '$1')
+    .replace(/,\s*,/g, ',')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return `${DIGESTIVE_BODY_SYSTEM_IMAGE_STYLE}. Reinterpret the slide concept as an anatomy-first body-system visual: ${concept}. ${DIGESTIVE_BODY_SYSTEM_IMAGE_AVOID}`;
+};
+
 const slide = (
   title: string,
   content: string[],
@@ -85,15 +103,19 @@ const slide = (
   visualRole = 'content',
   style: ImageSemanticMetadata['style'] = 'photorealistic',
   imageOverlays?: Slide['imageOverlays'],
-): Slide => ({
-  title,
-  content,
-  speakerNotes,
-  imagePrompt,
-  imageStyle: imagePrompt ? style : 'none',
-  ...(imagePrompt ? { imageSemanticMetadata: metadataFor(slideTemplate, visualRole, `${title}. ${content.join(' ')}`, style) } : {}),
-  ...(imageOverlays ? { imageOverlays } : {}),
-});
+): Slide => {
+  const normalizedImagePrompt = normalizeDigestiveImagePrompt(imagePrompt);
+
+  return {
+    title,
+    content,
+    speakerNotes,
+    imagePrompt: normalizedImagePrompt,
+    imageStyle: normalizedImagePrompt ? style : 'none',
+    ...(normalizedImagePrompt ? { imageSemanticMetadata: metadataFor(slideTemplate, visualRole, `${title}. ${content.join(' ')}`, style) } : {}),
+    ...(imageOverlays ? { imageOverlays } : {}),
+  };
+};
 
 const initialSlides: Slide[] = [
   slide(
