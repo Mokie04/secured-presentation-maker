@@ -605,8 +605,8 @@ const sessionDetailSlides: Record<number, Slide[]> = {
     ),
     slide(
       'Expected Output: Annotated Pathway Map',
-      ['Seven tract organs numbered in order', 'Arrows show food movement only', 'Helper-organ notes stay outside the food path', 'One function label per major tract region', 'One misconception correction sentence'],
-      'Make the output criteria explicit before independent annotation. Connect each criterion to the objective.',
+      ['Food path: mouth -> esophagus -> stomach -> small intestine -> large intestine -> rectum -> anus', 'Accessory organs: salivary glands, liver, gallbladder, and pancreas', 'Arrows show food movement only; helper notes stay outside the route', 'Add one function label per major tract region', 'Correct the misconception that food passes through helper organs'],
+      'Make the output criteria explicit before independent annotation. Point to the numbered route first, then the helper-organ markers outside the route. Connect each criterion to the objective.',
       'A high-resolution realistic classroom photo of an expected annotated digestive pathway map layout with numbered tract spaces, arrow path, helper-organ note boxes, and a misconception correction area, no readable writing, no labels, no text.',
       'digestive-pathway',
       'success-criteria',
