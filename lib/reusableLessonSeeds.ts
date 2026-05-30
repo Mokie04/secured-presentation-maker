@@ -128,26 +128,30 @@ const initialSlides: Slide[] = [
   ),
 ];
 
-const sessionStructure: Record<number, { question: string; evidence: string; output: string }> = {
+const sessionStructure: Record<number, { objective: string; question: string; evidence: string; output: string }> = {
   1: {
+    objective: 'Use investigation evidence to support that matter is made of tiny particles.',
     question: 'How can evidence show that matter is made of tiny particles?',
     evidence: 'Dissolving, diffusion, and compression',
-    output: 'Evidence-based particle model',
+    output: 'Evidence table plus one evidence-based particle model',
   },
   2: {
+    objective: 'Explain how temperature affects particle motion using investigation evidence.',
     question: 'How does temperature affect motion?',
     evidence: 'Cold and warm diffusion test',
-    output: 'Cause-effect explanation chain',
+    output: 'Data notes plus one temperature-motion cause-effect chain',
   },
   3: {
+    objective: 'Construct and revise accurate particle diagrams for solids, liquids, and gases.',
     question: 'How should each state be modeled?',
     evidence: 'Sample states and diagram criteria',
-    output: 'Revised solid-liquid-gas diagrams',
+    output: 'Revised solid-liquid-gas particle diagram set',
   },
   4: {
+    objective: 'Defend phase-change explanations using particle motion, arrangement, and energy direction.',
     question: 'How do particles explain phase changes?',
     evidence: 'Melting, condensation, and sorting',
-    output: 'CER with energy direction',
+    output: 'Sequence table plus one phase-change CER with energy direction',
   },
 };
 
@@ -157,8 +161,8 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
 
   return slide(
     day?.title || 'Lesson Focus',
-    [`Driving question: ${structure.question}`, `Evidence source: ${structure.evidence}`, `Student output: ${structure.output}`],
-    `Use this opener to orient learners before the first task. Keep the focus on the driving question, the evidence source, and the concrete output they will submit.`,
+    [`Learning objective: ${structure.objective}`, `Inquiry question: ${structure.question}`, `Evidence source: ${structure.evidence}`, `Expected output: ${structure.output}`],
+    `Use this opener to orient learners before the first task. Keep the focus on the objective, the inquiry question, and the concrete output they will submit. Ask: What will count as proof that we met today's objective?`,
     '',
   );
 };
@@ -194,20 +198,6 @@ const sessionSlides: Record<number, Slide[]> = {
       'particle-evidence',
       'concept',
       'photorealistic',
-    ),
-    slide(
-      'Which Evidence Is Strongest?',
-      ['Which observation is strongest?', 'What stayed the same?', 'What unseen idea explains all cases?', 'What evidence rejects disappearing?'],
-      'Pairs must speak in this order: observation first, inference second, model last. Ask: Which evidence would convince another group? What evidence rejects the idea that matter disappeared? Which explanation fits sugar, color, and air at the same time?',
-      'A high-resolution realistic classroom discussion photo of student hands sorting three demo photo cards on a table: sugar dissolving, blue dye spreading in still water, and a compressed needle-free syringe, with blank evidence cards arranged into three columns and small particle-symbol cards nearby, no readable writing, no labels, no text.',
-      'particle-evidence',
-      'discussion',
-      'photorealistic',
-      [
-        { id: 'discussion-observation', text: 'Observation', x: 24, y: 18, fontSize: 16 },
-        { id: 'discussion-inference', text: 'Inference', x: 52, y: 18, fontSize: 16 },
-        { id: 'discussion-model', text: 'Model', x: 78, y: 18, fontSize: 16 },
-      ],
     ),
     slide(
       'How Can Air Be Matter?',
@@ -247,6 +237,20 @@ const sessionSlides: Record<number, Slide[]> = {
       [
         { id: 'color-drop', text: 'Initial drop', x: 43, y: 24, fontSize: 16 },
         { id: 'color-trail', text: 'Spreading trail', x: 63, y: 58, fontSize: 16 },
+      ],
+    ),
+    slide(
+      'Which Evidence Is Strongest?',
+      ['Which observation is strongest?', 'What stayed the same?', 'What unseen idea explains all cases?', 'What evidence rejects disappearing?'],
+      'Pairs must speak in this order: observation first, inference second, model last. Ask: Which evidence would convince another group? What evidence rejects the idea that matter disappeared? Which explanation fits sugar, color, and air at the same time?',
+      'A high-resolution realistic classroom discussion photo of student hands sorting three demo photo cards on a table: sugar dissolving, blue dye spreading in still water, and a compressed needle-free syringe, with blank evidence cards arranged into three columns and small particle-symbol cards nearby, no readable writing, no labels, no text.',
+      'particle-evidence',
+      'discussion',
+      'photorealistic',
+      [
+        { id: 'discussion-observation', text: 'Observation', x: 24, y: 18, fontSize: 16 },
+        { id: 'discussion-inference', text: 'Inference', x: 52, y: 18, fontSize: 16 },
+        { id: 'discussion-model', text: 'Model', x: 78, y: 18, fontSize: 16 },
       ],
     ),
     slide(
@@ -754,7 +758,7 @@ const sessionDetailSlides: Record<number, Slide[]> = {
   1: [
     slide(
       'Learning Sequence: Evidence for Particles',
-      ['Claim vote', 'Observe three evidence cases', 'Sort observation and inference', 'Build and revise a model', 'Apply the model to a new case', 'Exit with claim, evidence, model'],
+      ['Claim vote', 'Observe three evidence cases', 'Check the expected output', 'Build and revise a model', 'Apply the model to a new case', 'Exit with claim, evidence, model'],
       'Use this slide as the teacher pacing guide. Keep station talk tight so learners still have time to revise their model before the exit slip. The visible flow should tell learners what they will do, not what the teacher will lecture.',
       '',
     ),
@@ -787,6 +791,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       ],
     ),
     slide(
+      'Expected Output: Evidence-Based Particle Model',
+      ['Evidence table has one row for air, sugar, and color', 'Model uses different symbols for different substances', 'Explanation uses one observation as evidence', 'Model shows matter does not disappear', 'One defense sentence answers the inquiry question'],
+      'Make the output criteria explicit before learners work independently. Connect each criterion to the objective: learners are proving the particle model with observations from dissolving, diffusion, and compression.',
+      'A high-resolution realistic classroom photo of the expected student output for an evidence-stations activity: a mostly blank evidence table beside a before-and-after particle model worksheet, colored dot symbols for different substances, sugar cup, blue diffusion beaker, and needle-free syringe nearby, no readable writing, no labels, no text.',
+      'particle-evidence',
+      'success-criteria',
+      'photorealistic',
+      [
+        { id: 'output-table', text: 'Evidence table', x: 26, y: 20, fontSize: 16 },
+        { id: 'output-model', text: 'Particle model', x: 68, y: 20, fontSize: 16 },
+        { id: 'output-defense', text: 'Defense sentence', x: 52, y: 78, fontSize: 16 },
+      ],
+    ),
+    slide(
       'Support, Safety, and Output',
       ['Sentence stem cards', 'Particle word bank', 'No tasting solutions', 'Wipe spills immediately', 'Submit table and model'],
       'Give sentence stems to learners who need support: I observed ____. I infer that particles ____. My evidence is ____. Check outputs before dismissal.',
@@ -796,7 +814,7 @@ const sessionDetailSlides: Record<number, Slide[]> = {
   2: [
     slide(
       'Learning Sequence: Temperature and Motion',
-      ['5 min: evidence callback', '5 min: prediction markup', '12 min: timing test', '8 min: data talk', '10 min: transfer chain', '8 min: quick check'],
+      ['Evidence callback', 'Prediction markup', 'Warm-cold timing test', 'Expected output check', 'Transfer chain', 'Quick check'],
       'The timing test should drive the explanation. Do not let learners jump to a memorized rule without evidence.',
       '',
     ),
@@ -824,6 +842,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       ],
     ),
     slide(
+      'Expected Output: Temperature-Motion Chain',
+      ['Data notes compare cold and warm water at the same time marks', 'Claim states which cup spread faster', 'Reasoning links higher temperature to faster particle motion', 'Evidence uses spread distance, not color darkness', 'Final chain avoids "heat adds particles"'],
+      'Make the output criteria explicit before group work. Connect the product to the objective: learners must explain temperature and particle motion through a cause-effect chain supported by their diffusion evidence.',
+      'A high-resolution realistic classroom photo of the expected student output for a warm-and-cold diffusion test: two clear cups with different blue plume spread, a timer, a mostly blank data table, and a cause-effect chain organizer with icon-only arrows, no readable writing, no labels, no text.',
+      'diffusion-temperature',
+      'success-criteria',
+      'photorealistic',
+      [
+        { id: 'output-data', text: 'Data notes', x: 27, y: 20, fontSize: 16 },
+        { id: 'output-chain', text: 'Cause-effect chain', x: 66, y: 20, fontSize: 16 },
+        { id: 'output-evidence', text: 'Evidence', x: 52, y: 78, fontSize: 16 },
+      ],
+    ),
+    slide(
       'Support, Safety, and Output',
       ['Motion word bank', 'Cause-effect stem', 'Teacher handles warm water', 'Submit data table', 'Submit transfer chain'],
       'Use the stem: Higher temperature -> particles move ____ -> spreading or dissolving happens ____ because ____. Do not accept "heat adds particles."',
@@ -833,7 +865,7 @@ const sessionDetailSlides: Record<number, Slide[]> = {
   3: [
     slide(
       'Learning Sequence: Particle Diagrams',
-      ['5 min: invisible sketch', '8 min: diagram tagging', '15 min: three-panel build', '8 min: gallery feedback', '10 min: mystery revision', '8 min: mini check'],
+      ['Invisible sketch', 'Diagram criteria', 'Three-state model build', 'Expected output check', 'Gallery feedback', 'Mini check'],
       'Keep the emphasis on scientific diagrams, not decoration. Each drawing must explain spacing, arrangement, and motion.',
       '',
     ),
@@ -861,6 +893,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       ],
     ),
     slide(
+      'Expected Output: Revised State Diagrams',
+      ['One diagram each for solid, liquid, and gas', 'Spacing and arrangement match the state', 'Motion arrows match the state', 'Particles stay equal-size within the same substance', 'Revision note explains what improved and why'],
+      'Make the output criteria explicit before the build. Connect the product to the objective: learners are constructing and revising accurate particle diagrams using spacing, arrangement, and motion criteria.',
+      'A high-resolution realistic classroom photo of the expected student output for a three-state particle diagram task: a worksheet with three empty diagram boxes partly filled with colored particle dots and motion arrows, feedback-code stickers, colored pencils, and solid-liquid-gas sample cards nearby, no readable writing, no labels, no text.',
+      'particle-states',
+      'success-criteria',
+      'photorealistic',
+      [
+        { id: 'output-three-diagrams', text: '3 diagrams', x: 24, y: 18, fontSize: 16 },
+        { id: 'output-criteria', text: 'Spacing + motion', x: 58, y: 20, fontSize: 16 },
+        { id: 'output-revision', text: 'Revision note', x: 72, y: 76, fontSize: 16 },
+      ],
+    ),
+    slide(
       'Support, Safety, and Output',
       ['Visual state cards', 'Revision-code checklist', 'Keep water off walkways', 'No mouth-inflated balloons', 'Submit revised diagram set'],
       'Give checklist support before groups revise. The concrete output is the three-state particle diagram with a mystery-sample inset and one revision note.',
@@ -870,7 +916,7 @@ const sessionDetailSlides: Record<number, Slide[]> = {
   4: [
     slide(
       'Learning Sequence: Phase Changes',
-      ['5 min: home example probe', '6 min: droplet misconception', '12 min: card sequence', '12 min: table build', '10 min: everyday CER', '10 min: mastery check'],
+      ['Home example probe', 'Droplet misconception', 'Phase-change evidence sort', 'Expected output check', 'Everyday CER', 'Mastery check'],
       'This session should make energy direction explicit. Keep returning to starting state, ending state, particle motion, and energy transfer.',
       '',
     ),
@@ -898,6 +944,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       ],
     ),
     slide(
+      'Expected Output: Phase-Change CER',
+      ['Sequence table names starting and ending states', 'Explanation describes arrangement and motion changes', 'Energy direction is marked as absorbed or released', 'CER uses one everyday evidence clue', 'Reasoning rules out one incorrect explanation'],
+      'Make the output criteria explicit before the sort. Connect the product to the objective: learners must defend a phase-change explanation with particle arrangement, motion, and energy direction.',
+      'A high-resolution realistic classroom photo of the expected student output for a phase-change evidence task: a mostly blank sequence table, icon-only cards for solid liquid vapor particles, energy-direction arrows, and a CER organizer beside a cold bottle with droplets and melting ice, no readable writing, no labels, no text.',
+      'phase-change-energy',
+      'success-criteria',
+      'photorealistic',
+      [
+        { id: 'output-sequence-table', text: 'Sequence table', x: 25, y: 18, fontSize: 16 },
+        { id: 'output-energy', text: 'Energy direction', x: 66, y: 20, fontSize: 16 },
+        { id: 'output-cer', text: 'CER', x: 52, y: 78, fontSize: 16 },
+      ],
+    ),
+    slide(
       'Support, Safety, and Output',
       ['Phase-change word bank', 'Partially filled table', 'Teacher handles warm water', 'Submit sequence table', 'Submit everyday CER'],
       'For condensation, explicitly correct the misconception that outside droplets come from inside the bottle. Require evidence from the cold surface example.',
@@ -914,8 +974,9 @@ const getSessionSlides = (dayNumber: number): Slide[] => {
   const detailSlides = sessionDetailSlides[dayNumber] || [];
   const flowSlides = detailSlides.filter((detailSlide) => /learning sequence/i.test(detailSlide.title));
   const studentRoutineSlides = detailSlides.filter((detailSlide) => !/learning sequence/i.test(detailSlide.title));
-  const openingSlides = remainingSlides.slice(0, 2);
-  const lessonSlides = remainingSlides.slice(2);
+  const openingSlideCount = dayNumber === 1 ? 3 : 2;
+  const openingSlides = remainingSlides.slice(0, openingSlideCount);
+  const lessonSlides = remainingSlides.slice(openingSlideCount);
 
   return [
     sessionOpenerSlide(dayNumber),
