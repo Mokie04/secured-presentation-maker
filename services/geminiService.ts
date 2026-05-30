@@ -1,5 +1,6 @@
 
 import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata } from '../types';
+import { K12_SCIENCE_APPROVED_PRESENTATION_STANDARD } from '../lib/presentationStandards';
 
 type ClientEnv = {
     VITE_GEMINI_PROXY_BASE_URL?: string;
@@ -467,12 +468,14 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
     let prompt = "";
     const unitLabel = getPlanUnitLabel(blueprint);
     const commonRules = `
+    ${K12_SCIENCE_APPROVED_PRESENTATION_STANDARD}
+
     **CRITICAL DIRECTIVES:**
     1.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
     2.  **IMAGE PROMPTS REQUIRED (CRITICAL FOR ACCURACY):** For EVERY slide, you MUST include the \`imagePrompt\` and \`imageStyle\` fields.
-        - **Instructional Visuals:** Prefer visuals that help the teacher teach: before/after comparisons, process diagrams, evidence tables, classroom demos, sorting tasks, or misconception contrasts. Avoid stock-photo style decorative images.
+        - **Instructional Visuals:** Prefer visuals that help the teacher teach: before/after comparisons, process diagrams, evidence tables, classroom demos, sorting tasks, expected outputs, or misconception contrasts. Avoid stock-photo style decorative images.
         - **Realistic Science Rule:** For Science/STEM slides showing real materials, demos, lab setups, worksheets, card sorts, or student outputs, choose \`"photorealistic"\` and prompt for a high-resolution realistic classroom photo. Use \`"diagram"\` only for invisible microscopic models or abstract process relationships. Avoid SVG/vector/cartoon/flat icon visuals for Science because simplified art can mislead learners.
-        - **Specificity is Key:** The \`imagePrompt\` must be highly descriptive, detailed, and directly tied to the slide's title and content to ensure visual accuracy. For abstract topics, use a concrete visual metaphor. The prompt MUST be in English.
+        - **Specificity is Key:** The \`imagePrompt\` must be highly descriptive, detailed, and directly tied to the slide's title and content to ensure visual accuracy. Do not reuse the same generic background prompt across multiple slides. For abstract topics, use a concrete visual metaphor. The prompt MUST be in English.
         - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
         - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
         - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
@@ -486,7 +489,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of volcanoes), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
         - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs.
         - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
-    9.  **UNIT GOAL SLIDE:** If generating for ${unitLabel} 2 or later, the first slide should be "Today's Goal". Do NOT generate a full "Learning Objectives" slide.
+    9.  **UNIT GOAL SLIDE:** If generating for ${unitLabel} 2 or later, the first slide should be "Today's Goal". Do NOT generate a full "Learning Objectives" slide. Keep exact official objective wording in speaker notes only.
     10. **CONCLUDING SLIDE (MANDATORY):** The very last slide generated MUST serve as a conclusion for the ${unitLabel.toLowerCase()}'s lesson. This slide should typically cover the 'Evaluation' or 'Assignment' section and provide a clear end to the presentation.
     `;
     
@@ -608,17 +611,19 @@ export async function generateK12SingleLessonSlides(content: string, format: str
         **PEDAGOGICAL FORMAT TO FOLLOW:** ${format}
         **REQUIRED SECTIONS TO INCLUDE:** ${sections}
 
+        ${K12_SCIENCE_APPROVED_PRESENTATION_STANDARD}
+
         **CRITICAL DIRECTIVES:**
         1.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
         2.  **IMAGE PROMPTS REQUIRED (CRITICAL FOR ACCURACY):** For EVERY slide, you MUST include the \`imagePrompt\` and \`imageStyle\` fields.
-            - **Instructional Visuals:** Prefer visuals that help the teacher teach: before/after comparisons, process diagrams, evidence tables, classroom demos, sorting tasks, or misconception contrasts. Avoid stock-photo style decorative images.
+            - **Instructional Visuals:** Prefer visuals that help the teacher teach: before/after comparisons, process diagrams, evidence tables, classroom demos, sorting tasks, expected outputs, or misconception contrasts. Avoid stock-photo style decorative images.
             - **Realistic Science Rule:** For Science/STEM slides showing real materials, demos, lab setups, worksheets, card sorts, or student outputs, choose \`"photorealistic"\` and prompt for a high-resolution realistic classroom photo. Use \`"diagram"\` only for invisible microscopic models or abstract process relationships. Avoid SVG/vector/cartoon/flat icon visuals for Science because simplified art can mislead learners.
-            - **Specificity is Key:** The \`imagePrompt\` must be highly descriptive, detailed, and directly tied to the slide's title and content to ensure visual accuracy. For abstract topics, use a concrete visual metaphor. The prompt MUST be in English.
+            - **Specificity is Key:** The \`imagePrompt\` must be highly descriptive, detailed, and directly tied to the slide's title and content to ensure visual accuracy. Do not reuse the same generic background prompt across multiple slides. For abstract topics, use a concrete visual metaphor. The prompt MUST be in English.
             - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
             - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
             - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
         3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
-        4.  **INITIAL SLIDES:** The first two slides MUST be a 'Title Slide' and a 'Learning Objectives' slide.
+        4.  **INITIAL SLIDES:** The first two slides MUST be a title slide and a short student-facing learning target or success criteria slide. Keep exact official objective wording in speaker notes only.
         5.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
         6.  **CLASSROOM-READY FLOW:** Include concrete teacher-use slide types when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
         7.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
@@ -802,7 +807,7 @@ export function buildFinalImagePrompt(prompt: string, style: ImageStyle = 'illus
             break;
     }
 
-    const relevanceGuard = 'Keep the content tightly on-topic to the described subject. Do NOT add any extra objects or unrelated scenes. No text, labels, numbers, watermarks, signatures, or UI chrome.';
+    const relevanceGuard = 'Keep the content tightly on-topic to the described subject and make it a slide-specific evidence visual, not a reusable generic background. Do NOT add any extra objects or unrelated scenes. No text, labels, numbers, watermarks, signatures, or UI chrome.';
     return `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
 }
 
