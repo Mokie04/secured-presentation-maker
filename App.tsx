@@ -68,8 +68,8 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v21';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v13';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v22';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v14';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -353,13 +353,15 @@ const getScienceParticleModelImageFileName = (
     ['evidence-table-routine', 's1-hd-evidence-table.png'],
     ['what-goes-in-the-evidence-table', 's1-hd-evidence-table.png'],
     ['main-activity-evidence-stations', 's1-hd-evidence-table.png'],
+    ['station-roles-and-timing', 's1-hd-roles-timing.png'],
+    ['roles-timing-and-safety', 's1-hd-roles-timing.png'],
     ['expected-output-evidence-based-particle-model', 's1-hd-build-model.png'],
     ['matter-mystery-claims', 's1-hd-mystery-claims.png'],
     ['what-do-you-notice-first', 's1-hd-mystery-claims.png'],
     ['observe-infer-model', 's1-hd-observe-infer.png'],
     ['observe-infer-or-unsure', 's1-hd-observe-infer.png'],
     ['what-is-evidence-and-what-is-explanation', 's1-hd-observe-infer.png'],
-    ['which-evidence-is-strongest', 's1-hd-evidence-board.png'],
+    ['which-evidence-is-strongest', 's1-hd-evidence-sort.png'],
     ['air-is-matter-too', 's1-hd-air-compression.png'],
     ['how-can-air-be-matter', 's1-hd-air-compression.png'],
     ['sugar-did-not-vanish', 's1-hd-sugar-dissolving.png'],
@@ -370,11 +372,12 @@ const getScienceParticleModelImageFileName = (
     ['what-pattern-do-we-see', 's1-hd-evidence-board.png'],
     ['build-a-particle-model', 's1-hd-build-model.png'],
     ['can-your-model-match-the-evidence', 's1-hd-build-model.png'],
-    ['which-model-is-more-scientific', 's1-hd-build-model.png'],
+    ['which-model-is-more-scientific', 's1-hd-model-compare.png'],
     ['new-case-transfer', 's1-hd-transfer.png'],
     ['can-your-model-explain-a-new-case', 's1-hd-transfer.png'],
     ['exit-slip', 's1-hd-exit-slip.png'],
     ['claim-evidence-model', 's1-hd-exit-slip.png'],
+    ['final-output-claim-evidence-model', 's1-hd-exit-slip.png'],
     ['fair-test-evidence', 's2-fair-test-evidence.png'],
     ['main-activity-warm-and-cold-diffusion-test', 's2-fair-test-setup.png'],
     ['expected-output-temperature-motion-chain', 's2-fair-test-evidence.png'],

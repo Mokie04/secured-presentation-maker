@@ -130,7 +130,7 @@ const sessionStructure: Record<number, { objective: string; question: string; ev
     objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[0],
     question: 'How can evidence show that matter is made of tiny particles?',
     evidence: 'Dissolving, diffusion, and compression',
-    output: 'Evidence table plus one evidence-based particle model',
+    output: 'Evidence table, evidence-based particle model, revision note, and defense sentence',
   },
   2: {
     objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[1],
@@ -238,8 +238,8 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     slide(
       'Which Evidence Is Strongest?',
-      ['Which observation is strongest?', 'What stayed the same?', 'What unseen idea explains all cases?', 'What evidence rejects disappearing?'],
-      'Pairs must speak in this order: observation first, inference second, model last. Ask: Which evidence would convince another group? What evidence rejects the idea that matter disappeared? Which explanation fits sugar, color, and air at the same time?',
+      ['Rank the three evidence cases', 'Choose the strongest observation', 'Connect the cases to one particle idea', 'Reject one weak explanation'],
+      'Pairs must speak in this order: observation first, inference second, model last. Ask: Which evidence would convince another group? What evidence rejects the idea that matter disappeared? Which explanation fits sugar, color, and air at the same time? If learners rank only the most dramatic visual, push them to defend the ranking with observable evidence.',
       'A high-resolution realistic classroom discussion photo of student hands sorting three demo photo cards on a table: sugar dissolving, blue dye spreading in still water, and a compressed needle-free syringe, with blank evidence cards arranged into three columns and small particle-symbol cards nearby, no readable writing, no labels, no text.',
       'particle-evidence',
       'discussion',
@@ -252,8 +252,8 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     slide(
       'What Pattern Do We See?',
-      ['Post one evidence sentence', 'Separate observation from inference', 'Revise one weak explanation'],
-      'Collect group evidence. Ask: Which observations appear in more than one case? Which explanations are still guesses? How can we rewrite “sugar disappeared” as an evidence-based particle explanation?',
+      ['Post one evidence sentence', 'Separate observation from inference', 'Cross out one weak explanation', 'Rewrite it with particles'],
+      'Collect group evidence. Ask: Which observations appear in more than one case? Which explanations are still guesses? How can we rewrite "sugar disappeared" as an evidence-based particle explanation? Listen for three misconceptions: matter disappeared, air is empty, and color moved only because water was disturbed.',
       'A high-resolution realistic classroom photo of a science evidence board with pinned blank sticky notes, printed demo photos, colored yarn links, and small particle-symbol cards, no readable writing, no letters, no labels, no text.',
       'particle-evidence',
       'generalization',
@@ -281,7 +281,7 @@ const sessionSlides: Record<number, Slide[]> = {
     slide(
       'Which Model Is More Scientific?',
       ['Which model keeps matter?', 'Which model uses different symbols?', 'What revision makes the model stronger?', 'What evidence supports the revision?'],
-      'Before groups submit, compare two model cards publicly. Ask: Which model accidentally shows matter disappearing? Which model uses evidence better? What exact revision would make the weaker model scientific?',
+      'Before groups submit, compare two model cards publicly. Ask: Which model accidentally shows matter disappearing? Which model uses evidence better? What exact revision would make the weaker model scientific? Name the rule explicitly: a scientific model keeps the same matter, uses distinct symbols for distinct pure substances, and explains an observation.',
       'A high-resolution realistic classroom discussion photo of two student particle-model cards side by side on a desk: one model accurately shows sugar particles spread among water particles, the other flawed model leaves missing particles after dissolving, colored pencils and the dissolving cup nearby, no readable writing, no labels, no text.',
       'particle-evidence',
       'discussion',
@@ -302,9 +302,9 @@ const sessionSlides: Record<number, Slide[]> = {
       'photorealistic',
     ),
     slide(
-      'Claim, Evidence, Model',
-      ['Make one claim about matter', 'Use one observation as evidence', 'Explain with particles', 'Name one home example'],
-      'Score quickly: 1 point for observation, 1 for particle explanation, 1 for not saying disappeared. Ask: What claim can you now defend? What evidence supports it? How does your particle model explain it?',
+      'Final Output: Claim, Evidence, Model',
+      ['Claim: matter is made of tiny particles', 'Evidence: one observation from a station', 'Model: symbols show different substances', 'Reasoning: matter did not disappear', 'Transfer: one home example'],
+      'Use this as the exit rubric. Score quickly: 1 point for claim, 1 for direct observation, 1 for particle model with different symbols, 1 for reasoning that matter did not disappear, and 1 for a home transfer. Ask: What claim can you now defend? What evidence supports it? How does your particle model explain it?',
       'A high-resolution realistic classroom photo of an exit-slip station: a blank paper slip, pencil, small accurate particle diagram card, and clear cup from the dissolving demo on a desk, no readable writing, no labels, no text.',
       'assessment',
       'assessment',
@@ -755,7 +755,7 @@ const sessionDetailSlides: Record<number, Slide[]> = {
   1: [
     slide(
       'Learning Sequence: Evidence for Particles',
-      ['Claim vote', 'Observe three evidence cases', 'Check the expected output', 'Build and revise a model', 'Apply the model to a new case', 'Exit with claim, evidence, model'],
+      ['Claim vote', 'Assign roles and timing', 'Observe three evidence cases', 'Check the expected output', 'Build and revise a model', 'Exit with claim, evidence, model'],
       'Use this slide as the teacher pacing guide. Keep station talk tight so learners still have time to revise their model before the exit slip. The visible flow should tell learners what they will do, not what the teacher will lecture.',
       '',
     ),
@@ -789,8 +789,8 @@ const sessionDetailSlides: Record<number, Slide[]> = {
     ),
     slide(
       'Expected Output: Evidence-Based Particle Model',
-      ['Evidence table has one row for air, sugar, and color', 'Model uses different symbols for different substances', 'Explanation uses one observation as evidence', 'Model shows matter does not disappear', 'One defense sentence answers the inquiry question'],
-      'Make the output criteria explicit before learners work independently. Connect each criterion to the objective: learners are proving the particle model with observations from dissolving, diffusion, and compression.',
+      ['Three evidence rows: air, sugar, and color', 'One model with different symbols for different substances', 'Before-and-after model keeps matter present', 'Defense sentence links observation to particle idea', 'Revision note fixes one weak explanation'],
+      'Make the output criteria explicit before learners work independently. Connect each criterion to the objective: learners are proving the particle model with observations from dissolving, diffusion, and compression. Tell learners that a neat drawing is not enough; the output must show evidence, model, and reasoning.',
       'A high-resolution realistic classroom photo of the expected student output for an evidence-stations activity: a mostly blank evidence table beside a before-and-after particle model worksheet, colored dot symbols for different substances, sugar cup, blue diffusion beaker, and needle-free syringe nearby, no readable writing, no labels, no text.',
       'particle-evidence',
       'success-criteria',
@@ -802,10 +802,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       ],
     ),
     slide(
-      'Support, Safety, and Output',
-      ['Sentence stem cards', 'Particle word bank', 'No tasting solutions', 'Wipe spills immediately', 'Submit table and model'],
-      'Give sentence stems to learners who need support: I observed ____. I infer that particles ____. My evidence is ____. Check outputs before dismissal.',
-      '',
+      'Roles, Timing, and Safety',
+      ['Materials manager handles only assigned items', 'Recorder completes the evidence row', 'Speaker asks the group evidence question', 'Safety checker watches spills and syringe handling', 'Rotate when the timer signal is given'],
+      'Assign roles before learners stand up. Recommended pacing: 1 minute role check, 4 minutes per station, 3 minutes choose strongest evidence, 6 minutes build model, 3 minutes revise and prepare the defense sentence. Safety reminder: no tasting, wipe spills immediately, and the syringe remains needle-free and gently sealed.',
+      'A high-resolution realistic classroom photo of four student role cards, a timer, colored station markers, and the evidence-stations materials on a science table, showing organized group work setup, no readable writing, no labels, no text.',
+      'station-roles-and-timing',
+      'activity',
+      'photorealistic',
+      [
+        { id: 'role-materials', text: 'Materials', x: 16, y: 20, fontSize: 16 },
+        { id: 'role-recorder', text: 'Recorder', x: 38, y: 20, fontSize: 16 },
+        { id: 'role-speaker', text: 'Speaker', x: 61, y: 20, fontSize: 16 },
+        { id: 'role-safety', text: 'Safety', x: 83, y: 20, fontSize: 16 },
+        { id: 'role-timer', text: 'Timer signal', x: 27, y: 65, fontSize: 16 },
+      ],
     ),
   ],
   2: [
