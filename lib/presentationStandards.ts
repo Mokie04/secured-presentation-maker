@@ -7,7 +7,7 @@ export const K12_SCIENCE_APPROVED_PRESENTATION_STANDARD = `
 - **Debrief questions:** Add student-centered questions after activities, such as "What evidence changed your first answer?", "Which part of the model is strongest?", "What does the model show, and what does it fail to show?", and "Which misconception did your work correct?"
 - **Evidence visuals:** Discussion images must directly match the claim on the slide. Do not reuse the same generic background image across multiple slides.
 - **HD accurate visuals only:** For Science/STEM, prefer high-resolution photorealistic classroom evidence visuals, accurate lab/setup photos, realistic anatomical/scientific references, or precise raster diagrams. Avoid cheap SVG/vector/cartoon/flat-icon visuals unless the source topic truly requires a simple abstract model.
+- **Visual QA gate:** Before treating a deck as approved, inspect a rendered deck or image contact sheet. Reject decks where evidence slides repeat the same generic background, where visuals are too small for classroom viewing, or where visuals do not prove the slide statement.
 - **Visual necessity:** Every image must teach something: a setup, pathway, comparison, process, expected output, misconception contrast, or evidence object. Decorative stock-style images are not acceptable.
 - **Slide readability:** Keep bullets short and learner-facing. Split overloaded explanations into multiple slides or move teacher details to speaker notes.
 `;
-
