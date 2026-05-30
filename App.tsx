@@ -68,7 +68,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v15';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v16';
 const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v9';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
@@ -132,6 +132,21 @@ const NON_EXPORTABLE_IMAGE_STATES = new Set([
   PROVIDER_IMAGE_LIMIT_PLACEHOLDER,
   IMAGE_SKIPPED_PLACEHOLDER,
 ]);
+const PPTX_SLIDE_W = 10;
+const PPTX_MARGIN_X = 0.58;
+const PPTX_TITLE_Y = 0.34;
+const PPTX_IMAGE_X = 0.58;
+const PPTX_IMAGE_Y = 1.32;
+const PPTX_IMAGE_W = 4.15;
+const PPTX_IMAGE_H = 2.34;
+const PPTX_CONTENT_X = 5.12;
+const PPTX_CONTENT_Y = 1.26;
+const PPTX_CONTENT_W = 4.28;
+const PPTX_CONTENT_H = 3.62;
+const PPTX_TEXT_ONLY_X = 0.78;
+const PPTX_TEXT_ONLY_Y = 1.45;
+const PPTX_TEXT_ONLY_W = 8.45;
+const PPTX_TEXT_ONLY_H = 3.65;
 
 type CachedLessonPlan = {
   blueprint: LessonBlueprint;
@@ -1750,22 +1765,43 @@ const App: React.FC = () => {
     return image;
   }, []);
 
-  const applySayunaWatermarkToImageData = useCallback(async (imageData: string, watermarkData: string): Promise<string> => {
+  const applySayunaWatermarkToImageData = useCallback(async (
+    imageData: string,
+    watermarkData: string,
+    fit: 'cover' | 'contain' = 'cover',
+  ): Promise<string> => {
     const [baseImage, watermarkImage] = await Promise.all([
       loadCanvasImage(imageData),
       loadCanvasImage(watermarkData),
     ]);
 
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, baseImage.naturalWidth || baseImage.width);
-    canvas.height = Math.max(1, baseImage.naturalHeight || baseImage.height);
+    canvas.width = 1600;
+    canvas.height = 900;
 
     const context = canvas.getContext('2d');
     if (!context) {
       throw new Error('Canvas is unavailable for image watermarking.');
     }
 
-    context.drawImage(baseImage, 0, 0, canvas.width, canvas.height);
+    context.fillStyle = '#f8fafc';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+
+    const baseW = Math.max(1, baseImage.naturalWidth || baseImage.width);
+    const baseH = Math.max(1, baseImage.naturalHeight || baseImage.height);
+    const imageScale = fit === 'contain'
+      ? Math.min(canvas.width / baseW, canvas.height / baseH)
+      : Math.max(canvas.width / baseW, canvas.height / baseH);
+    const drawW = baseW * imageScale;
+    const drawH = baseH * imageScale;
+
+    context.drawImage(
+      baseImage,
+      (canvas.width - drawW) / 2,
+      (canvas.height - drawH) / 2,
+      drawW,
+      drawH,
+    );
 
     const watermarkW = Math.round(canvas.width * 0.16);
     const watermarkH = Math.round(watermarkW * ((watermarkImage.naturalHeight || watermarkImage.height) / (watermarkImage.naturalWidth || watermarkImage.width)));
@@ -1891,10 +1927,10 @@ const App: React.FC = () => {
             }
 
             if (hasImage) {
-                const imageX = 0.55;
-                const imageY = 1.2;
-                const imageW = 3.55;
-                const imageH = 4.0;
+                const imageX = PPTX_IMAGE_X;
+                const imageY = PPTX_IMAGE_Y;
+                const imageW = PPTX_IMAGE_W;
+                const imageH = PPTX_IMAGE_H;
                 let imageAdded = false;
                 try {
                     const imageData = await resolveImageForPptx(slideData.imageUrl);
@@ -1904,7 +1940,10 @@ const App: React.FC = () => {
                     let exportImageData = imageData;
                     if (watermarkImageData) {
                         try {
-                            exportImageData = await applySayunaWatermarkToImageData(imageData, watermarkImageData);
+                            const imageFit = slideData.imageStyle === 'diagram' || slideData.imageStyle === 'infographic'
+                                ? 'contain'
+                                : 'cover';
+                            exportImageData = await applySayunaWatermarkToImageData(imageData, watermarkImageData, imageFit);
                         } catch (watermarkError) {
                             console.warn('Failed to apply Sayuna watermark to image:', watermarkError);
                         }
@@ -1955,43 +1994,50 @@ const App: React.FC = () => {
                 }
 
                 const titleFontSize = slideData.title.length > 58
-                    ? 22
+                    ? 25
                     : slideData.title.length > 38
-                        ? 26
-                        : 30;
+                        ? 28
+                        : 31;
 
                 slide.addText(slideData.title, {
-                    x: 0.55, y: 0.35, w: 9.0, h: 0.75,
+                    x: PPTX_MARGIN_X, y: PPTX_TITLE_Y, w: PPTX_SLIDE_W - (PPTX_MARGIN_X * 2), h: 0.72,
                     fontSize: titleFontSize, bold: true, color: brandColor,
                     valign: 'top', fontFace: 'Poppins', fit: 'shrink'
                 });
 
                 if(hasContent) {
-                    const contentFontSize = contentForPptx.length > 10 ? 16 : 18;
+                    const bulletCount = slideData.content.filter((point) => point.trim()).length;
+                    const contentFontSize = bulletCount > 5 ? 18 : bulletCount > 3 ? 20 : 22;
                     slide.addText(contentForPptx, {
-                        x: 4.45, y: 1.35, w: 5.05, h: 3.75,
+                        x: PPTX_CONTENT_X, y: PPTX_CONTENT_Y, w: PPTX_CONTENT_W, h: PPTX_CONTENT_H,
                         color: textColor, valign: 'top', fontSize: contentFontSize,
-                        lineSpacing: contentFontSize === 16 ? 22 : 25, fit: 'shrink'
+                        lineSpacing: contentFontSize >= 22 ? 30 : contentFontSize === 20 ? 27 : 25,
+                        fit: 'shrink',
+                        breakLine: false,
                     });
                 }
             } else {
                 const titleFontSize = slideData.title.length > 58
-                    ? 24
+                    ? 27
                     : slideData.title.length > 38
-                        ? 28
-                        : 32;
+                        ? 30
+                        : 34;
                 slide.addText(slideData.title, {
-                    x: 0.55, y: 0.45, w: 8.9, h: 0.9,
+                    x: PPTX_MARGIN_X, y: 0.42, w: PPTX_SLIDE_W - (PPTX_MARGIN_X * 2), h: 0.86,
                     fontSize: titleFontSize, bold: true, color: brandColor,
                     valign: 'top', fontFace: 'Poppins', fit: 'shrink'
                 });
 
                 if (hasContent) {
-                    const contentFontSize = contentForPptx.length > 10 ? 19 : 21;
+                    const bulletCount = slideData.content.filter((point) => point.trim()).length;
+                    const contentFontSize = bulletCount > 6 ? 22 : bulletCount > 4 ? 24 : 26;
                     slide.addText(contentForPptx, {
-                        x: 0.75, y: 1.55, w: 8.5, h: 3.7,
+                        x: PPTX_TEXT_ONLY_X, y: PPTX_TEXT_ONLY_Y, w: PPTX_TEXT_ONLY_W, h: PPTX_TEXT_ONLY_H,
                         color: textColor, valign: 'top',
-                        fontSize: contentFontSize, lineSpacing: contentFontSize === 19 ? 26 : 30, fit: 'shrink'
+                        fontSize: contentFontSize,
+                        lineSpacing: contentFontSize >= 26 ? 35 : contentFontSize === 24 ? 32 : 29,
+                        fit: 'shrink',
+                        breakLine: false,
                     });
                 }
             }

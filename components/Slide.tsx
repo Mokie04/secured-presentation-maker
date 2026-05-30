@@ -296,7 +296,7 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
   return (
     <div className={`w-full h-full aspect-[16/9] bg-surface rounded-2xl shadow-neumorphic-outset flex overflow-hidden ${animationClass}`}>
       {hasImageLayout && (
-        <div className="w-1/2 flex-shrink-0 h-full relative group" style={{ backgroundColor: 'var(--shadow-dark)' }}>
+        <div className="w-[48%] flex-shrink-0 h-full relative group p-5 flex items-center justify-center" style={{ backgroundColor: 'var(--shadow-dark)' }}>
           {slide.imageUrl === 'loading' ? (
             <div className="w-full h-full flex flex-col items-center justify-center text-secondary">
               <div className="w-12 h-12 border-4 border-t-4 border-themed border-t-brand rounded-full animate-spin"></div>
@@ -329,13 +329,13 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
           ) : slide.imageUrl ? (
             <div
               ref={imageStageRef}
-              className={`w-full h-full relative ${isEditingLabels ? 'cursor-crosshair' : ''}`}
+              className={`w-full aspect-video relative ${isEditingLabels ? 'cursor-crosshair' : ''}`}
               onClick={handleImageStageClick}
             >
               <img
                 src={slide.imageUrl}
                 alt={slide.title}
-                className="w-full h-full object-cover pointer-events-none select-none"
+                className="w-full h-full object-cover object-center pointer-events-none select-none rounded-xl shadow-sm"
                 draggable={false}
               />
               <img
@@ -566,17 +566,17 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
         </div>
       )}
 
-      <div className={`${hasImageLayout ? 'w-1/2' : 'w-full'} h-full p-8 md:p-12 flex flex-col ${!hasContent ? 'justify-center' : ''} overflow-hidden`}>
-        <h2 className={`font-bold text-brand flex-shrink-0 ${hasContent ? 'text-4xl md:text-5xl mb-4' : 'text-5xl md:text-7xl text-center'}`}>{slide.title}</h2>
-        {hasContent && <div className="w-24 h-1.5 bg-brand rounded-full mb-8"></div>}
+      <div className={`${hasImageLayout ? 'w-[52%]' : 'w-full'} h-full p-8 md:p-11 flex flex-col ${!hasContent ? 'justify-center' : ''} overflow-hidden`}>
+        <h2 className={`font-bold text-brand flex-shrink-0 leading-tight ${hasContent ? 'text-4xl md:text-[2.72rem] mb-4' : 'text-5xl md:text-7xl text-center'}`}>{slide.title}</h2>
+        {hasContent && <div className="w-24 h-1.5 bg-brand rounded-full mb-6"></div>}
         {hasContent && (
           <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar -mr-6 pr-4">
-            <ul className="space-y-4 w-full">
+            <ul className="space-y-3.5 w-full">
               {slide.content.map((point, index) => {
                 const isOrderedList = /^[A-E0-9]+\./.test(point);
 
                 return (
-                  <li key={index} className="text-xl md:text-2xl text-primary flex items-start leading-relaxed">
+                  <li key={index} className={`${hasImageLayout ? 'text-xl md:text-[1.65rem]' : 'text-2xl md:text-[2rem]'} text-primary flex items-start leading-snug`}>
                     {!isOrderedList && <span className="text-brand mr-4 mt-1.5 flex-shrink-0">•</span>}
                     <span className="whitespace-pre-wrap">{parseMarkdown(point)}</span>
                   </li>
