@@ -662,7 +662,7 @@ const completeBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint =>
   days: blueprint.days.map((day) => ({ ...day, generationStatus: 'done' as const })),
 });
 
-const hasAdminImageBypass = (user: SessionUser | null): boolean => {
+const hasAdminUsageBypass = (user: SessionUser | null): boolean => {
   if (user?.isAdmin === true) {
     return true;
   }
@@ -797,7 +797,9 @@ const App: React.FC = () => {
     canGenerateImage,
     updateCounts
   } = useUsageTracker();
-  const adminImageLimitBypassed = hasAdminImageBypass(sessionUser);
+  const adminUsageLimitBypassed = hasAdminUsageBypass(sessionUser);
+  const adminGenerationLimitBypassed = adminUsageLimitBypassed;
+  const adminImageLimitBypassed = adminUsageLimitBypassed;
 
   useEffect(() => {
     updateCounts();
@@ -1325,13 +1327,13 @@ const App: React.FC = () => {
               return;
             }
 
-            const hasQuota = tryIncrementCount('generations');
+            const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
             if (!hasQuota) {
               setIsLoading(false);
               setError(t.presentation.errorGenerationLimit);
               return;
             }
-            shouldRollbackGeneration = true;
+            shouldRollbackGeneration = !adminGenerationLimitBypassed;
             const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, language, (msg) => setLoadingMessage(msg));
             setLoadingMessage(t.presentation.loadingTables);
             const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
@@ -1368,13 +1370,13 @@ const App: React.FC = () => {
                   return;
                 }
 
-                const hasQuota = tryIncrementCount('generations');
+                const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
                 if (!hasQuota) {
                   setIsLoading(false);
                   setError(t.presentation.errorGenerationLimit);
                   return;
                 }
-                shouldRollbackGeneration = true;
+                shouldRollbackGeneration = !adminGenerationLimitBypassed;
                 const fullPresentation = await generateK12SingleLessonSlides(content, DEFAULT_LESSON_FORMAT, language, (msg) => setLoadingMessage(msg));
                 setLoadingMessage(t.presentation.loadingTables);
                 const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
@@ -1485,7 +1487,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, language, t, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages]);
+  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, language, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages]);
 
   const handleGenerateDailySlides = useCallback(async (dayIndex: number) => {
     if (!lessonBlueprint) return;
@@ -1535,7 +1537,7 @@ const App: React.FC = () => {
             .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
         );
 
-        const hasQuota = tryIncrementCount('generations');
+        const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
         if (!hasQuota) {
           setError(t.presentation.errorGenerationLimit);
           setLessonBlueprint(prev => {
@@ -1547,7 +1549,7 @@ const App: React.FC = () => {
           return;
         }
 
-        shouldRollbackGeneration = true;
+        shouldRollbackGeneration = !adminGenerationLimitBypassed;
         const cachedSlides = await getCachedGeneration<Slide[]>(cacheKey);
         const slideIndexOfNewDay = presentation?.slides.length ?? 0;
 
@@ -1640,7 +1642,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, language, t, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages]);
+  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, language, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages]);
 
   const handleGenerateAllDailySlides = useCallback(async () => {
     if (!lessonBlueprint || isLoading) return;
@@ -2260,7 +2262,9 @@ const App: React.FC = () => {
     const hasCompletedAllPlanUnits = lessonBlueprint.days.every((day) => day.generationStatus === 'done');
     const isGeneratingPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'loading');
     const pendingPlanUnitCount = lessonBlueprint.days.filter((day) => day.generationStatus !== 'done').length;
-    const generationSlotsAvailable = Math.max(0, limits.generations - generations);
+    const generationSlotsAvailable = adminGenerationLimitBypassed
+      ? Number.POSITIVE_INFINITY
+      : Math.max(0, limits.generations - generations);
     const canGenerateAllPlanUnits = pendingPlanUnitCount > 0
       && pendingPlanUnitCount <= generationSlotsAvailable
       && !isGeneratingPlanUnit;
@@ -2290,7 +2294,7 @@ const App: React.FC = () => {
                         {day.generationStatus === 'pending' && (
                             <button 
                                 onClick={() => handleGenerateDailySlides(index)} 
-                                disabled={!canGenerate}
+                                disabled={!adminGenerationLimitBypassed && !canGenerate}
                                 className="px-4 py-2 text-sm font-semibold bg-brand text-brand-contrast rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {t.presentation.generateSlidesButton}
@@ -2460,7 +2464,7 @@ const App: React.FC = () => {
   };
 
   const renderInputView = () => {
-    const shouldRequireGenerationQuota = teachingLevel === 'College' || depEdMode === 'single';
+    const shouldRequireGenerationQuota = !adminGenerationLimitBypassed && (teachingLevel === 'College' || depEdMode === 'single');
 
     const renderDepEdInputs = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
@@ -2570,7 +2574,7 @@ const App: React.FC = () => {
                 <p className="text-base md:text-lg text-secondary mt-4 max-w-3xl">{t.app.tagline}</p>
                 <div className="flex flex-wrap gap-3 mt-6">
                     <div className="px-4 py-2 rounded-2xl bg-surface shadow-neumorphic-inset text-sm font-semibold text-secondary">
-                        Generations: <span className="text-brand">{generations}/{limits.generations}</span>
+                        Generations: <span className="text-brand">{adminGenerationLimitBypassed ? 'Unlimited' : `${generations}/${limits.generations}`}</span>
                     </div>
                     <div className="px-4 py-2 rounded-2xl bg-surface shadow-neumorphic-inset text-sm font-semibold text-secondary">
                         Images: <span className="text-brand">{adminImageLimitBypassed ? 'Unlimited' : `${images}/${limits.images}`}</span>
@@ -2703,7 +2707,7 @@ const App: React.FC = () => {
           <div className="absolute top-1/4 right-[-9rem] w-[26rem] h-[26rem] rounded-full opacity-20" style={{ background: 'radial-gradient(circle, var(--brand-light) 0%, transparent 72%)' }} />
           <div className="absolute bottom-[-8rem] left-1/3 w-[22rem] h-[22rem] rounded-full opacity-15" style={{ background: 'radial-gradient(circle, var(--shadow-dark) 0%, transparent 72%)' }} />
         </div>
-        <Header usage={{ generations, images, limits, imageLimitBypassed: adminImageLimitBypassed }} />
+        <Header usage={{ generations, images, limits, generationLimitBypassed: adminGenerationLimitBypassed, imageLimitBypassed: adminImageLimitBypassed }} />
         <main className="w-full max-w-7xl mx-auto px-4 md:px-6 pb-6 pt-6 flex justify-center items-start flex-grow relative z-10">
           {renderContent()}
         </main>

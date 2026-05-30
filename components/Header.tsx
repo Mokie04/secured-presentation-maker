@@ -14,6 +14,7 @@ interface HeaderProps {
         generations: number;
         images: number;
     }
+    generationLimitBypassed?: boolean;
     imageLimitBypassed?: boolean;
   }
 }
@@ -83,6 +84,7 @@ const Header: React.FC<HeaderProps> = ({ usage }) => {
               label={t.generationsQuota}
               count={usage.generations}
               limit={usage.limits.generations}
+              unlimited={usage.generationLimitBypassed}
           />
           <QuotaIndicator
               icon={<ImageIcon className="w-4 h-4 text-brand" />}
