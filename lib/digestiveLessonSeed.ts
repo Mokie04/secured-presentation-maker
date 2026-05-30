@@ -103,6 +103,7 @@ const slide = (
   visualRole = 'content',
   style: ImageSemanticMetadata['style'] = 'photorealistic',
   imageOverlays?: Slide['imageOverlays'],
+  visualLayout?: Slide['visualLayout'],
 ): Slide => {
   const normalizedImagePrompt = normalizeDigestiveImagePrompt(imagePrompt);
 
@@ -114,8 +115,20 @@ const slide = (
     imageStyle: normalizedImagePrompt ? style : 'none',
     ...(normalizedImagePrompt ? { imageSemanticMetadata: metadataFor(slideTemplate, visualRole, `${title}. ${content.join(' ')}`, style) } : {}),
     ...(imageOverlays ? { imageOverlays } : {}),
+    ...(visualLayout ? { visualLayout } : {}),
   };
 };
+
+const evidenceSlide = (
+  title: string,
+  content: string[],
+  speakerNotes: string,
+  imagePrompt: string,
+  slideTemplate = 'content',
+  visualRole = 'content',
+  style: ImageSemanticMetadata['style'] = 'photorealistic',
+  imageOverlays?: Slide['imageOverlays'],
+): Slide => slide(title, content, speakerNotes, imagePrompt, slideTemplate, visualRole, style, imageOverlays, 'evidence');
 
 const initialSlides: Slide[] = [
   slide(
@@ -129,8 +142,13 @@ const initialSlides: Slide[] = [
   ),
   slide(
     'Learning Objectives',
-    digestiveBlueprint.studentFacingObjectives,
-    'Read the objectives as a progression. Emphasize that learners will not just label organs; they will explain movement, process, absorption, elimination, and evidence.',
+    [
+      'Trace the food pathway and separate helper organs',
+      'Explain mechanical processing, secretion, and chemical digestion',
+      'Use villi evidence to explain absorption and elimination',
+      'Build and defend a complete digestive journey model',
+    ],
+    `Use this as a student-facing roadmap. Exact lesson-plan objectives: ${digestiveBlueprint.studentFacingObjectives.join(' | ')}`,
     '',
   ),
   slide(
@@ -147,27 +165,31 @@ const initialSlides: Slide[] = [
   ),
 ];
 
-const sessionStructure: Record<number, { objective: string; question: string; evidence: string; output: string }> = {
+const sessionStructure: Record<number, { objective: string; studentGoals: string[]; question: string; evidence: string; output: string }> = {
   1: {
     objective: DIGESTIVE_LEARNING_OBJECTIVES[0],
+    studentGoals: ['Trace food from mouth to anus', 'Separate food-path organs from helper organs', 'Build an annotated pathway map'],
     question: 'Which organs does food pass through, and which organs help digestion without food passing through them?',
     evidence: 'Bite route prediction, pathway cards, tract-or-helper board, arrowed diagram',
     output: 'Annotated pathway map with tract arrows, accessory-organ notes, and misconception correction',
   },
   2: {
     objective: DIGESTIVE_LEARNING_OBJECTIVES[1],
+    studentGoals: ['Classify three digestive processes', 'Use model evidence for each process', 'Explain why digestion is more than crushing'],
     question: 'Why is breaking food into smaller pieces not the same as complete digestion?',
     evidence: 'Crush-mix-secretions model, process cards, annotated mouth-and-stomach passage',
     output: 'Three-process evidence table, process chart, and quick-check explanation',
   },
   3: {
     objective: DIGESTIVE_LEARNING_OBJECTIVES[2],
+    studentGoals: ['Explain how villi help absorption', 'Trace nutrients into the blood', 'Trace undigested material toward elimination'],
     question: 'What happens after digestion: what enters the body, and what stays in the digestive tract?',
     evidence: 'Nutrient-or-waste fork, villi fold-and-dot test, two-path flow chart',
     output: 'Absorption-elimination flow chart with surface-area evidence and misconception repairs',
   },
   4: {
     objective: DIGESTIVE_LEARNING_OBJECTIVES[3],
+    studentGoals: ['Build a complete digestive journey model', 'Use evidence-based process captions', 'Revise the model after peer audit'],
     question: 'What makes a digestive journey model accurate enough to teach someone else?',
     evidence: 'Week evidence cards, caption clinic, peer audit, final defense',
     output: 'Complete digestive journey model with path arrows, helper notes, five process captions, evidence links, and revision note',
@@ -180,8 +202,8 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
 
   return slide(
     day?.title || 'Lesson Focus',
-    [structure.objective, `Inquiry question: ${structure.question}`, `Evidence source: ${structure.evidence}`, `Expected output: ${structure.output}`],
-    'Use this opener to make the objective, inquiry question, evidence, and output visible before the first task. Ask: What will count as proof that we met the objective today?',
+    [...structure.studentGoals, `Question: ${structure.question}`, `Output: ${structure.output}`],
+    `Use this student-facing opener before the first task. Exact lesson-plan objective: ${structure.objective}. Evidence source: ${structure.evidence}. Ask: What will count as proof that we met the objective today?`,
     '',
   );
 };
@@ -190,7 +212,7 @@ const sessionSlides: Record<number, Slide[]> = {
   1: [
     slide(
       'Learning Target: Food Pathway',
-      ['Sequence the digestive tract from mouth to anus', 'Distinguish tract organs from accessory organs', 'Annotate a pathway map with arrows and helper notes'],
+      ['Trace the route food actually follows', 'Separate tract organs from helper organs', 'Use arrows and notes to prove your map'],
       'Start with the bridge prompt from the lesson plan. Ask: After you swallow food, where does it go first, next, and last? Which organs are you unsure about?',
       '',
     ),
@@ -200,18 +222,18 @@ const sessionSlides: Record<number, Slide[]> = {
       'Give learners one quiet minute before partner comparison. Ask: What makes you think food passes through an organ instead of only being helped by it?',
       '',
     ),
-    slide(
+    evidenceSlide(
       'What Does Food Pass Through?',
-      ['Look at the torso diagram carefully', 'Trace only the tube food enters and leaves', 'Save helper organs for a separate area'],
+      ['Look first; do not label yet', 'Follow the continuous tube', 'Keep nearby helper organs separate', 'Question: which organ helps but does not receive food?'],
       'Show the diagram and withhold the answer. Ask: Which organ comes first after the mouth? Which organ comes last before waste leaves? Which organs are near the pathway but not inside it?',
       'A high-resolution realistic classroom photo of a printed educational torso diagram of the digestive system on a desk, with separate blank organ cards and colored arrows beside it, accurate school anatomy, no readable writing, no labels, no text.',
       'digestive-pathway',
       'situation',
       'photorealistic',
     ),
-    slide(
+    evidenceSlide(
       'Pathway Build Evidence Check',
-      ['Place tract cards in food-path order', 'Draw arrows only where food actually passes', 'Put helper organs beside the correct tract region', 'Stop for a pathway check before copying'],
+      ['Build the food path first', 'Place helper organs outside the route', 'Teacher checks the path before copying', 'Question: what evidence changed your first answer?'],
       'This is the first main evidence task. Groups must build one food-path line and one helper-organ area. Ask: What mistake would happen if we drew food going through the liver?',
       'A high-resolution realistic classroom photo of student hands arranging digestive organ cards into a mouth-to-anus path line, with helper-organ cards placed to the side, colored arrows, and a blank path mat, no readable writing, no labels, no text.',
       'digestive-pathway',
@@ -223,17 +245,23 @@ const sessionSlides: Record<number, Slide[]> = {
       ],
     ),
     slide(
+      'After the Card Build',
+      ['Which card did your group move or correct?', 'What evidence changed your first answer?', 'Which organ helps digestion but does not receive food?', 'What should not be copied into the food path?'],
+      'Use this as a short accountability pause after the pathway build. Ask two groups to name a revision and the evidence behind it.',
+      '',
+    ),
+    evidenceSlide(
       'Pathway Checkpoint: Mouth to Anus',
-      ['Mouth', 'Esophagus', 'Stomach', 'Small intestine', 'Large intestine', 'Rectum', 'Anus'],
+      ['1. Mouth', '2. Esophagus', '3. Stomach', '4. Small intestine', '5. Large intestine', '6. Rectum', '7. Anus'],
       'Check the sequence before learners copy. Ask: Which cards are missing if the path jumps from stomach to large intestine? Where should arrows point?',
       'A high-resolution realistic classroom photo of a completed digestive pathway card line on a table, showing seven blank organ-card positions connected by arrows from mouth to anus, with helper cards outside the path, no readable writing, no labels, no text.',
       'digestive-pathway',
       'practice',
       'photorealistic',
     ),
-    slide(
+    evidenceSlide(
       'Tract or Helper Evidence Board',
-      ['Food passes through tract organs', 'Helper organs release or store substances', 'A helper organ can be important without being in the food path'],
+      ['Tract organs receive food', 'Helper organs support digestion', 'Important does not mean “food passes through”', 'Question: what evidence proves your placement?'],
       'Build the two-column board. Ask: What evidence shows the esophagus is a pathway? Why are liver and pancreas not in the food path? How does this prepare us to explain digestion later?',
       'A high-resolution realistic classroom photo of a two-column evidence board with digestive tract cards on one side and helper-organ cards on the other, arrows and blank sticky notes, no readable writing, no labels, no text.',
       'digestive-pathway',
@@ -245,53 +273,59 @@ const sessionSlides: Record<number, Slide[]> = {
       ],
     ),
     slide(
+      'After the Evidence Board',
+      ['Which helper organ was easiest to confuse with the food path?', 'What evidence keeps it outside the route?', 'How did the board improve your map?'],
+      'Use this debrief to make the discussion student-centered. Learners should cite the pathway card build, not just repeat a label.',
+      '',
+    ),
+    evidenceSlide(
       'Mouth and Esophagus: First Movement',
-      ['Mouth starts mechanical processing', 'Swallowing moves food into the esophagus', 'The esophagus is a pathway, not a storage organ'],
+      ['Food enters at the mouth', 'Swallowing moves food into the esophagus', 'The esophagus is a pathway, not storage', 'Question: what arrow proves movement?'],
       'Model one annotation. Ask: What arrow shows the path? What function label is short but useful?',
       'A high-resolution realistic classroom photo of a printed mouth-and-esophagus pathway diagram card beside colored pencils and arrows, accurate school anatomy, no readable writing, no labels, no text.',
       'digestive-pathway',
       'concept',
       'photorealistic',
     ),
-    slide(
+    evidenceSlide(
       'Stomach and Intestines: Next Stops',
-      ['Stomach mixes food', 'Small intestine receives digested nutrients for absorption', 'Large intestine moves undigested material toward elimination'],
+      ['Stomach receives and mixes food', 'Small intestine continues the path for later absorption', 'Large intestine moves undigested material forward', 'Question: which arrows still show food inside the tract?'],
       'Keep the explanation brief because Session 2 and 3 will deepen the processes. Ask: Which arrows still show food inside the tract?',
       'A high-resolution realistic classroom photo of printed stomach, small intestine, and large intestine cards connected with directional arrows on a desk, accurate school diagram style, no readable writing, no labels, no text.',
       'digestive-pathway',
       'concept',
       'photorealistic',
     ),
-    slide(
+    evidenceSlide(
       'Accessory Organs Help Digestion',
-      ['Liver, gallbladder, and pancreas help digestion', 'Food does not pass through these helper organs', 'Helper notes belong beside the tract, not inside the path'],
+      ['Salivary glands, liver, gallbladder, and pancreas help digestion', 'Food does not pass through these helper organs', 'Helper notes stay outside the route', 'Question: how can an organ help without receiving food?'],
       'Directly correct the common wrong route. Ask: How can an organ help digestion without food passing through it?',
       'A high-resolution realistic classroom photo of digestive helper-organ cards placed beside a tract diagram, with arrows pointing toward the small intestine region but not routing food through the helper organs, no readable writing, no labels, no text.',
       'digestive-pathway',
       'concept',
       'photorealistic',
     ),
-    slide(
+    evidenceSlide(
       'Arrow-and-Function Diagram',
-      ['Add a direction arrow', 'Write one short function label', 'Add one helper-organ note where needed', 'Keep food movement separate from help'],
+      ['Every arrow must show food movement', 'Every note must explain a function', 'Helper notes stay beside the path', 'Question: does your arrow show movement or decoration?'],
       'Teacher models mouth and esophagus first, then pairs annotate the rest. Ask: Does your arrow show movement or just decoration?',
       'A high-resolution realistic classroom photo of a blank digestive pathway worksheet being annotated with colored arrows, short function-note boxes, and helper-organ notes, no readable writing, no labels, no text.',
       'digestive-pathway',
       'application',
       'photorealistic',
     ),
-    slide(
+    evidenceSlide(
       'Common Pathway Mistake',
-      ['Food does not go through the liver', 'Food does not go through the gallbladder', 'Food does not go through the pancreas', 'These organs help the tract do its work'],
+      ['Food does not go through the liver', 'Food does not go through the gallbladder', 'Food does not go through the pancreas', 'Question: what evidence from today proves the corrected route?'],
       'Show a flawed map and have learners repair it. Ask: What evidence from the card build proves this route is wrong?',
       'A high-resolution realistic classroom photo of two digestive pathway maps side by side: one flawed map incorrectly routes food through helper organs, and one corrected map keeps helper organs outside the food path, no readable writing, no labels, no text.',
       'digestive-pathway',
       'misconception',
       'photorealistic',
     ),
-    slide(
+    evidenceSlide(
       'Food Path Exit Map',
-      ['Number the seven tract organs in order', 'Cross out two helper organs that are not in the food path', 'Write one sentence correcting the misconception'],
+      ['Number the seven tract organs in order', 'Cross out helper organs that are not in the food path', 'Write one sentence correcting a wrong route', 'Question: what changed from your first prediction?'],
       'Use this as the independent check. The answer must show a complete mouth-to-anus sequence and must not route food through liver, gallbladder, or pancreas.',
       'A high-resolution realistic classroom photo of a food-path exit map worksheet with seven blank numbered spaces, two helper-organ cards to cross out, and a pencil, no readable writing, no labels, no text.',
       'assessment',
@@ -594,18 +628,18 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       'Use this as the pacing guide. The path must be correct before learners explain digestive processes.',
       '',
     ),
-    slide(
+    evidenceSlide(
       'Main Activity: Digestive Pathway Card Build',
-      ['Work with your group', 'Place tract cards in order', 'Draw arrows only where food passes', 'Place helper organs beside the correct tract region', 'Ask for a teacher pathway check', 'Copy only the checked pathway into your map'],
+      ['Build first; copy later', 'Order the food-path cards', 'Place helper organs outside the route', 'Get a pathway check before writing'],
       'Give complete instructions before groups begin. The output is a checked pathway card map that separates food movement from helper organs.',
       'A high-resolution realistic classroom photo showing the start of a digestive pathway card-build activity with organ cards, a path mat, helper-organ area, colored arrows, and a mostly blank annotated pathway map, no readable writing, no labels, no text.',
       'digestive-pathway',
       'activity',
       'photorealistic',
     ),
-    slide(
+    evidenceSlide(
       'Expected Output: Annotated Pathway Map',
-      ['Food path: mouth -> esophagus -> stomach -> small intestine -> large intestine -> rectum -> anus', 'Accessory organs: salivary glands, liver, gallbladder, and pancreas', 'Arrows show food movement only; helper notes stay outside the route', 'Add one function label per major tract region', 'Correct the misconception that food passes through helper organs'],
+      ['Food path is numbered mouth to anus', 'Helper organs are outside the route', 'Arrows show food movement only', 'One correction explains a wrong pathway'],
       'Make the output criteria explicit before independent annotation. Point to the numbered route first, then the helper-organ markers outside the route. Connect each criterion to the objective.',
       'A high-resolution realistic classroom photo of an expected annotated digestive pathway map layout with numbered tract spaces, arrow path, helper-organ note boxes, and a misconception correction area, no readable writing, no labels, no text.',
       'digestive-pathway',

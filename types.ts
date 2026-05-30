@@ -1,5 +1,6 @@
 
 export type ImageStyle = 'photorealistic' | 'illustration' | 'infographic' | 'diagram' | 'historical photo' | 'none';
+export type SlideVisualLayout = 'standard' | 'evidence';
 export type TeachingLevel = 'K-12' | 'College';
 
 export interface ImageOverlayLabel {
@@ -35,6 +36,7 @@ export interface Slide {
   imageSemanticCacheId?: string; // Concept-level cache key for reusing images across similar slide contexts.
   imageSemanticMetadata?: ImageSemanticMetadata; // Structured semantic cache metadata for cross-lesson reuse.
   imageOverlays?: ImageOverlayLabel[]; // Manual label overlays rendered above the image.
+  visualLayout?: SlideVisualLayout; // Optional layout hint for image-led classroom evidence slides.
   speakerNotes: string; // Notes for the teacher presenting the slide.
 }
 

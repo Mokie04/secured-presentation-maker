@@ -259,6 +259,10 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
 
   const hasImageLayout = !!slide.imageUrl || !!slide.imagePrompt;
   const hasContent = slide.content && slide.content.length > 0 && slide.content.some((c) => c.trim() !== '');
+  const isEvidenceLayout = hasImageLayout && slide.visualLayout === 'evidence';
+  const imagePanelWidthClass = isEvidenceLayout ? 'w-[62%]' : 'w-[48%]';
+  const textPanelWidthClass = isEvidenceLayout ? 'w-[38%]' : (hasImageLayout ? 'w-[52%]' : 'w-full');
+  const imageObjectFitClass = isEvidenceLayout ? 'object-contain' : 'object-cover';
 
   const parseMarkdown = (text: string) => {
     const parts = text.split(/(\*\*.*?\*\*)/g).filter(Boolean);
@@ -296,7 +300,7 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
   return (
     <div className={`w-full h-full aspect-[16/9] bg-surface rounded-2xl shadow-neumorphic-outset flex overflow-hidden ${animationClass}`}>
       {hasImageLayout && (
-        <div className="w-[48%] flex-shrink-0 h-full relative group p-5 flex items-center justify-center" style={{ backgroundColor: 'var(--shadow-dark)' }}>
+        <div className={`${imagePanelWidthClass} flex-shrink-0 h-full relative group ${isEvidenceLayout ? 'p-4' : 'p-5'} flex items-center justify-center`} style={{ backgroundColor: 'var(--shadow-dark)' }}>
           {slide.imageUrl === 'loading' ? (
             <div className="w-full h-full flex flex-col items-center justify-center text-secondary">
               <div className="w-12 h-12 border-4 border-t-4 border-themed border-t-brand rounded-full animate-spin"></div>
@@ -329,13 +333,13 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
           ) : slide.imageUrl ? (
             <div
               ref={imageStageRef}
-              className={`w-full aspect-video relative ${isEditingLabels ? 'cursor-crosshair' : ''}`}
+              className={`w-full aspect-video relative ${isEvidenceLayout ? 'max-h-full' : ''} ${isEditingLabels ? 'cursor-crosshair' : ''}`}
               onClick={handleImageStageClick}
             >
               <img
                 src={slide.imageUrl}
                 alt={slide.title}
-                className="w-full h-full object-cover object-center pointer-events-none select-none rounded-xl shadow-sm"
+                className={`w-full h-full ${imageObjectFitClass} object-center pointer-events-none select-none rounded-xl shadow-sm`}
                 draggable={false}
               />
               <img
@@ -566,17 +570,17 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
         </div>
       )}
 
-      <div className={`${hasImageLayout ? 'w-[52%]' : 'w-full'} h-full p-8 md:p-11 flex flex-col ${!hasContent ? 'justify-center' : ''} overflow-hidden`}>
-        <h2 className={`font-bold text-brand flex-shrink-0 leading-tight ${hasContent ? 'text-4xl md:text-[2.72rem] mb-4' : 'text-5xl md:text-7xl text-center'}`}>{slide.title}</h2>
+      <div className={`${textPanelWidthClass} h-full ${isEvidenceLayout ? 'p-6 md:p-8' : 'p-8 md:p-11'} flex flex-col ${!hasContent ? 'justify-center' : ''} overflow-hidden`}>
+        <h2 className={`font-bold text-brand flex-shrink-0 leading-tight ${hasContent ? (isEvidenceLayout ? 'text-3xl md:text-[2.15rem] mb-3' : 'text-4xl md:text-[2.72rem] mb-4') : 'text-5xl md:text-7xl text-center'}`}>{slide.title}</h2>
         {hasContent && <div className="w-24 h-1.5 bg-brand rounded-full mb-6"></div>}
         {hasContent && (
           <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar -mr-6 pr-4">
-            <ul className="space-y-3.5 w-full">
+            <ul className={`${isEvidenceLayout ? 'space-y-2.5' : 'space-y-3.5'} w-full`}>
               {slide.content.map((point, index) => {
                 const isOrderedList = /^[A-E0-9]+\./.test(point);
 
                 return (
-                  <li key={index} className={`${hasImageLayout ? 'text-xl md:text-[1.65rem]' : 'text-2xl md:text-[2rem]'} text-primary flex items-start leading-snug`}>
+                  <li key={index} className={`${hasImageLayout ? (isEvidenceLayout ? 'text-lg md:text-[1.22rem]' : 'text-xl md:text-[1.65rem]') : 'text-2xl md:text-[2rem]'} text-primary flex items-start leading-snug`}>
                     {!isOrderedList && <span className="text-brand mr-4 mt-1.5 flex-shrink-0">•</span>}
                     <span className="whitespace-pre-wrap">{parseMarkdown(point)}</span>
                   </li>

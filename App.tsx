@@ -68,14 +68,14 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v30';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v22';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v31';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v23';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Keep particle-model visuals generated/cached as HD raster images; the old static set was too generic for classroom science.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = false;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260530-digestive-professional-pathway-hd1';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260530-digestive-session1-evidence-hd2';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
@@ -162,6 +162,14 @@ const PPTX_CONTENT_X = 5.12;
 const PPTX_CONTENT_Y = 1.26;
 const PPTX_CONTENT_W = 4.28;
 const PPTX_CONTENT_H = 3.62;
+const PPTX_EVIDENCE_IMAGE_X = 0.44;
+const PPTX_EVIDENCE_IMAGE_Y = 1.18;
+const PPTX_EVIDENCE_IMAGE_W = 5.75;
+const PPTX_EVIDENCE_IMAGE_H = 3.23;
+const PPTX_EVIDENCE_CONTENT_X = 6.45;
+const PPTX_EVIDENCE_CONTENT_Y = 1.18;
+const PPTX_EVIDENCE_CONTENT_W = 3.05;
+const PPTX_EVIDENCE_CONTENT_H = 3.55;
 const PPTX_TEXT_ONLY_X = 0.78;
 const PPTX_TEXT_ONLY_Y = 1.45;
 const PPTX_TEXT_ONLY_W = 8.45;
@@ -2173,10 +2181,11 @@ const App: React.FC = () => {
             }
 
             if (hasImage) {
-                const imageX = PPTX_IMAGE_X;
-                const imageY = PPTX_IMAGE_Y;
-                const imageW = PPTX_IMAGE_W;
-                const imageH = PPTX_IMAGE_H;
+                const isEvidenceLayout = slideData.visualLayout === 'evidence';
+                const imageX = isEvidenceLayout ? PPTX_EVIDENCE_IMAGE_X : PPTX_IMAGE_X;
+                const imageY = isEvidenceLayout ? PPTX_EVIDENCE_IMAGE_Y : PPTX_IMAGE_Y;
+                const imageW = isEvidenceLayout ? PPTX_EVIDENCE_IMAGE_W : PPTX_IMAGE_W;
+                const imageH = isEvidenceLayout ? PPTX_EVIDENCE_IMAGE_H : PPTX_IMAGE_H;
                 let imageAdded = false;
                 try {
                     const imageData = await resolveImageForPptx(slideData.imageUrl);
@@ -2187,6 +2196,7 @@ const App: React.FC = () => {
                     if (watermarkImageData) {
                         try {
                             const imageFit = slideData.imageStyle === 'diagram' || slideData.imageStyle === 'infographic'
+                                || slideData.visualLayout === 'evidence'
                                 ? 'contain'
                                 : 'cover';
                             exportImageData = await applySayunaWatermarkToImageData(imageData, watermarkImageData, imageFit);
@@ -2253,11 +2263,19 @@ const App: React.FC = () => {
 
                 if(hasContent) {
                     const bulletCount = slideData.content.filter((point) => point.trim()).length;
-                    const contentFontSize = bulletCount > 5 ? 18 : bulletCount > 3 ? 20 : 22;
+                    const isEvidenceLayout = slideData.visualLayout === 'evidence';
+                    const contentFontSize = isEvidenceLayout
+                        ? (bulletCount > 5 ? 15 : bulletCount > 3 ? 16 : 17)
+                        : (bulletCount > 5 ? 18 : bulletCount > 3 ? 20 : 22);
                     slide.addText(contentForPptx, {
-                        x: PPTX_CONTENT_X, y: PPTX_CONTENT_Y, w: PPTX_CONTENT_W, h: PPTX_CONTENT_H,
+                        x: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_X : PPTX_CONTENT_X,
+                        y: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_Y : PPTX_CONTENT_Y,
+                        w: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_W : PPTX_CONTENT_W,
+                        h: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_H : PPTX_CONTENT_H,
                         color: textColor, valign: 'top', fontSize: contentFontSize,
-                        lineSpacing: contentFontSize >= 22 ? 30 : contentFontSize === 20 ? 27 : 25,
+                        lineSpacing: isEvidenceLayout
+                            ? (contentFontSize >= 17 ? 22 : 20)
+                            : (contentFontSize >= 22 ? 30 : contentFontSize === 20 ? 27 : 25),
                         fit: 'shrink',
                         breakLine: false,
                     });
