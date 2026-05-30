@@ -45,6 +45,7 @@ export const translations = {
         generateAllSlidesButton: 'Generate All Sessions',
         generatingButton: 'Generating...',
         completeStatus: 'Complete',
+        viewSessionButton: 'View',
         startOverButton: 'Start Over',
         viewPresentationButton: 'View Presentation',
         backToPlanButton: 'Back to Plan',
@@ -79,6 +80,7 @@ export const translations = {
         errorPptx: 'An error occurred while generating the PowerPoint file.',
         errorIncompletePlanExport: 'Generate all sessions before exporting the complete PowerPoint deck.',
         partialPlanExportNote: 'You can export the generated sessions now. Generate all sessions only when you need the complete deck.',
+        standaloneSessionExportNote: 'Each session opens as its own presentation. Generate a session, then view or export that session deck.',
         errorGenerationLimit: 'You have reached your daily generation limit. Please try again tomorrow.',
         errorImageLimit: "Daily image generation limit ({limit}) reached. Please try again tomorrow."
     },
@@ -142,6 +144,7 @@ export const translations = {
         generateAllSlidesButton: 'Bumuo ng Lahat ng Session',
         generatingButton: 'Binubuo...',
         completeStatus: 'Kumpleto',
+        viewSessionButton: 'Tingnan',
         startOverButton: 'Magsimulang Muli',
         viewPresentationButton: 'Tingnan ang Presentasyon',
         backToPlanButton: 'Bumalik sa Plano',
@@ -176,6 +179,7 @@ export const translations = {
         errorPptx: 'Nagkaroon ng error habang binubuo ang PowerPoint file.',
         errorIncompletePlanExport: 'Buuin muna ang lahat ng session bago i-export ang kumpletong PowerPoint deck.',
         partialPlanExportNote: 'Maaari mong i-export ngayon ang mga nabuong session. Buuin ang lahat ng session kapag kailangan ang kumpletong deck.',
+        standaloneSessionExportNote: 'Bawat session ay sariling presentasyon. Bumuo ng session, pagkatapos tingnan o i-export ang deck ng session na iyon.',
         errorGenerationLimit: 'Naabot mo na ang iyong araw-araw na limitasyon sa pagbuo. Pakisubukang muli bukas.',
         errorImageLimit: "Naabot na ang araw-araw na limitasyon sa pagbuo ng imahe ({limit}). Pakisubukang muli bukas."
     },

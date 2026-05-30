@@ -839,6 +839,15 @@ const completeBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint =>
   days: blueprint.days.map((day) => ({ ...day, generationStatus: 'done' as const })),
 });
 
+const shouldUseStandalonePlanUnitDeck = (blueprint: LessonBlueprint): boolean => (
+  getPlanUnitLabel(blueprint).trim().toLowerCase() === 'session'
+);
+
+const buildPlanUnitPresentationTitle = (
+  blueprint: LessonBlueprint,
+  day: DayPlan,
+): string => `${blueprint.mainTitle} - ${getPlanUnitLabel(blueprint)} ${day.dayNumber}: ${day.title}`;
+
 const hasAdminUsageBypass = (user: SessionUser | null): boolean => {
   if (user?.isAdmin === true) {
     return true;
@@ -937,6 +946,7 @@ const App: React.FC = () => {
   const [objectivesContext, setObjectivesContext] = useState<string>('');
   const [presentation, setPresentation] = useState<Presentation | null>(null);
   const [lessonBlueprint, setLessonBlueprint] = useState<LessonBlueprint | null>(null);
+  const [generatedPlanUnitSlidesByDay, setGeneratedPlanUnitSlidesByDay] = useState<Record<number, Slide[]>>({});
   const [currentSlide, setCurrentSlide] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
@@ -1683,6 +1693,8 @@ const App: React.FC = () => {
     try {
         const dayToGenerate = lessonBlueprint.days[dayIndex];
         const unitLabel = getPlanUnitLabel(lessonBlueprint);
+        const isStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
+        const planUnitPresentationTitle = buildPlanUnitPresentationTitle(lessonBlueprint, dayToGenerate);
         const content = dllContent.trim() || topicContext.trim();
         const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
           GENERATION_CACHE_VERSION,
@@ -1728,14 +1740,18 @@ const App: React.FC = () => {
 
         shouldRollbackGeneration = !adminGenerationLimitBypassed;
         const cachedSlides = await getCachedGeneration<Slide[]>(cacheKey);
-        const slideIndexOfNewDay = presentation?.slides.length ?? 0;
+        const slideIndexOfNewDay = isStandalonePlanUnitDeck ? 0 : (presentation?.slides.length ?? 0);
 
         if (cachedSlides) {
             await waitForCacheHitLoading(setLoadingProgress);
             const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, language, imageCacheScope, imageSemanticScope);
+            setGeneratedPlanUnitSlidesByDay(prev => ({
+                ...prev,
+                [dayToGenerate.dayNumber]: refreshedSlides,
+            }));
             setPresentation(prev => ({
-                title: prev?.title ?? lessonBlueprint.mainTitle,
-                slides: [...(prev?.slides ?? []), ...refreshedSlides]
+                title: isStandalonePlanUnitDeck ? planUnitPresentationTitle : (prev?.title ?? lessonBlueprint.mainTitle),
+                slides: isStandalonePlanUnitDeck ? refreshedSlides : [...(prev?.slides ?? []), ...refreshedSlides]
             }));
 
             setLessonBlueprint(prev => {
@@ -1759,9 +1775,13 @@ const App: React.FC = () => {
             const slidesWithTables = await processSlidesForTables(reusableSlides);
             const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope });
 
+            setGeneratedPlanUnitSlidesByDay(prev => ({
+                ...prev,
+                [dayToGenerate.dayNumber]: finalSlides,
+            }));
             setPresentation(prev => ({
-                title: prev?.title ?? lessonBlueprint.mainTitle,
-                slides: [...(prev?.slides ?? []), ...finalSlides]
+                title: isStandalonePlanUnitDeck ? planUnitPresentationTitle : (prev?.title ?? lessonBlueprint.mainTitle),
+                slides: isStandalonePlanUnitDeck ? finalSlides : [...(prev?.slides ?? []), ...finalSlides]
             }));
             await setCachedGeneration(cacheKey, finalSlides);
 
@@ -1786,9 +1806,13 @@ const App: React.FC = () => {
         
         const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope });
 
+        setGeneratedPlanUnitSlidesByDay(prev => ({
+            ...prev,
+            [dayToGenerate.dayNumber]: finalSlides,
+        }));
         setPresentation(prev => ({
-            title: prev?.title ?? lessonBlueprint.mainTitle,
-            slides: [...(prev?.slides ?? []), ...finalSlides]
+            title: isStandalonePlanUnitDeck ? planUnitPresentationTitle : (prev?.title ?? lessonBlueprint.mainTitle),
+            slides: isStandalonePlanUnitDeck ? finalSlides : [...(prev?.slides ?? []), ...finalSlides]
         }));
         await setCachedGeneration(cacheKey, finalSlides);
         
@@ -1823,6 +1847,7 @@ const App: React.FC = () => {
 
   const handleGenerateAllDailySlides = useCallback(async () => {
     if (!lessonBlueprint || isLoading) return;
+    if (shouldUseStandalonePlanUnitDeck(lessonBlueprint)) return;
 
     for (let dayIndex = 0; dayIndex < lessonBlueprint.days.length; dayIndex += 1) {
       if (lessonBlueprint.days[dayIndex].generationStatus !== 'done') {
@@ -1830,6 +1855,23 @@ const App: React.FC = () => {
       }
     }
   }, [lessonBlueprint, isLoading, handleGenerateDailySlides]);
+
+  const handleViewGeneratedPlanUnit = useCallback((dayIndex: number) => {
+    if (!lessonBlueprint) return;
+    const day = lessonBlueprint.days[dayIndex];
+    if (!day) return;
+    const slides = generatedPlanUnitSlidesByDay[day.dayNumber];
+    if (!slides || slides.length === 0) return;
+
+    setPresentation({
+      title: shouldUseStandalonePlanUnitDeck(lessonBlueprint)
+        ? buildPlanUnitPresentationTitle(lessonBlueprint, day)
+        : lessonBlueprint.mainTitle,
+      slides,
+    });
+    setCurrentSlide(0);
+    setAppStep('presenting');
+  }, [generatedPlanUnitSlidesByDay, lessonBlueprint]);
 
   const handleNextSlide = useCallback(() => {
     if (presentation && currentSlide < presentation.slides.length - 1) {
@@ -1884,6 +1926,7 @@ const App: React.FC = () => {
   const handleReset = () => {
     setPresentation(null);
     setLessonBlueprint(null);
+    setGeneratedPlanUnitSlidesByDay({});
     setDllContent('');
     setFileName(null);
     setCurrentSlide(0);
@@ -2445,6 +2488,7 @@ const App: React.FC = () => {
   const renderWeeklyBlueprintView = () => {
     if (!lessonBlueprint) return null;
     const unitLabel = getPlanUnitLabel(lessonBlueprint);
+    const usesStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
     const hasGeneratedPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'done');
     const hasCompletedAllPlanUnits = lessonBlueprint.days.every((day) => day.generationStatus === 'done');
     const isGeneratingPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'loading');
@@ -2454,7 +2498,8 @@ const App: React.FC = () => {
       : Math.max(0, limits.generations - generations);
     const canGenerateAllPlanUnits = pendingPlanUnitCount > 0
       && pendingPlanUnitCount <= generationSlotsAvailable
-      && !isGeneratingPlanUnit;
+      && !isGeneratingPlanUnit
+      && !usesStandalonePlanUnitDeck;
 
     return (
         <div className="w-full max-w-5xl bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed animate-fade-in">
@@ -2494,9 +2539,19 @@ const App: React.FC = () => {
                             </div>
                         )}
                         {day.generationStatus === 'done' && (
-                            <div className="px-4 py-2 text-sm font-semibold text-emerald-500 flex items-center gap-2">
-                                <CheckCircle2Icon className="w-5 h-5" />
-                                {t.presentation.completeStatus}
+                            <div className="flex items-center gap-2">
+                                <div className="px-4 py-2 text-sm font-semibold text-emerald-500 flex items-center gap-2">
+                                    <CheckCircle2Icon className="w-5 h-5" />
+                                    {t.presentation.completeStatus}
+                                </div>
+                                {usesStandalonePlanUnitDeck && generatedPlanUnitSlidesByDay[day.dayNumber]?.length > 0 && (
+                                    <button
+                                        onClick={() => handleViewGeneratedPlanUnit(index)}
+                                        className="px-4 py-2 text-sm font-semibold bg-brand text-brand-contrast rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all"
+                                    >
+                                        {t.presentation.viewSessionButton}
+                                    </button>
+                                )}
                             </div>
                         )}
                     </div>
@@ -2507,14 +2562,16 @@ const App: React.FC = () => {
                     <RefreshCwIcon className="w-5 h-5 inline-block mr-2" />
                     {t.presentation.startOverButton}
                 </button>
-                <button
-                    onClick={handleGenerateAllDailySlides}
-                    disabled={!canGenerateAllPlanUnits}
-                    className="px-6 py-3 text-base font-semibold bg-surface text-primary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                    <MagicWandIcon className="w-5 h-5 inline-block mr-2" />
-                    {t.presentation.generateAllSlidesButton}
-                </button>
+                {!usesStandalonePlanUnitDeck && (
+                    <button
+                        onClick={handleGenerateAllDailySlides}
+                        disabled={!canGenerateAllPlanUnits}
+                        className="px-6 py-3 text-base font-semibold bg-surface text-primary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                        <MagicWandIcon className="w-5 h-5 inline-block mr-2" />
+                        {t.presentation.generateAllSlidesButton}
+                    </button>
+                )}
                  <button 
                     onClick={() => { setCurrentSlide(0); setAppStep('presenting'); }} 
                     disabled={!presentation || presentation.slides.length === 0 || !hasGeneratedPlanUnit}
@@ -2526,7 +2583,7 @@ const App: React.FC = () => {
             </div>
             {!hasCompletedAllPlanUnits && (
                 <p className="mt-4 text-center text-sm text-secondary">
-                    {t.presentation.partialPlanExportNote}
+                    {usesStandalonePlanUnitDeck ? t.presentation.standaloneSessionExportNote : t.presentation.partialPlanExportNote}
                 </p>
             )}
         </div>
