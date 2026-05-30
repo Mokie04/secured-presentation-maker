@@ -68,8 +68,8 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v17';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v10';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v18';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v11';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -297,6 +297,39 @@ const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata):
   return hasScienceSubject && hasParticleModelTopic;
 };
 
+const LEGACY_SCIENCE_PARTICLE_MODEL_STATIC_FILES = new Set([
+  'air-compression.png',
+  'assessment.png',
+  'assignment.png',
+  'diffusion-temperature.png',
+  'dissolving-diffusion.png',
+  'generalization.png',
+  'overview.png',
+  'particle-evidence.png',
+  'particle-model.png',
+  'particle-states.png',
+  'phase-change-energy.png',
+]);
+
+const getScienceParticleModelStaticFileNameFromUrl = (imageUrl: string): string | undefined => {
+  const pathPart = imageUrl.split('?')[0] || '';
+  const marker = '/curated-images/science/particle-model/';
+  const markerIndex = pathPart.indexOf(marker);
+  if (markerIndex < 0) return undefined;
+  return pathPart.slice(markerIndex + marker.length);
+};
+
+const isRejectedScienceParticleModelImageUrl = (
+  imageUrl: string | undefined,
+  metadata: ImageSemanticMetadata | undefined,
+): boolean => {
+  if (!imageUrl || !metadata || !isScienceParticleModelSemanticSubject(metadata)) return false;
+  if (imageUrl.startsWith('data:image/svg+xml')) return true;
+
+  const staticFileName = getScienceParticleModelStaticFileNameFromUrl(imageUrl);
+  return staticFileName ? LEGACY_SCIENCE_PARTICLE_MODEL_STATIC_FILES.has(staticFileName) : false;
+};
+
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
@@ -304,7 +337,10 @@ const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undef
   return undefined;
 };
 
-const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): string | undefined => {
+const getScienceParticleModelImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
   const searchable = slugifyImageSemanticText([
@@ -315,16 +351,28 @@ const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): 
   ].filter(Boolean).join(' '));
   const slideSpecificImageByToken: Array<[string, string]> = [
     ['evidence-table-routine', 's1-hd-evidence-table.png'],
+    ['what-goes-in-the-evidence-table', 's1-hd-evidence-table.png'],
     ['matter-mystery-claims', 's1-hd-mystery-claims.png'],
+    ['what-do-you-notice-first', 's1-hd-mystery-claims.png'],
     ['observe-infer-model', 's1-hd-observe-infer.png'],
     ['observe-infer-or-unsure', 's1-hd-observe-infer.png'],
+    ['what-is-evidence-and-what-is-explanation', 's1-hd-observe-infer.png'],
+    ['which-evidence-is-strongest', 's1-hd-evidence-board.png'],
     ['air-is-matter-too', 's1-hd-air-compression.png'],
+    ['how-can-air-be-matter', 's1-hd-air-compression.png'],
     ['sugar-did-not-vanish', 's1-hd-sugar-dissolving.png'],
+    ['where-did-the-sugar-go', 's1-hd-sugar-dissolving.png'],
     ['color-spreads-without-stirring', 's1-hd-color-diffusion.png'],
+    ['why-does-color-spread-without-stirring', 's1-hd-color-diffusion.png'],
     ['evidence-board', 's1-hd-evidence-board.png'],
+    ['what-pattern-do-we-see', 's1-hd-evidence-board.png'],
     ['build-a-particle-model', 's1-hd-build-model.png'],
+    ['can-your-model-match-the-evidence', 's1-hd-build-model.png'],
+    ['which-model-is-more-scientific', 's1-hd-build-model.png'],
     ['new-case-transfer', 's1-hd-transfer.png'],
+    ['can-your-model-explain-a-new-case', 's1-hd-transfer.png'],
     ['exit-slip', 's1-hd-exit-slip.png'],
+    ['claim-evidence-model', 's1-hd-exit-slip.png'],
     ['fair-test-evidence', 's2-fair-test-evidence.png'],
     ['cold-or-warm-prediction', 's2-prediction.png'],
     ['fair-test-setup', 's2-fair-test-setup.png'],
@@ -363,6 +411,9 @@ const getScienceParticleModelImageFileName = (metadata: ImageSemanticMetadata): 
   ));
   if (slideSpecificImage) {
     return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
   }
 
   const directAssetTemplates = new Set([
@@ -477,9 +528,7 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   const collection = getCuratedStaticImageCollection(metadata);
   if (collection !== 'science-particle-model') return undefined;
 
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = getScienceParticleModelImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content;
+  const fileName = getScienceParticleModelImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1008,6 +1057,9 @@ const App: React.FC = () => {
           imageCacheId: slide.imageCacheId || buildSlideImageCacheId(options?.imageCacheScope, slideIndex),
           ...(imageSemanticCacheId ? { imageSemanticCacheId } : {}),
           imageSemanticMetadata,
+          imageUrl: isRejectedScienceParticleModelImageUrl(slideWithPrompt.imageUrl, imageSemanticMetadata)
+            ? undefined
+            : slideWithPrompt.imageUrl,
         };
     };
 
@@ -1068,10 +1120,13 @@ const App: React.FC = () => {
                   newSlide.imageSemanticCacheId,
                   newSlide.imageSemanticMetadata
                 );
-                if (cachedImageUrl) {
+                if (cachedImageUrl && !isRejectedScienceParticleModelImageUrl(cachedImageUrl, newSlide.imageSemanticMetadata)) {
                     newSlide.imageUrl = cachedImageUrl;
                     slidesWithImages.push(newSlide);
                     continue;
+                }
+                if (cachedImageUrl) {
+                    console.warn('Ignored a cached particle-model image because it was an old SVG/static visual.');
                 }
             } catch {
                 console.warn('Failed to check saved slide image before generation.');
@@ -1112,6 +1167,9 @@ const App: React.FC = () => {
                       newSlide.imageSemanticCacheId,
                       newSlide.imageSemanticMetadata
                     );
+                    if (isRejectedScienceParticleModelImageUrl(imageUrl, newSlide.imageSemanticMetadata)) {
+                        throw new Error('Generated image resolved to an old SVG/static particle-model visual.');
+                    }
                     newSlide.imageUrl = imageUrl;
                     if (!adminImageLimitBypassed) {
                         incrementCount('images');
@@ -1171,6 +1229,9 @@ const App: React.FC = () => {
             ...baseSlide,
             ...(imageSemanticCacheId ? { imageSemanticCacheId } : {}),
             imageSemanticMetadata,
+            imageUrl: isRejectedScienceParticleModelImageUrl(baseSlide.imageUrl, imageSemanticMetadata)
+              ? undefined
+              : baseSlide.imageUrl,
         };
         if (slide.imageUrl && NON_EXPORTABLE_IMAGE_STATES.has(slide.imageUrl)) {
             const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
@@ -1201,7 +1262,13 @@ const App: React.FC = () => {
               slide.imageSemanticCacheId,
               slide.imageSemanticMetadata
             );
-            refreshedSlides.push(cachedImageUrl ? { ...slide, imageUrl: cachedImageUrl } : slide);
+            if (cachedImageUrl && !isRejectedScienceParticleModelImageUrl(cachedImageUrl, slide.imageSemanticMetadata)) {
+              refreshedSlides.push({ ...slide, imageUrl: cachedImageUrl });
+              continue;
+            }
+
+            const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
+            refreshedSlides.push(fallbackImageUrl ? { ...slide, imageUrl: fallbackImageUrl } : slide);
         } catch {
             console.warn('Failed to refresh a saved slide image.');
             refreshedSlides.push(slide);
