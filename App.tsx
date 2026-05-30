@@ -68,17 +68,18 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v23';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v15';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v24';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v16';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Keep particle-model visuals generated/cached as HD raster images; the old static set was too generic for classroom science.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = false;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260530-s2-s4-hd1';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260530-digestive-hd1';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
+  'science-digestive-system': '/curated-images/science/digestive-system',
 };
 const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string, string>> = {
   'values-education': {
@@ -120,6 +121,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'particle-evidence.png',
     summary: 'generalization.png',
     'success-criteria': 'particle-states.png',
+  },
+  'science-digestive-system': {
+    activity: 'd8-hd-journey-build.png',
+    application: 'd8-hd-journey-build.png',
+    assignment: 'd8-hd-final-defense.png',
+    assessment: 'd8-hd-final-defense.png',
+    concept: 'd8-hd-overview.png',
+    content: 'd8-hd-overview.png',
+    discussion: 'd8-hd-evidence-retrieval.png',
+    generalization: 'd8-hd-two-path-map.png',
+    model: 'd8-hd-model-scientific.png',
+    objectives: 'd8-hd-overview.png',
+    overview: 'd8-hd-overview.png',
+    practice: 'd8-hd-pathway-card-build.png',
+    review: 'd8-hd-evidence-retrieval.png',
+    situation: 'd8-hd-overview.png',
+    summary: 'd8-hd-journey-output.png',
+    'success-criteria': 'd8-hd-journey-output.png',
   },
 };
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
@@ -297,6 +316,34 @@ const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata):
   return hasScienceSubject && hasParticleModelTopic;
 };
 
+const isScienceDigestiveSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasScienceSubject = subjectSlug === 'science'
+    || subjectSlug.includes('science')
+    || searchable.includes('science');
+  const hasDigestiveTopic = searchable.includes('digestive-tract')
+    || searchable.includes('digestive-process')
+    || searchable.includes('digestion')
+    || searchable.includes('mechanical-processing')
+    || searchable.includes('chemical-digestion')
+    || searchable.includes('secretion')
+    || searchable.includes('absorption')
+    || searchable.includes('elimination')
+    || searchable.includes('small-intestine')
+    || searchable.includes('villi')
+    || searchable.includes('accessory-organ')
+    || searchable.includes('food-path');
+
+  return hasScienceSubject && hasDigestiveTopic;
+};
+
 const LEGACY_SCIENCE_PARTICLE_MODEL_STATIC_FILES = new Set([
   'air-compression.png',
   'assessment.png',
@@ -364,7 +411,84 @@ const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undef
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
   if (isScienceParticleModelSemanticSubject(metadata)) return 'science-particle-model';
+  if (isScienceDigestiveSemanticSubject(metadata)) return 'science-digestive-system';
   return undefined;
+};
+
+const getScienceDigestiveImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['digestive-tract-and-digestive-processes', 'd8-hd-overview.png'],
+    ['what-does-food-pass-through', 'd8-hd-food-pass-through.png'],
+    ['digestive-pathway-card-build', 'd8-hd-pathway-card-build.png'],
+    ['main-activity-digestive-pathway-card-build', 'd8-hd-pathway-card-build.png'],
+    ['pathway-build-evidence-check', 'd8-hd-pathway-card-build.png'],
+    ['expected-output-annotated-pathway-map', 'd8-hd-annotated-pathway.png'],
+    ['roles-timing-and-safety-pathway-build', 'd8-hd-pathway-roles.png'],
+    ['pathway-checkpoint-mouth-to-anus', 'd8-hd-mouth-to-anus-path.png'],
+    ['tract-or-helper-evidence-board', 'd8-hd-tract-helper-board.png'],
+    ['mouth-and-esophagus-first-movement', 'd8-hd-mouth-esophagus.png'],
+    ['stomach-and-intestines-next-stops', 'd8-hd-stomach-intestines.png'],
+    ['accessory-organs-help-digestion', 'd8-hd-accessory-organs.png'],
+    ['arrow-and-function-diagram', 'd8-hd-arrow-function.png'],
+    ['common-pathway-mistake', 'd8-hd-pathway-mistake.png'],
+    ['food-path-exit-map', 'd8-hd-exit-map.png'],
+    ['what-changed-and-what-did-not-change', 'd8-hd-process-model.png'],
+    ['crush-mix-and-secretions-model', 'd8-hd-crush-mix-model.png'],
+    ['main-activity-crush-mix-and-secretions-model', 'd8-hd-crush-mix-model.png'],
+    ['model-evidence-crush-mix-secretions', 'd8-hd-crush-mix-model.png'],
+    ['expected-output-three-process-evidence-table', 'd8-hd-process-evidence-table.png'],
+    ['roles-timing-and-safety-process-models', 'd8-hd-process-roles.png'],
+    ['mechanical-processing', 'd8-hd-mechanical-processing.png'],
+    ['secretion', 'd8-hd-secretion.png'],
+    ['chemical-digestion', 'd8-hd-chemical-digestion.png'],
+    ['process-sorting-wall', 'd8-hd-process-sort.png'],
+    ['mouth-and-stomach-annotation', 'd8-hd-mouth-stomach-annotation.png'],
+    ['model-limitation-check', 'd8-hd-model-limitations.png'],
+    ['three-process-quick-check', 'd8-hd-process-quick-check.png'],
+    ['what-should-the-body-keep', 'd8-hd-two-path-fork.png'],
+    ['villi-fold-and-dot-test', 'd8-hd-villi-fold-test.png'],
+    ['main-activity-villi-fold-and-dot-test', 'd8-hd-villi-fold-test.png'],
+    ['fold-and-dot-evidence-check', 'd8-hd-villi-fold-test.png'],
+    ['expected-output-absorption-elimination-flow-chart', 'd8-hd-abs-elim-output.png'],
+    ['roles-timing-and-safety-villi-model', 'd8-hd-villi-roles.png'],
+    ['surface-area-evidence', 'd8-hd-surface-area-evidence.png'],
+    ['small-intestine-and-villi', 'd8-hd-small-intestine-villi.png'],
+    ['nutrients-enter-blood', 'd8-hd-nutrients-blood.png'],
+    ['undigested-material-continues', 'd8-hd-waste-path.png'],
+    ['two-path-digestion-map', 'd8-hd-two-path-map.png'],
+    ['absorption-and-elimination-labels', 'd8-hd-abs-elim-labels.png'],
+    ['misconception-repair-slip', 'd8-hd-absorption-misconception.png'],
+    ['what-makes-a-model-scientific', 'd8-hd-model-scientific.png'],
+    ['evidence-card-retrieval', 'd8-hd-evidence-retrieval.png'],
+    ['caption-clinic', 'd8-hd-caption-clinic.png'],
+    ['digestive-journey-model-build', 'd8-hd-journey-build.png'],
+    ['main-activity-evidence-based-digestive-journey-model', 'd8-hd-journey-build.png'],
+    ['expected-output-digestive-journey-model', 'd8-hd-journey-output.png'],
+    ['roles-timing-and-safety-final-model', 'd8-hd-final-roles.png'],
+    ['pathway-and-helper-check', 'd8-hd-pathway-helper-check.png'],
+    ['five-process-captions', 'd8-hd-five-captions.png'],
+    ['misconception-warning', 'd8-hd-misconception-warning.png'],
+    ['peer-audit', 'd8-hd-peer-audit.png'],
+    ['final-defense-sentence', 'd8-hd-final-defense.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['science-digestive-system'];
+  return templateMap?.[template] || templateMap?.content;
 };
 
 const getScienceParticleModelImageFileName = (
@@ -567,7 +691,9 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
   const fileName = collection === 'science-particle-model'
     ? getScienceParticleModelImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collectionMap?.[template] || collectionMap?.content;
+    : collection === 'science-digestive-system'
+      ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -575,9 +701,11 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
-  if (collection !== 'science-particle-model') return undefined;
+  if (collection !== 'science-particle-model' && collection !== 'science-digestive-system') return undefined;
 
-  const fileName = getScienceParticleModelImageFileName(metadata, true);
+  const fileName = collection === 'science-particle-model'
+    ? getScienceParticleModelImageFileName(metadata, true)
+    : getScienceDigestiveImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };

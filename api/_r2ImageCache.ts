@@ -193,6 +193,22 @@ function semanticSubjectSlug(metadata: Record<string, string>): string {
     return 'science-particle-model';
   }
 
+  const hasDigestiveTopic = searchable.includes('digestive-tract')
+    || searchable.includes('digestive-process')
+    || searchable.includes('digestion')
+    || searchable.includes('mechanical-processing')
+    || searchable.includes('chemical-digestion')
+    || searchable.includes('secretion')
+    || searchable.includes('absorption')
+    || searchable.includes('elimination')
+    || searchable.includes('small-intestine')
+    || searchable.includes('villi')
+    || searchable.includes('accessory-organ')
+    || searchable.includes('food-path');
+  if (hasScienceSubject && hasDigestiveTopic) {
+    return 'science-digestive-system';
+  }
+
   return subjectSlug;
 }
 

@@ -1,4 +1,10 @@
 import type { ImageSemanticMetadata, LessonBlueprint, Presentation, Slide } from '../types';
+import {
+  getDigestiveK12CompleteLessonPlanSeed,
+  getDigestiveK12LessonPlanSeed,
+  getDigestiveK12PlanUnitSlidesSeed,
+  isReusableDigestiveLesson,
+} from './digestiveLessonSeed';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -1098,7 +1104,9 @@ export const getReusableK12LessonPlanSeed = (
   content: string,
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
-  if (language !== 'EN' || !isReusableParticleModelLesson(content)) return null;
+  if (language !== 'EN') return null;
+  if (isReusableDigestiveLesson(content)) return getDigestiveK12LessonPlanSeed();
+  if (!isReusableParticleModelLesson(content)) return null;
 
   const blueprint = cloneBlueprint();
   return {
@@ -1115,7 +1123,9 @@ export const getReusableK12PlanUnitSlidesSeed = (
   dayNumber: number,
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
-  if (language !== 'EN' || !isReusableParticleModelLesson(content)) return null;
+  if (language !== 'EN') return null;
+  if (isReusableDigestiveLesson(content)) return getDigestiveK12PlanUnitSlidesSeed(dayNumber);
+  if (!isReusableParticleModelLesson(content)) return null;
   const slides = getSessionSlides(dayNumber);
   return slides.length > 0 ? cloneSlides(slides) : null;
 };
@@ -1124,7 +1134,9 @@ export const getReusableK12CompleteLessonPlanSeed = (
   content: string,
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
-  if (language !== 'EN' || !isReusableParticleModelLesson(content)) return null;
+  if (language !== 'EN') return null;
+  if (isReusableDigestiveLesson(content)) return getDigestiveK12CompleteLessonPlanSeed();
+  if (!isReusableParticleModelLesson(content)) return null;
 
   const blueprint = cloneBlueprint();
   return {
