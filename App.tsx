@@ -68,8 +68,8 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v18';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v11';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v19';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v12';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -352,6 +352,7 @@ const getScienceParticleModelImageFileName = (
   const slideSpecificImageByToken: Array<[string, string]> = [
     ['evidence-table-routine', 's1-hd-evidence-table.png'],
     ['what-goes-in-the-evidence-table', 's1-hd-evidence-table.png'],
+    ['main-activity-evidence-stations', 's1-hd-evidence-table.png'],
     ['matter-mystery-claims', 's1-hd-mystery-claims.png'],
     ['what-do-you-notice-first', 's1-hd-mystery-claims.png'],
     ['observe-infer-model', 's1-hd-observe-infer.png'],
@@ -374,6 +375,7 @@ const getScienceParticleModelImageFileName = (
     ['exit-slip', 's1-hd-exit-slip.png'],
     ['claim-evidence-model', 's1-hd-exit-slip.png'],
     ['fair-test-evidence', 's2-fair-test-evidence.png'],
+    ['main-activity-warm-and-cold-diffusion-test', 's2-fair-test-setup.png'],
     ['cold-or-warm-prediction', 's2-prediction.png'],
     ['fair-test-setup', 's2-fair-test-setup.png'],
     ['watch-the-spread', 's2-watch-spread.png'],
@@ -384,6 +386,7 @@ const getScienceParticleModelImageFileName = (
     ['misconception-check', 's2-misconception.png'],
     ['motion-mastery-check', 's2-mastery-check.png'],
     ['diagram-criteria', 's3-diagram-criteria.png'],
+    ['main-activity-three-state-model-build', 's3-diagram-criteria.png'],
     ['three-samples-three-states', 's3-three-samples.png'],
     ['diagram-quality-checklist', 's3-diagram-checklist.png'],
     ['solid-particles', 's3-solid.png'],
@@ -394,6 +397,7 @@ const getScienceParticleModelImageFileName = (
     ['peer-feedback-rule', 's3-peer-feedback.png'],
     ['mini-diagram-check', 's3-mini-check.png'],
     ['energy-evidence-rules', 's4-energy-rules.png'],
+    ['main-activity-phase-change-evidence-sort', 's4-energy-sort.png'],
     ['melting-and-droplets-probe', 's4-melting-droplets.png'],
     ['energy-direction-sort', 's4-energy-sort.png'],
     ['heating-row', 's4-heating-row.png'],

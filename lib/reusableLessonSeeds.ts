@@ -773,6 +773,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       ],
     ),
     slide(
+      'Main Activity: Evidence Stations',
+      ['Work with your group of three or four', 'Visit the air, sugar, and color stations', 'Observe first before giving explanations', 'Complete one evidence-table row per station', 'Build one particle model from your strongest evidence', 'Prepare one sentence to defend your model'],
+      'This slide starts the main activity. Give the complete instructions before learners move. Ask: What will your group do first? What must be written before you draw? Which evidence will you use if another group challenges your model? Remind learners that the activity output is the completed evidence table plus one evidence-based particle model.',
+      'A high-resolution realistic classroom photo showing the start of a student-centered evidence-stations activity: three clearly separated lab-table stations with a needle-free syringe, a sugar-and-water cup, and a blue food-coloring diffusion beaker, student hands holding a mostly blank evidence-table worksheet and colored pencils, teacher standing aside, natural classroom lighting, no readable writing, no labels, no text.',
+      'particle-evidence',
+      'activity',
+      'photorealistic',
+      [
+        { id: 'activity-stations', text: '3 stations', x: 24, y: 18, fontSize: 16 },
+        { id: 'activity-table', text: 'Evidence table', x: 52, y: 76, fontSize: 16 },
+        { id: 'activity-model', text: 'Particle model', x: 78, y: 18, fontSize: 16 },
+      ],
+    ),
+    slide(
       'Support, Safety, and Output',
       ['Sentence stem cards', 'Particle word bank', 'No tasting solutions', 'Wipe spills immediately', 'Submit table and model'],
       'Give sentence stems to learners who need support: I observed ____. I infer that particles ____. My evidence is ____. Check outputs before dismissal.',
@@ -794,6 +808,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       'diffusion-temperature',
       'practice',
       'photorealistic',
+    ),
+    slide(
+      'Main Activity: Warm and Cold Diffusion Test',
+      ['Set two equal cups side by side', 'Add the same color drop at the same time', 'Do not stir either cup', 'Record what you see at each time mark', 'Compare spread distance, not color darkness', 'Write a cause-effect explanation using evidence'],
+      'This slide starts the main activity. Ask learners to repeat the procedure before starting: What must stay the same? What are we measuring? Why is stirring not allowed? Require the final output: data notes plus one cause-effect chain connecting temperature, particle motion, and spread.',
+      'A high-resolution realistic classroom photo showing students beginning a warm-and-cold diffusion test with two identical clear cups, equal water levels, identical blue food-coloring droppers, a timer, and a mostly blank observation sheet, no stirring tools, student hands only, no readable writing, no labels, no text.',
+      'diffusion-temperature',
+      'activity',
+      'photorealistic',
+      [
+        { id: 'activity-cold-warm', text: 'Same setup', x: 50, y: 18, fontSize: 16 },
+        { id: 'activity-no-stir', text: 'No stirring', x: 32, y: 78, fontSize: 16 },
+        { id: 'activity-time', text: 'Time marks', x: 75, y: 76, fontSize: 16 },
+      ],
     ),
     slide(
       'Support, Safety, and Output',
@@ -819,6 +847,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       'diagram',
     ),
     slide(
+      'Main Activity: Three-State Model Build',
+      ['Choose the solid, liquid, or gas sample assigned to your group', 'Draw only particles, not the object', 'Show spacing, arrangement, and motion', 'Use equal-size particles unless substances are different', 'Apply one peer feedback code', 'Revise before submitting the final model'],
+      'This slide starts the main activity. Ask: Which state is your group modeling? How will your diagram show evidence without drawing the object? What makes a particle diagram misleading? Require each group to submit the revised three-state diagram set with one revision note.',
+      'A high-resolution realistic classroom photo showing students starting a three-state particle-model build: an ice sample, a clear water cup, and a sealed air bag on a table, blank diagram worksheets with three empty boxes, colored pencils, and feedback-code stickers, student hands only, no readable writing, no labels, no text.',
+      'particle-states',
+      'activity',
+      'photorealistic',
+      [
+        { id: 'activity-sample', text: 'Sample', x: 24, y: 18, fontSize: 16 },
+        { id: 'activity-diagram', text: 'Particle diagram', x: 52, y: 74, fontSize: 16 },
+        { id: 'activity-revise', text: 'Revise', x: 78, y: 18, fontSize: 16 },
+      ],
+    ),
+    slide(
       'Support, Safety, and Output',
       ['Visual state cards', 'Revision-code checklist', 'Keep water off walkways', 'No mouth-inflated balloons', 'Submit revised diagram set'],
       'Give checklist support before groups revise. The concrete output is the three-state particle diagram with a mystery-sample inset and one revision note.',
@@ -840,6 +882,20 @@ const sessionDetailSlides: Record<number, Slide[]> = {
       'phase-change-energy',
       'success-criteria',
       'diagram',
+    ),
+    slide(
+      'Main Activity: Phase-Change Evidence Sort',
+      ['Sort each case by starting state and ending state', 'Match the particle arrangement card', 'Match the motion-change card', 'Choose energy absorbed or released', 'Complete one sequence-table row at a time', 'Use the row to write a CER explanation'],
+      'This slide starts the main activity. Ask: What is the starting state? What is the ending state? How did arrangement and motion change? Where did energy go? Require the output: a completed sequence table and one everyday CER using phase-change evidence.',
+      'A high-resolution realistic classroom photo showing students beginning a phase-change evidence sort with icon-only cards for solid, liquid, vapor, particle arrangements, motion arrows, and energy-direction arrows, plus a mostly blank sequence table worksheet, student hands only, no readable writing, no labels, no text.',
+      'phase-change-energy',
+      'activity',
+      'photorealistic',
+      [
+        { id: 'activity-start-end', text: 'Start to end', x: 25, y: 18, fontSize: 16 },
+        { id: 'activity-particles', text: 'Particles', x: 52, y: 75, fontSize: 16 },
+        { id: 'activity-energy', text: 'Energy', x: 78, y: 18, fontSize: 16 },
+      ],
     ),
     slide(
       'Support, Safety, and Output',
