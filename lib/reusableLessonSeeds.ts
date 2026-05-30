@@ -6,7 +6,14 @@ type CachedLessonPlanSeed = {
 };
 
 const PARTICLE_MODEL_TOPIC = 'Particle Model of Matter';
-const PARTICLE_MODEL_COMPETENCY = 'Recognize that scientists use models to explain phenomena that cannot be easily seen or detected; describe the Particle Model of Matter; use diagrams and illustrations to describe particle arrangement, spacing, and motion in solids, liquids, and gases; explain changes of state using particle arrangement and energy changes.';
+const PARTICLE_MODEL_COMPETENCY = 'Recognize that scientists use models to explain phenomena that cannot be easily seen or detected; Describe the Particle Model of Matter as "All matter is made up of tiny particles with each pure substance having its own kind of particles." Describe that particles are constantly in motion, have spaces between them, attract each other, and move faster as the temperature increases (or with the addition of heat). Use diagrams and illustrations to describe the arrangement, spacing, and relative motion of the particles in each of the three states (phases) of matter. Explain the changes of state in terms of particle arrangement and energy changes: a. solid -> liquid -> vapor b. vapor -> liquid -> solid';
+
+const PARTICLE_MODEL_LEARNING_OBJECTIVES = [
+  'By the end of Session 1, learners identify observable evidence from dissolving, diffusion, and air compression, then describe matter as tiny particles by using different symbols for different pure substances in a labeled particle model.',
+  'By the end of Session 2, learners compare cold-water and warm-water diffusion evidence, then explain particle motion, spacing, attraction, and the effect of higher temperature using a cause-effect chain.',
+  'By the end of Session 3, learners construct and revise particle diagrams for solid, liquid, and gas, showing arrangement, spacing, and relative motion with evidence-based labels.',
+  'By the end of Session 4, learners evaluate and defend explanations of melting, evaporation, condensation, and freezing using particle arrangement, particle motion, and energy direction.',
+];
 
 const particleModelBlueprint: LessonBlueprint = {
   mainTitle: 'Particle Model of Matter: Evidence, Motion, States, and Phase Changes',
@@ -15,18 +22,8 @@ const particleModelBlueprint: LessonBlueprint = {
   gradeLevel: 'Grade 7',
   quarter: 'First Term',
   learningCompetency: PARTICLE_MODEL_COMPETENCY,
-  smartObjectives: [
-    'Use observations from dissolving, diffusion, and air compression to support the claim that matter is made of tiny particles.',
-    'Explain how higher temperature affects particle motion by writing a correct cause-effect chain from investigation evidence.',
-    'Construct and revise accurate particle diagrams for solids, liquids, and gases using spacing, arrangement, and motion criteria.',
-    'Defend phase-change explanations by naming the change, describing particle motion and arrangement, and identifying whether energy is absorbed or released.',
-  ],
-  studentFacingObjectives: [
-    'I can use evidence to explain unseen particles.',
-    'I can compare particle motion in different conditions.',
-    'I can model solids, liquids, and gases accurately.',
-    'I can explain phase changes using particle energy.',
-  ],
+  smartObjectives: [...PARTICLE_MODEL_LEARNING_OBJECTIVES],
+  studentFacingObjectives: [...PARTICLE_MODEL_LEARNING_OBJECTIVES],
   days: [
     {
       dayNumber: 1,
@@ -130,25 +127,25 @@ const initialSlides: Slide[] = [
 
 const sessionStructure: Record<number, { objective: string; question: string; evidence: string; output: string }> = {
   1: {
-    objective: 'Use investigation evidence to support that matter is made of tiny particles.',
+    objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[0],
     question: 'How can evidence show that matter is made of tiny particles?',
     evidence: 'Dissolving, diffusion, and compression',
     output: 'Evidence table plus one evidence-based particle model',
   },
   2: {
-    objective: 'Explain how temperature affects particle motion using investigation evidence.',
+    objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[1],
     question: 'How does temperature affect motion?',
     evidence: 'Cold and warm diffusion test',
     output: 'Data notes plus one temperature-motion cause-effect chain',
   },
   3: {
-    objective: 'Construct and revise accurate particle diagrams for solids, liquids, and gases.',
+    objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[2],
     question: 'How should each state be modeled?',
     evidence: 'Sample states and diagram criteria',
     output: 'Revised solid-liquid-gas particle diagram set',
   },
   4: {
-    objective: 'Defend phase-change explanations using particle motion, arrangement, and energy direction.',
+    objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[3],
     question: 'How do particles explain phase changes?',
     evidence: 'Melting, condensation, and sorting',
     output: 'Sequence table plus one phase-change CER with energy direction',
@@ -161,7 +158,7 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
 
   return slide(
     day?.title || 'Lesson Focus',
-    [`Learning objective: ${structure.objective}`, `Inquiry question: ${structure.question}`, `Evidence source: ${structure.evidence}`, `Expected output: ${structure.output}`],
+    [structure.objective, `Inquiry question: ${structure.question}`, `Evidence source: ${structure.evidence}`, `Expected output: ${structure.output}`],
     `Use this opener to orient learners before the first task. Keep the focus on the objective, the inquiry question, and the concrete output they will submit. Ask: What will count as proof that we met today's objective?`,
     '',
   );
