@@ -75,7 +75,7 @@ const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Keep particle-model visuals generated/cached as HD raster images; the old static set was too generic for classroom science.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = false;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260530-digestive-session1-evidence-hd2';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260531-digestive-clean-watermark-v1';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
@@ -177,10 +177,6 @@ const PPTX_TEXT_ONLY_H = 3.65;
 const SAYUNA_WATERMARK_WIDTH_RATIO = 0.08;
 const SAYUNA_WATERMARK_MARGIN_RATIO = 0.025;
 const SAYUNA_WATERMARK_OPACITY = 0.26;
-const PRE_WATERMARKED_IMAGE_PATHS = ['/curated-images/science/digestive-system/'];
-
-const imageAlreadyHasSayunaWatermark = (imageUrl?: string): boolean =>
-  Boolean(imageUrl && PRE_WATERMARKED_IMAGE_PATHS.some((path) => imageUrl.includes(path)));
 
 type CachedLessonPlan = {
   blueprint: LessonBlueprint;
@@ -2243,7 +2239,7 @@ const App: React.FC = () => {
                         throw new Error('No valid image data available for export.');
                     }
                     let exportImageData = imageData;
-                    if (watermarkImageData && !imageAlreadyHasSayunaWatermark(slideData.imageUrl)) {
+                    if (watermarkImageData) {
                         try {
                             const imageFit = slideData.imageStyle === 'diagram' || slideData.imageStyle === 'infographic'
                                 || slideData.visualLayout === 'evidence'
