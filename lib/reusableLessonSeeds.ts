@@ -113,8 +113,13 @@ const initialSlides: Slide[] = [
   ),
   slide(
     'Learning Objectives',
-    particleModelBlueprint.studentFacingObjectives,
-    'Read each objective aloud. Tell learners that every activity will connect visible evidence to an invisible particle explanation.',
+    [
+      'Use evidence to build a particle model',
+      'Explain how temperature changes particle motion',
+      'Draw accurate solid, liquid, and gas particle diagrams',
+      'Defend phase-change explanations with energy evidence',
+    ],
+    `Use this as a student-facing roadmap. Exact lesson-plan objectives: ${particleModelBlueprint.studentFacingObjectives.join(' | ')}`,
     '',
   ),
   slide(
@@ -131,27 +136,31 @@ const initialSlides: Slide[] = [
   ),
 ];
 
-const sessionStructure: Record<number, { objective: string; question: string; evidence: string; output: string }> = {
+const sessionStructure: Record<number, { objective: string; studentGoals: string[]; question: string; evidence: string; output: string }> = {
   1: {
     objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[0],
+    studentGoals: ['Use observations before explanations', 'Build a particle model from evidence', 'Revise ideas that say matter disappears'],
     question: 'How can evidence show that matter is made of tiny particles?',
     evidence: 'Dissolving, diffusion, and compression',
     output: 'Evidence table, evidence-based particle model, revision note, and defense sentence',
   },
   2: {
     objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[1],
+    studentGoals: ['Compare cold and warm diffusion fairly', 'Use same-time evidence', 'Explain faster particle motion without adding particles'],
     question: 'How does temperature affect particle motion, spacing, and attraction?',
     evidence: 'Cold and warm diffusion test',
     output: 'Fair-test observation table, same-time evidence comparison, cause-effect chain, transfer correction',
   },
   3: {
     objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[2],
+    studentGoals: ['Construct solid-liquid-gas particle diagrams', 'Show spacing, arrangement, and motion', 'Revise diagrams using evidence-based feedback'],
     question: 'How should each state be modeled?',
     evidence: 'Sample states and diagram criteria',
     output: 'Revised solid-liquid-gas diagram set with spacing, arrangement, motion labels, and evidence-based revision note',
   },
   4: {
     objective: PARTICLE_MODEL_LEARNING_OBJECTIVES[3],
+    studentGoals: ['Track starting and ending states', 'Use particle arrangement, motion, and energy direction', 'Defend phase-change explanations with evidence'],
     question: 'How do particles explain phase changes?',
     evidence: 'Melting, condensation, and sorting',
     output: 'Completed sequence table, energy-direction sort, everyday CER, and defense sentence',
@@ -164,8 +173,8 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
 
   return slide(
     day?.title || 'Lesson Focus',
-    [structure.objective, `Inquiry question: ${structure.question}`, `Evidence source: ${structure.evidence}`, `Expected output: ${structure.output}`],
-    `Use this opener to orient learners before the first task. Keep the focus on the objective, the inquiry question, and the concrete output they will submit. Ask: What will count as proof that we met today's objective?`,
+    [...structure.studentGoals, `Question: ${structure.question}`, `Output: ${structure.output}`],
+    `Use this student-facing opener before the first task. Exact lesson-plan objective: ${structure.objective}. Evidence source: ${structure.evidence}. Ask: What will count as proof that we met today's objective?`,
     '',
   );
 };

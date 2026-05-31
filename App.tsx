@@ -73,9 +73,9 @@ const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v23';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
-// Keep particle-model visuals generated/cached as HD raster images; the old static set was too generic for classroom science.
-const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = false;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260531-digestive-clean-watermark-v1';
+// Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
+const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260531-science-week1-approved-v1';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
@@ -694,15 +694,16 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (!collection) return undefined;
-  if (collection === 'science-particle-model' && !USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES) {
-    return undefined;
+  if (collection === 'science-particle-model') {
+    if (!USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES) return undefined;
+    const fileName = getScienceParticleModelImageFileName(metadata, true);
+    const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
+    return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
   }
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'science-particle-model'
-    ? getScienceParticleModelImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'science-digestive-system'
+  const fileName = collection === 'science-digestive-system'
       ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
       : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
