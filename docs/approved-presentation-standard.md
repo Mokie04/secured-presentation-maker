@@ -29,6 +29,7 @@ Each session presentation must stand alone and follow a classroom-ready arc:
 - For Science/STEM, prefer realistic classroom evidence visuals, accurate lab/setup images, anatomical/scientific references, or precise raster diagrams.
 - Avoid cheap SVG/vector/cartoon/flat-icon visuals when they can confuse learners.
 - Images should show the proof object: setup, pathway, comparison, process, expected output, misconception contrast, or model limitation.
+- If branded watermarks are used, keep them subtle and outside the instructional focus area.
 
 ## Student-Centered Questions
 

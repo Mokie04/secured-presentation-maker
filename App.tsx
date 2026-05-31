@@ -174,6 +174,9 @@ const PPTX_TEXT_ONLY_X = 0.78;
 const PPTX_TEXT_ONLY_Y = 1.45;
 const PPTX_TEXT_ONLY_W = 8.45;
 const PPTX_TEXT_ONLY_H = 3.65;
+const SAYUNA_WATERMARK_WIDTH_RATIO = 0.08;
+const SAYUNA_WATERMARK_MARGIN_RATIO = 0.025;
+const SAYUNA_WATERMARK_OPACITY = 0.26;
 
 type CachedLessonPlan = {
   blueprint: LessonBlueprint;
@@ -2100,11 +2103,11 @@ const App: React.FC = () => {
       drawH,
     );
 
-    const watermarkW = Math.round(canvas.width * 0.16);
+    const watermarkW = Math.round(canvas.width * SAYUNA_WATERMARK_WIDTH_RATIO);
     const watermarkH = Math.round(watermarkW * ((watermarkImage.naturalHeight || watermarkImage.height) / (watermarkImage.naturalWidth || watermarkImage.width)));
-    const margin = Math.round(canvas.width * 0.035);
+    const margin = Math.round(canvas.width * SAYUNA_WATERMARK_MARGIN_RATIO);
 
-    context.globalAlpha = 0.5;
+    context.globalAlpha = SAYUNA_WATERMARK_OPACITY;
     context.drawImage(
       watermarkImage,
       canvas.width - watermarkW - margin,
