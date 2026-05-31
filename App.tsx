@@ -177,6 +177,10 @@ const PPTX_TEXT_ONLY_H = 3.65;
 const SAYUNA_WATERMARK_WIDTH_RATIO = 0.08;
 const SAYUNA_WATERMARK_MARGIN_RATIO = 0.025;
 const SAYUNA_WATERMARK_OPACITY = 0.26;
+const PRE_WATERMARKED_IMAGE_PATHS = ['/curated-images/science/digestive-system/'];
+
+const imageAlreadyHasSayunaWatermark = (imageUrl?: string): boolean =>
+  Boolean(imageUrl && PRE_WATERMARKED_IMAGE_PATHS.some((path) => imageUrl.includes(path)));
 
 type CachedLessonPlan = {
   blueprint: LessonBlueprint;
@@ -2239,7 +2243,7 @@ const App: React.FC = () => {
                         throw new Error('No valid image data available for export.');
                     }
                     let exportImageData = imageData;
-                    if (watermarkImageData) {
+                    if (watermarkImageData && !imageAlreadyHasSayunaWatermark(slideData.imageUrl)) {
                         try {
                             const imageFit = slideData.imageStyle === 'diagram' || slideData.imageStyle === 'infographic'
                                 || slideData.visualLayout === 'evidence'

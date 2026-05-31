@@ -27,6 +27,10 @@ const NON_RENDERABLE_IMAGE_STATES = new Set([
   PROVIDER_IMAGE_LIMIT_PLACEHOLDER,
   IMAGE_SKIPPED_PLACEHOLDER,
 ]);
+const PRE_WATERMARKED_IMAGE_PATHS = ['/curated-images/science/digestive-system/'];
+
+const imageAlreadyHasSayunaWatermark = (imageUrl?: string): boolean =>
+  Boolean(imageUrl && PRE_WATERMARKED_IMAGE_PATHS.some((path) => imageUrl.includes(path)));
 
 const clampPercent = (value: number): number => Math.max(0, Math.min(100, value));
 const clampFontSize = (value: number): number => Math.max(MIN_LABEL_FONT_SIZE, Math.min(MAX_LABEL_FONT_SIZE, Math.round(value)));
@@ -80,6 +84,7 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
 
   const renderableImage = Boolean(slide.imageUrl && !NON_RENDERABLE_IMAGE_STATES.has(slide.imageUrl));
   const imageIsLoading = slide.imageUrl === 'loading';
+  const shouldShowPreviewWatermark = renderableImage && !imageAlreadyHasSayunaWatermark(slide.imageUrl);
 
   const selectedOverlay = draftOverlays.find((overlay) => overlay.id === selectedOverlayId) || null;
 
@@ -342,13 +347,15 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
                 className={`w-full h-full ${imageObjectFitClass} object-center pointer-events-none select-none rounded-xl shadow-sm`}
                 draggable={false}
               />
-              <img
-                src={SAYUNA_IMAGE_WATERMARK_LOGO_URL}
-                alt=""
-                aria-hidden="true"
-                className="absolute bottom-4 right-4 w-[17%] min-w-12 max-w-24 opacity-[0.45] pointer-events-none select-none drop-shadow-[0_1px_4px_rgba(0,0,0,0.25)]"
-                draggable={false}
-              />
+              {shouldShowPreviewWatermark && (
+                <img
+                  src={SAYUNA_IMAGE_WATERMARK_LOGO_URL}
+                  alt=""
+                  aria-hidden="true"
+                  className="absolute bottom-3 right-3 w-[8%] min-w-8 max-w-14 opacity-[0.26] pointer-events-none select-none drop-shadow-[0_1px_4px_rgba(0,0,0,0.2)]"
+                  draggable={false}
+                />
+              )}
 
               {(isEditingLabels ? draftOverlays : (slide.imageOverlays || []).map(normalizeOverlay)).map((overlay) => {
                 const isSelected = isEditingLabels && selectedOverlayId === overlay.id;
