@@ -169,6 +169,27 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
   const day = forceMotionBlueprint.days.find((candidate) => candidate.dayNumber === dayNumber);
   const structure = sessionStructure[dayNumber];
 
+  if (dayNumber === 1) {
+    return slide(
+      'What Will Make Motion Change?',
+      [
+        'Look first: what keeps moving or stays at rest?',
+        'Find the force evidence before explaining.',
+        'Output: table, signed diagram, CER.',
+      ],
+      `Use this student-facing opener before the first task. Exact lesson-plan objective: ${structure.objective}. Evidence source: ${structure.evidence}. Ask: What will count as proof that we met the objective today?`,
+      'A high-resolution realistic classroom physics scene showing a seatbelt model cart, coin-card-cup setup, force-arrow cards, and a blank student evidence table arranged on a lab table, accurate Grade 9 inertia and net-force materials, no readable text.',
+      'force-net-inertia',
+      'situation',
+      'photorealistic',
+      [
+        { id: 'same-motion', text: 'same motion?', x: 31, y: 35, fontSize: 20 },
+        { id: 'force-evidence', text: 'force evidence', x: 72, y: 52, fontSize: 20 },
+      ],
+      'evidence',
+    );
+  }
+
   return slide(
     day?.title || 'Lesson Focus',
     [...structure.studentGoals, `Question: ${structure.question}`, `Output: ${structure.output}`],
@@ -180,70 +201,101 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
 const sessionSlides: Record<number, Slide[]> = {
   1: [
     slide(
-      'Learning Target: Inertia and Net Force',
-      ['Use safe evidence before explaining', 'Mark forces with signs and directions', 'Decide whether the net force changes motion'],
+      'Evidence Goal: Inertia and Net Force',
+      [
+        'Object: what keeps its motion?',
+        'Force evidence: balanced or unbalanced?',
+        'Proof: table, signed diagram, CER.',
+      ],
       'Begin with attendance and wellbeing, then bridge with a transport or sports situation where an object kept moving or stayed at rest. Ask: What was moving? What stayed the same? What evidence would show a change in motion?',
-      '',
+      'A high-resolution realistic classroom physics evidence board showing a book at rest with balanced arrows, a toy cart with a spring scale and unbalanced arrow, and blank student proof cards, accurate net-force classroom materials, no readable text.',
+      'force-net-inertia',
+      'overview',
+      'photorealistic',
+      [
+        { id: 'balanced', text: 'balanced', x: 24, y: 56, fontSize: 20 },
+        { id: 'unbalanced', text: 'unbalanced', x: 71, y: 50, fontSize: 20 },
+      ],
+      'evidence',
     ),
     evidenceSlide(
       'Seatbelt Prediction Sort',
-      ['Study each prompt', 'Predict whether motion changes', 'Circle the possible force clue', 'Write what stays the same'],
+      ['1. Choose: motion changes or stays the same.', '2. Circle the force clue.', '3. Explain what stayed unchanged.'],
       'This is the connect-and-diagnose task from the lesson plan. Use passenger lurching forward, book at rest on a table, and coin-card-cup or paper-pull setup. Output: prediction sort slip. Ask: What is moving? What stays the same? What evidence would show a change in motion?',
       'A high-resolution realistic classroom physics image showing three safe prediction cards on a table: a passenger-seatbelt situation, a book resting on a table, and a coin-card-cup demonstration setup, with blank answer slips and force-arrow cards nearby, no readable text.',
       'force-net-inertia',
       'situation',
     ),
-    evidenceSlide(
+    slide(
       'Inertia Demo and Net-Force Line',
-      ['Observe before and after the pull', 'Assign positive and negative directions', 'Calculate one net-force result', 'Write what changed or stayed the same'],
-      'This slide starts the main activity. Teacher performs a small, dry, safe coin-card-cup or paper-pull demonstration, away from learners faces. Learners complete the observation-net-force table from Q1-LAS 01 and Q1-LAS 02. Check that opposite directions are signed before learners explain.',
+      ['1. Predict the coin-card result.', '2. Observe before and after the quick pull.', '3. Sign forces, compute net force, explain motion.'],
+      'This slide starts the main activity. Teacher performs a small, dry, safe coin-card-cup or paper-pull demonstration, away from learners faces. Output: observation-net-force table from Q1-LAS 01 and Q1-LAS 02. Ask: What changed, what stayed the same, and what force evidence supports that answer?',
       'A high-resolution realistic classroom physics demonstration: a coin on an index card over a cup beside a paper-pull strip, a horizontal net-force line with arrows, and a blank observation table on a lab table, accurate safe materials, no readable text.',
       'force-net-inertia',
       'activity',
+      'photorealistic',
+      [
+        { id: 'quick-pull', text: 'quick pull', x: 77, y: 39, fontSize: 20 },
+        { id: 'coin-stays', text: 'coin tends to stay', x: 34, y: 33, fontSize: 20 },
+      ],
+      'evidence',
     ),
     evidenceSlide(
-      'Expected Output: Observation-Net-Force Table',
-      ['One observation before the pull', 'One observation after the pull', 'Signed opposite force directions', 'One calculated net force', 'One sentence: The object kept ___ because ___'],
-      'Make output criteria explicit before learners work independently. Connect the product to the objective: learners must identify inertia, calculate signed net force, and explain balanced or unbalanced force evidence.',
+      'Output Check: Net-Force Table',
+      ['Observation: before and after.', 'Math: signed net-force result.', 'Claim: motion changed or stayed because ___.'],
+      'Make output criteria explicit before learners work independently. Output: one before/after observation, one signed net-force result, and one evidence claim. Ask: Which part proves inertia, and which part proves balanced or unbalanced net force?',
       'A high-resolution realistic classroom image of a clean observation-net-force table template beside force-arrow cards, a coin-card-cup setup, and a signed number line with opposing arrows, no readable text.',
       'force-net-inertia',
       'success-criteria',
     ),
     evidenceSlide(
-      'Roles, Timing, and Safety: Inertia Demo',
-      ['Observer records only what happened', 'Force tracker assigns direction signs', 'Calculator finds net force', 'Speaker explains with evidence', 'Stay seated; no throwing or sudden movement'],
-      'Recommended pacing: 5 minutes prediction sort, 15 minutes demonstration and net-force line, 10 minutes evidence board, 12 minutes force diagram clinic, 8 minutes CER exit.',
+      'Team Roles and Safety',
+      ['Observer: record evidence only.', 'Force tracker: set signs and arrows.', 'Safety first: stay seated; no throwing.'],
+      'Recommended pacing: 5 minutes prediction sort, 15 minutes demonstration and net-force line, 10 minutes evidence board, 12 minutes force diagram clinic, 8 minutes CER exit. Ask: Which role protects evidence quality, and which role checks the force reasoning?',
       'A high-resolution realistic classroom physics activity setup with role cards, timer, coin-card-cup materials, force-arrow cards, signed number line, and exit slips arranged neatly on a lab table, no readable text.',
       'force-net-inertia-roles',
       'activity',
     ),
-    evidenceSlide(
+    slide(
       'Balanced or Unbalanced Evidence Board',
-      ['Post one table row', 'Classify the case as balanced or unbalanced', 'Compare the force calculation with the motion evidence', 'Revise claims that call inertia a force'],
+      ['Post one table row.', 'Classify: balanced or unbalanced.', 'Explain: did motion change? why?'],
       'This is the make-meaning task. Groups compare cases from rest, motion, and the force calculation. Output: class evidence board with three accurate claims. Ask: Which forces are opposite? What is the net force? When did motion change? Why is inertia not a pushing force?',
       'A high-resolution realistic classroom board with three force-and-motion evidence cards: book at rest with balanced arrows, cart changing motion with unbalanced arrows, and a signed net-force calculation card, student sticky notes around the cards, no readable text.',
       'force-net-inertia',
       'discussion',
+      'photorealistic',
+      [
+        { id: 'balanced-label', text: 'balanced', x: 23, y: 57, fontSize: 20 },
+        { id: 'unbalanced-label', text: 'unbalanced', x: 68, y: 53, fontSize: 20 },
+        { id: 'net-force-label', text: 'net force', x: 86, y: 50, fontSize: 20 },
+      ],
+      'evidence',
     ),
-    evidenceSlide(
+    slide(
       'Force Diagram Caption Clinic',
-      ['Draw arrows in correct directions', 'Add positive and negative signs', 'Compute the net-force value', 'Write whether motion changed and why'],
+      ['Draw force arrows and signs.', 'Compute net force and direction.', 'Caption: motion changed or stayed because ___.'],
       'This is the guided modeling task. Pairs convert the Q1-LAS net-force solution into a clean force diagram with arrows, signs, net-force value, direction, and a caption. Output: signed force diagram with caption.',
       'A high-resolution realistic classroom image showing a pair-work force diagram worksheet with a cart, left and right force arrows, sign markers, net-force box, caption space, ruler, and pencils, no readable text.',
       'force-net-inertia',
       'model',
+      'photorealistic',
+      [
+        { id: 'opposite-forces', text: 'opposite forces', x: 29, y: 53, fontSize: 20 },
+        { id: 'net-force', text: 'net force', x: 75, y: 48, fontSize: 20 },
+      ],
+      'evidence',
     ),
     evidenceSlide(
       'Inertia Is Not a Pushing Force',
-      ['Inertia describes the tendency to keep the same motion', 'A balanced net force does not change motion', 'An unbalanced net force changes motion', 'Use evidence before naming the idea'],
+      ['Inertia is a tendency, not a force.', 'Balanced net force: no motion change.', 'Unbalanced net force: motion changes.'],
       'Use this misconception repair before the exit slip. Ask: If inertia is not a force, what force evidence explains the change? What stayed the same when the net force was balanced?',
       'A high-resolution realistic classroom comparison image with two cards: one object at rest with balanced arrows and one moving cart with an unbalanced arrow, with a misconception repair marker beside the cards, no readable text.',
       'force-net-inertia',
       'misconception',
     ),
     evidenceSlide(
-      'Inertia CER Exit',
-      ['Claim: balanced or unbalanced net force', 'Evidence: demo or force diagram', 'Reasoning: inertia and net force explain the motion', 'Do not write that inertia is a force'],
+      'CER Exit: Inertia and Net Force',
+      ['Claim: balanced or unbalanced.', 'Evidence: demo plus force diagram.', 'Reasoning: inertia plus net force.'],
       'Use the transfer case about a passenger lurching forward or an object on a moving cart. Learners must state a claim, cite demonstration or force-diagram evidence, and explain using inertia and net force. Output: individual CER exit slip.',
       'A high-resolution realistic classroom image of a CER exit slip beside a small cart and force diagram cards, with claim-evidence-reasoning boxes visible as blank shapes, no readable text.',
       'assessment',
@@ -471,10 +523,15 @@ const sessionSlides: Record<number, Slide[]> = {
 const sessionDetailSlides: Record<number, Slide[]> = {
   1: [
     slide(
-      'Learning Sequence: Inertia and Net Force',
-      ['Seatbelt prediction sort', 'Inertia demo and net-force line', 'Expected output check', 'Balanced-or-unbalanced evidence board', 'Force diagram caption clinic', 'Inertia CER exit'],
+      "Today's Investigation Path",
+      ['Predict and observe the motion.', 'Calculate signed net force.', 'Defend the claim with CER.'],
       'Use this as the pacing guide. The session should move from prediction to evidence, then to signed net-force representation and an individual CER.',
-      '',
+      'A high-resolution realistic classroom physics activity path showing role cards, coin-card-cup materials, force-arrow cards, signed number line, and CER exit slips arranged left-to-right on a lab table, no readable text.',
+      'force-net-inertia-roles',
+      'activity',
+      'photorealistic',
+      undefined,
+      'evidence',
     ),
   ],
   2: [

@@ -75,7 +75,7 @@ const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260531-science-week1-approved-v2';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-science-week1-approved-v3';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
@@ -506,13 +506,19 @@ const getScienceForceMotionImageFileName = (
   const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
   const slideSpecificImageByToken: Array<[string, string]> = [
     ['inertia-net-force-and-acceleration-foundations', 'g9-hd-overview.png'],
+    ['what-will-make-motion-change', 'g9-hd-inertia-opener.png'],
+    ['todays-investigation-path', 'g9-hd-inertia-roles.png'],
+    ['evidence-goal-inertia-and-net-force', 'g9-hd-balanced-unbalanced-board.png'],
     ['seatbelt-prediction-sort', 'g9-hd-seatbelt-sort.png'],
     ['inertia-demo-and-net-force-line', 'g9-hd-inertia-demo.png'],
+    ['output-check-net-force-table', 'g9-hd-output-table.png'],
     ['expected-output-observation-net-force-table', 'g9-hd-output-table.png'],
+    ['team-roles-and-safety', 'g9-hd-inertia-roles.png'],
     ['roles-timing-and-safety-inertia-demo', 'g9-hd-inertia-roles.png'],
     ['balanced-or-unbalanced-evidence-board', 'g9-hd-balanced-unbalanced-board.png'],
     ['force-diagram-caption-clinic', 'g9-hd-force-diagram-model.png'],
     ['inertia-is-not-a-pushing-force', 'g9-hd-inertia-misconception.png'],
+    ['cer-exit-inertia-and-net-force', 'g9-hd-inertia-exit.png'],
     ['inertia-cer-exit', 'g9-hd-inertia-exit.png'],
     ['acceleration-or-not-triage', 'g9-hd-acceleration-triage.png'],
     ['motion-change-evidence-table', 'g9-hd-motion-change-table.png'],
@@ -2447,7 +2453,7 @@ const App: React.FC = () => {
                     const bulletCount = slideData.content.filter((point) => point.trim()).length;
                     const isEvidenceLayout = slideData.visualLayout === 'evidence';
                     const contentFontSize = isEvidenceLayout
-                        ? (bulletCount > 5 ? 15 : bulletCount > 3 ? 16 : 17)
+                        ? (bulletCount > 4 ? 20 : bulletCount > 3 ? 22 : 24)
                         : (bulletCount > 5 ? 18 : bulletCount > 3 ? 20 : 22);
                     slide.addText(contentForPptx, {
                         x: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_X : PPTX_CONTENT_X,
@@ -2456,7 +2462,7 @@ const App: React.FC = () => {
                         h: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_H : PPTX_CONTENT_H,
                         color: textColor, valign: 'top', fontSize: contentFontSize,
                         lineSpacing: isEvidenceLayout
-                            ? (contentFontSize >= 17 ? 22 : 20)
+                            ? (contentFontSize >= 24 ? 31 : contentFontSize >= 22 ? 29 : 27)
                             : (contentFontSize >= 22 ? 30 : contentFontSize === 20 ? 27 : 25),
                         fit: 'shrink',
                         breakLine: false,
