@@ -80,6 +80,7 @@ const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'math-polygons': '/curated-images/math/polygons',
   'math-statistics-expressions': '/curated-images/math/statistics-expressions',
+  'math-geometry-construction': '/curated-images/math/geometry-construction',
   'science-particle-model': '/curated-images/science/particle-model',
   'science-digestive-system': '/curated-images/science/digestive-system',
   'science-force-motion': '/curated-images/science/force-motion',
@@ -139,6 +140,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'g8-hd-typical-score-prediction.png',
     summary: 'g8-hd-data-expression-brief.png',
     'success-criteria': 'g8-hd-data-expression-brief.png',
+  },
+  'math-geometry-construction': {
+    activity: 'g9m-hd-perpendicular-step-check.png',
+    application: 'g9m-hd-construction-report.png',
+    assignment: 'g9m-hd-peer-audit-transfer.png',
+    assessment: 'g9m-hd-notation-error-exit.png',
+    concept: 'g9m-hd-geometry-overview.png',
+    content: 'g9m-hd-geometry-overview.png',
+    discussion: 'g9m-hd-two-method-parallel-compare.png',
+    generalization: 'g9m-hd-construction-report.png',
+    model: 'g9m-hd-equal-arc-trace.png',
+    objectives: 'g9m-hd-geometry-overview.png',
+    overview: 'g9m-hd-geometry-overview.png',
+    practice: 'g9m-hd-notation-match-lab.png',
+    review: 'g9m-hd-symbol-sort.png',
+    situation: 'g9m-hd-symbol-sort.png',
+    summary: 'g9m-hd-construction-report.png',
+    'success-criteria': 'g9m-hd-report-walkthrough.png',
   },
   'science-particle-model': {
     activity: 'particle-evidence.png',
@@ -483,6 +502,37 @@ const isMathStatisticsExpressionsSemanticSubject = (metadata: ImageSemanticMetad
   return hasMathSubject && hasStatisticsOrExpressionTopic;
 };
 
+const isMathGeometryConstructionSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasMathSubject = subjectSlug === 'mathematics'
+    || subjectSlug === 'math'
+    || searchable.includes('mathematics')
+    || searchable.includes('math');
+  const hasGeometryConstructionTopic = searchable.includes('geometric-object')
+    || searchable.includes('geometric-notation')
+    || searchable.includes('line-construction')
+    || searchable.includes('construction-report')
+    || searchable.includes('perpendicular')
+    || searchable.includes('parallel')
+    || searchable.includes('compass')
+    || searchable.includes('straightedge')
+    || searchable.includes('equal-arc')
+    || searchable.includes('copied-angle')
+    || searchable.includes('notation-match')
+    || searchable.includes('line-segment')
+    || searchable.includes('ray')
+    || searchable.includes('plane');
+
+  return hasMathSubject && hasGeometryConstructionTopic;
+};
+
 const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
   const subjectSlug = slugifyImageSemanticText(metadata.subject);
   const searchable = slugifyImageSemanticText([
@@ -696,6 +746,7 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isMathGeometryConstructionSemanticSubject(metadata)) return 'math-geometry-construction';
   if (isMathStatisticsExpressionsSemanticSubject(metadata)) return 'math-statistics-expressions';
   if (isMathPolygonsSemanticSubject(metadata)) return 'math-polygons';
   if (isScienceChemistryReactionsSemanticSubject(metadata)) return 'science-chemistry-reactions';
@@ -1356,6 +1407,84 @@ const getMathStatisticsExpressionsImageFileName = (
   return templateMap?.[template] || templateMap?.content;
 };
 
+const getMathGeometryConstructionImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['geometric-objects-notation-and-line-construction', 'g9m-hd-geometry-overview.png'],
+    ['learning-roadmap', 'g9m-hd-geometry-overview.png'],
+    ['how-we-will-work-like-geometers', 'g9m-hd-geometry-overview.png'],
+
+    ['what-does-each-geometry-symbol-tell-us', 'g9m-hd-symbol-sort.png'],
+    ['today-s-notation-evidence-path', 'g9m-hd-notation-match-lab.png'],
+    ['todays-notation-evidence-path', 'g9m-hd-notation-match-lab.png'],
+    ['evidence-goal-object-symbol-meaning', 'g9m-hd-geometry-overview.png'],
+    ['geometry-symbol-sort', 'g9m-hd-symbol-sort.png'],
+    ['diagram-evidence-mark-up', 'g9m-hd-diagram-markup.png'],
+    ['notation-match-lab', 'g9m-hd-notation-match-lab.png'],
+    ['output-check-notation-match-sheet', 'g9m-hd-notation-match-lab.png'],
+    ['team-roles-and-diagram-checks', 'g9m-hd-diagram-markup.png'],
+    ['geometry-dictionary-build', 'g9m-hd-geometry-dictionary.png'],
+    ['ray-segment-and-line-are-not-interchangeable', 'g9m-hd-geometry-dictionary.png'],
+    ['notation-error-exit', 'g9m-hd-notation-error-exit.png'],
+
+    ['what-evidence-proves-perpendicular', 'g9m-hd-perpendicular-evidence-check.png'],
+    ['today-s-perpendicular-evidence-path', 'g9m-hd-perpendicular-step-check.png'],
+    ['todays-perpendicular-evidence-path', 'g9m-hd-perpendicular-step-check.png'],
+    ['evidence-goal-perpendicular-construction', 'g9m-hd-equal-arc-trace.png'],
+    ['perpendicular-evidence-check', 'g9m-hd-perpendicular-evidence-check.png'],
+    ['equal-arc-construction-trace', 'g9m-hd-equal-arc-trace.png'],
+    ['perpendicular-step-check', 'g9m-hd-perpendicular-step-check.png'],
+    ['output-check-guided-construction-sheet', 'g9m-hd-perpendicular-step-check.png'],
+    ['team-roles-and-compass-safety', 'g9m-hd-perpendicular-step-check.png'],
+    ['off-line-point-construction', 'g9m-hd-offline-point-construction.png'],
+    ['not-drawn-by-sight', 'g9m-hd-construction-repair.png'],
+    ['construction-repair-exit', 'g9m-hd-construction-repair.png'],
+
+    ['what-proves-lines-are-parallel', 'g9m-hd-parallel-evidence-sort.png'],
+    ['today-s-parallel-evidence-path', 'g9m-hd-parallel-step-check.png'],
+    ['todays-parallel-evidence-path', 'g9m-hd-parallel-step-check.png'],
+    ['evidence-goal-parallel-construction', 'g9m-hd-copied-angle-trace.png'],
+    ['parallel-evidence-sort', 'g9m-hd-parallel-evidence-sort.png'],
+    ['copied-angle-construction-trace', 'g9m-hd-copied-angle-trace.png'],
+    ['parallel-step-check', 'g9m-hd-parallel-step-check.png'],
+    ['output-check-guided-parallel-construction', 'g9m-hd-parallel-step-check.png'],
+    ['team-roles-and-arc-transfer-checks', 'g9m-hd-copied-angle-trace.png'],
+    ['two-method-parallel-compare', 'g9m-hd-two-method-parallel-compare.png'],
+    ['same-direction-is-not-enough', 'g9m-hd-parallel-evidence-sort.png'],
+    ['parallel-repair-exit', 'g9m-hd-parallel-repair.png'],
+
+    ['what-evidence-makes-a-construction-convincing', 'g9m-hd-readiness-grid.png'],
+    ['today-s-construction-report-path', 'g9m-hd-construction-report.png'],
+    ['todays-construction-report-path', 'g9m-hd-construction-report.png'],
+    ['evidence-goal-construction-report', 'g9m-hd-report-walkthrough.png'],
+    ['construction-readiness-grid', 'g9m-hd-readiness-grid.png'],
+    ['construction-report-walkthrough', 'g9m-hd-report-walkthrough.png'],
+    ['report-planning-conference', 'g9m-hd-report-planning.png'],
+    ['geometry-construction-report', 'g9m-hd-construction-report.png'],
+    ['output-check-construction-report', 'g9m-hd-construction-report.png'],
+    ['team-roles-and-report-checks', 'g9m-hd-report-planning.png'],
+    ['peer-audit-and-transfer-exit', 'g9m-hd-peer-audit-transfer.png'],
+    ['neat-is-not-the-same-as-proven', 'g9m-hd-peer-audit-transfer.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-geometry-construction'];
+  return templateMap?.[template] || templateMap?.content;
+};
+
 const buildCuratedStaticImageUrl = (basePath: string, fileName: string): string => (
   `${basePath}/${fileName}?v=${CURATED_STATIC_IMAGE_ASSET_VERSION}`
 );
@@ -1373,19 +1502,21 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'math-statistics-expressions'
-    ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'math-polygons'
-      ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collection === 'science-digestive-system'
-        ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collection === 'science-force-motion'
-          ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-          : collection === 'science-chemistry-reactions'
-            ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-            : collection === 'science-general-motion'
-              ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-              : collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'math-geometry-construction'
+    ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    : collection === 'math-statistics-expressions'
+      ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collection === 'math-polygons'
+        ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        : collection === 'science-digestive-system'
+          ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          : collection === 'science-force-motion'
+            ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+            : collection === 'science-chemistry-reactions'
+              ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+              : collection === 'science-general-motion'
+                ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1394,7 +1525,8 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (
-    collection !== 'math-statistics-expressions'
+    collection !== 'math-geometry-construction'
+    && collection !== 'math-statistics-expressions'
     && collection !== 'math-polygons'
     && collection !== 'science-particle-model'
     && collection !== 'science-digestive-system'
@@ -1403,19 +1535,21 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
     && collection !== 'science-general-motion'
   ) return undefined;
 
-  const fileName = collection === 'math-statistics-expressions'
-    ? getMathStatisticsExpressionsImageFileName(metadata, true)
-    : collection === 'math-polygons'
-      ? getMathPolygonsImageFileName(metadata, true)
-      : collection === 'science-particle-model'
-        ? getScienceParticleModelImageFileName(metadata, true)
-        : collection === 'science-digestive-system'
-          ? getScienceDigestiveImageFileName(metadata, true)
-          : collection === 'science-force-motion'
-            ? getScienceForceMotionImageFileName(metadata, true)
-            : collection === 'science-chemistry-reactions'
-              ? getScienceChemistryReactionsImageFileName(metadata, true)
-              : getScienceGeneralMotionImageFileName(metadata, true);
+  const fileName = collection === 'math-geometry-construction'
+    ? getMathGeometryConstructionImageFileName(metadata, true)
+    : collection === 'math-statistics-expressions'
+      ? getMathStatisticsExpressionsImageFileName(metadata, true)
+      : collection === 'math-polygons'
+        ? getMathPolygonsImageFileName(metadata, true)
+        : collection === 'science-particle-model'
+          ? getScienceParticleModelImageFileName(metadata, true)
+          : collection === 'science-digestive-system'
+            ? getScienceDigestiveImageFileName(metadata, true)
+            : collection === 'science-force-motion'
+              ? getScienceForceMotionImageFileName(metadata, true)
+              : collection === 'science-chemistry-reactions'
+                ? getScienceChemistryReactionsImageFileName(metadata, true)
+                : getScienceGeneralMotionImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };

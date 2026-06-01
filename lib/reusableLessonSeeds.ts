@@ -35,6 +35,12 @@ import {
   getMathStatisticsExpressionsK12PlanUnitSlidesSeed,
   isReusableMathStatisticsExpressionsLesson,
 } from './mathStatisticsExpressionsLessonSeed';
+import {
+  getMathGeometryConstructionK12CompleteLessonPlanSeed,
+  getMathGeometryConstructionK12LessonPlanSeed,
+  getMathGeometryConstructionK12PlanUnitSlidesSeed,
+  isReusableMathGeometryConstructionLesson,
+} from './mathGeometryConstructionLessonSeed';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -1144,6 +1150,7 @@ export const getReusableK12LessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12LessonPlanSeed();
   if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12LessonPlanSeed();
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12LessonPlanSeed();
   if (isReusableForceMotionLesson(content)) return getForceMotionK12LessonPlanSeed();
@@ -1168,6 +1175,7 @@ export const getReusableK12PlanUnitSlidesSeed = (
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableForceMotionLesson(content)) return getForceMotionK12PlanUnitSlidesSeed(dayNumber);
@@ -1184,6 +1192,7 @@ export const getReusableK12CompleteLessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12CompleteLessonPlanSeed();
   if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12CompleteLessonPlanSeed();
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12CompleteLessonPlanSeed();
   if (isReusableForceMotionLesson(content)) return getForceMotionK12CompleteLessonPlanSeed();
