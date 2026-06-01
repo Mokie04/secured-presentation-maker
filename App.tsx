@@ -79,6 +79,7 @@ const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-week1-approved-v6';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'math-polygons': '/curated-images/math/polygons',
+  'math-statistics-expressions': '/curated-images/math/statistics-expressions',
   'science-particle-model': '/curated-images/science/particle-model',
   'science-digestive-system': '/curated-images/science/digestive-system',
   'science-force-motion': '/curated-images/science/force-motion',
@@ -120,6 +121,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'g7-hd-polygon-sort.png',
     summary: 'g7-hd-measurement-audit.png',
     'success-criteria': 'g7-hd-side-angle-lab.png',
+  },
+  'math-statistics-expressions': {
+    activity: 'g8-hd-evidence-conclusion-card.png',
+    application: 'g8-hd-data-expression-brief.png',
+    assignment: 'g8-hd-data-expression-brief.png',
+    assessment: 'g8-hd-three-measures-exit.png',
+    concept: 'g8-hd-stat-algebra-overview.png',
+    content: 'g8-hd-stat-algebra-overview.png',
+    discussion: 'g8-hd-outlier-measure-match.png',
+    generalization: 'g8-hd-evidence-conclusion-card.png',
+    model: 'g8-hd-notebook-cost-expression.png',
+    objectives: 'g8-hd-stat-algebra-overview.png',
+    overview: 'g8-hd-stat-algebra-overview.png',
+    practice: 'g8-hd-table-rule-expression.png',
+    review: 'g8-hd-statistics-algebra-sort.png',
+    situation: 'g8-hd-typical-score-prediction.png',
+    summary: 'g8-hd-data-expression-brief.png',
+    'success-criteria': 'g8-hd-data-expression-brief.png',
   },
   'science-particle-model': {
     activity: 'particle-evidence.png',
@@ -433,6 +452,37 @@ const isMathPolygonsSemanticSubject = (metadata: ImageSemanticMetadata): boolean
   return hasMathSubject && hasPolygonTopic;
 };
 
+const isMathStatisticsExpressionsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasMathSubject = subjectSlug === 'mathematics'
+    || subjectSlug === 'math'
+    || searchable.includes('mathematics')
+    || searchable.includes('math');
+  const hasStatisticsOrExpressionTopic = searchable.includes('measures-of-central-tendency')
+    || searchable.includes('mean')
+    || searchable.includes('median')
+    || searchable.includes('mode')
+    || searchable.includes('ungrouped-data')
+    || searchable.includes('statistical-data')
+    || searchable.includes('data-conclusion')
+    || searchable.includes('computed-evidence')
+    || searchable.includes('outlier')
+    || searchable.includes('algebraic-expression')
+    || searchable.includes('expression-model')
+    || searchable.includes('variable')
+    || searchable.includes('constant')
+    || searchable.includes('table-rule-expression');
+
+  return hasMathSubject && hasStatisticsOrExpressionTopic;
+};
+
 const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
   const subjectSlug = slugifyImageSemanticText(metadata.subject);
   const searchable = slugifyImageSemanticText([
@@ -646,6 +696,7 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isMathStatisticsExpressionsSemanticSubject(metadata)) return 'math-statistics-expressions';
   if (isMathPolygonsSemanticSubject(metadata)) return 'math-polygons';
   if (isScienceChemistryReactionsSemanticSubject(metadata)) return 'science-chemistry-reactions';
   if (isScienceGeneralMotionSemanticSubject(metadata)) return 'science-general-motion';
@@ -1226,6 +1277,85 @@ const getMathPolygonsImageFileName = (
   return templateMap?.[template] || templateMap?.content;
 };
 
+const getMathStatisticsExpressionsImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['measures-of-central-tendency-conclusions-and-algebraic-expressions', 'g8-hd-stat-algebra-overview.png'],
+    ['learning-roadmap', 'g8-hd-stat-algebra-overview.png'],
+    ['how-we-will-work-like-data-thinkers', 'g8-hd-stat-algebra-overview.png'],
+
+    ['what-makes-a-score-typical', 'g8-hd-typical-score-prediction.png'],
+    ['today-s-three-measure-evidence-path', 'g8-hd-mean-median-mode-worked.png'],
+    ['todays-three-measure-evidence-path', 'g8-hd-mean-median-mode-worked.png'],
+    ['evidence-goal-mean-median-mode', 'g8-hd-mean-median-mode-worked.png'],
+    ['typical-score-prediction', 'g8-hd-typical-score-prediction.png'],
+    ['ordered-data-strip', 'g8-hd-ordered-data-strip.png'],
+    ['mean-median-mode-worked-set', 'g8-hd-mean-median-mode-worked.png'],
+    ['output-check-computation-table', 'g8-hd-mean-median-mode-worked.png'],
+    ['team-roles-and-calculation-checks', 'g8-hd-mean-median-mode-worked.png'],
+    ['outlier-measure-match', 'g8-hd-outlier-measure-match.png'],
+    ['what-each-measure-really-says', 'g8-hd-mean-median-mode-worked.png'],
+    ['three-measures-exit', 'g8-hd-three-measures-exit.png'],
+
+    ['can-a-correct-average-mislead', 'g8-hd-average-trust-test.png'],
+    ['today-s-supported-conclusion-path', 'g8-hd-evidence-conclusion-card.png'],
+    ['todays-supported-conclusion-path', 'g8-hd-evidence-conclusion-card.png'],
+    ['evidence-goal-supported-conclusions', 'g8-hd-evidence-conclusion-card.png'],
+    ['average-trust-test', 'g8-hd-average-trust-test.png'],
+    ['question-before-measure', 'g8-hd-question-before-measure.png'],
+    ['evidence-based-conclusion-set', 'g8-hd-evidence-conclusion-card.png'],
+    ['output-check-conclusion-evidence-card', 'g8-hd-evidence-conclusion-card.png'],
+    ['team-roles-and-evidence-checks', 'g8-hd-evidence-conclusion-card.png'],
+    ['misleading-average-clinic', 'g8-hd-misleading-average-clinic.png'],
+    ['honest-data-conclusion-conference', 'g8-hd-evidence-conclusion-card.png'],
+    ['supported-conclusion-exit', 'g8-hd-evidence-conclusion-card.png'],
+
+    ['what-should-the-letter-represent', 'g8-hd-quantity-hunt.png'],
+    ['today-s-expression-modeling-path', 'g8-hd-table-rule-expression.png'],
+    ['todays-expression-modeling-path', 'g8-hd-table-rule-expression.png'],
+    ['evidence-goal-context-to-expression', 'g8-hd-notebook-cost-expression.png'],
+    ['quantity-hunt', 'g8-hd-quantity-hunt.png'],
+    ['notebook-cost-expression', 'g8-hd-notebook-cost-expression.png'],
+    ['table-rule-expression-match', 'g8-hd-table-rule-expression.png'],
+    ['output-check-representation-table', 'g8-hd-table-rule-expression.png'],
+    ['team-roles-and-meaning-checks', 'g8-hd-table-rule-expression.png'],
+    ['expression-match-repair', 'g8-hd-expression-repair.png'],
+    ['variable-definition-conference', 'g8-hd-notebook-cost-expression.png'],
+    ['context-to-expression-exit', 'g8-hd-notebook-cost-expression.png'],
+
+    ['what-tool-fits-the-situation', 'g8-hd-statistics-algebra-sort.png'],
+    ['which-tool-fits-the-situation', 'g8-hd-statistics-algebra-sort.png'],
+    ['today-s-mixed-tool-evidence-path', 'g8-hd-data-expression-brief.png'],
+    ['todays-mixed-tool-evidence-path', 'g8-hd-data-expression-brief.png'],
+    ['evidence-goal-statistics-and-algebra-together', 'g8-hd-stat-algebra-overview.png'],
+    ['statistics-or-algebra-sort', 'g8-hd-statistics-algebra-sort.png'],
+    ['study-minutes-data-investigation', 'g8-hd-study-minutes-investigation.png'],
+    ['daily-target-model', 'g8-hd-daily-target-model.png'],
+    ['data-and-expression-brief', 'g8-hd-data-expression-brief.png'],
+    ['output-check-mini-report', 'g8-hd-data-expression-brief.png'],
+    ['peer-review-and-revision', 'g8-hd-data-expression-brief.png'],
+    ['average-warning-discussion', 'g8-hd-misleading-average-clinic.png'],
+    ['mixed-tool-exit', 'g8-hd-data-expression-brief.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-statistics-expressions'];
+  return templateMap?.[template] || templateMap?.content;
+};
+
 const buildCuratedStaticImageUrl = (basePath: string, fileName: string): string => (
   `${basePath}/${fileName}?v=${CURATED_STATIC_IMAGE_ASSET_VERSION}`
 );
@@ -1243,17 +1373,19 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'math-polygons'
-    ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'science-digestive-system'
-      ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collection === 'science-force-motion'
-        ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collection === 'science-chemistry-reactions'
-          ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-          : collection === 'science-general-motion'
-            ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-            : collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'math-statistics-expressions'
+    ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    : collection === 'math-polygons'
+      ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collection === 'science-digestive-system'
+        ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        : collection === 'science-force-motion'
+          ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          : collection === 'science-chemistry-reactions'
+            ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+            : collection === 'science-general-motion'
+              ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+              : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1262,7 +1394,8 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (
-    collection !== 'math-polygons'
+    collection !== 'math-statistics-expressions'
+    && collection !== 'math-polygons'
     && collection !== 'science-particle-model'
     && collection !== 'science-digestive-system'
     && collection !== 'science-force-motion'
@@ -1270,17 +1403,19 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
     && collection !== 'science-general-motion'
   ) return undefined;
 
-  const fileName = collection === 'math-polygons'
-    ? getMathPolygonsImageFileName(metadata, true)
-    : collection === 'science-particle-model'
-      ? getScienceParticleModelImageFileName(metadata, true)
-      : collection === 'science-digestive-system'
-        ? getScienceDigestiveImageFileName(metadata, true)
-        : collection === 'science-force-motion'
-          ? getScienceForceMotionImageFileName(metadata, true)
-          : collection === 'science-chemistry-reactions'
-            ? getScienceChemistryReactionsImageFileName(metadata, true)
-            : getScienceGeneralMotionImageFileName(metadata, true);
+  const fileName = collection === 'math-statistics-expressions'
+    ? getMathStatisticsExpressionsImageFileName(metadata, true)
+    : collection === 'math-polygons'
+      ? getMathPolygonsImageFileName(metadata, true)
+      : collection === 'science-particle-model'
+        ? getScienceParticleModelImageFileName(metadata, true)
+        : collection === 'science-digestive-system'
+          ? getScienceDigestiveImageFileName(metadata, true)
+          : collection === 'science-force-motion'
+            ? getScienceForceMotionImageFileName(metadata, true)
+            : collection === 'science-chemistry-reactions'
+              ? getScienceChemistryReactionsImageFileName(metadata, true)
+              : getScienceGeneralMotionImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };

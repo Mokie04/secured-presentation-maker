@@ -29,6 +29,12 @@ import {
   getMathPolygonsK12PlanUnitSlidesSeed,
   isReusableMathPolygonsLesson,
 } from './mathPolygonsLessonSeed';
+import {
+  getMathStatisticsExpressionsK12CompleteLessonPlanSeed,
+  getMathStatisticsExpressionsK12LessonPlanSeed,
+  getMathStatisticsExpressionsK12PlanUnitSlidesSeed,
+  isReusableMathStatisticsExpressionsLesson,
+} from './mathStatisticsExpressionsLessonSeed';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -1138,6 +1144,7 @@ export const getReusableK12LessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12LessonPlanSeed();
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12LessonPlanSeed();
   if (isReusableForceMotionLesson(content)) return getForceMotionK12LessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12LessonPlanSeed();
@@ -1161,6 +1168,7 @@ export const getReusableK12PlanUnitSlidesSeed = (
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableForceMotionLesson(content)) return getForceMotionK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableDigestiveLesson(content)) return getDigestiveK12PlanUnitSlidesSeed(dayNumber);
@@ -1176,6 +1184,7 @@ export const getReusableK12CompleteLessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12CompleteLessonPlanSeed();
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12CompleteLessonPlanSeed();
   if (isReusableForceMotionLesson(content)) return getForceMotionK12CompleteLessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12CompleteLessonPlanSeed();
