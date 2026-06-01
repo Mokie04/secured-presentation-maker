@@ -1,4 +1,8 @@
 import type { ImageSemanticMetadata, LessonBlueprint, Presentation, Slide } from '../types';
+import {
+  validateK12ScienceSessionPresentation,
+  type SessionPresentationQualityResult,
+} from './presentationStandards';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -636,6 +640,35 @@ const cloneBlueprint = (): LessonBlueprint => ({
   days: forceMotionBlueprint.days.map((day) => ({ ...day })),
 });
 
+const forceMotionMainActivityByDayNumber: Record<number, string> = {
+  1: 'Inertia Demo and Net-Force Line',
+  2: 'Motion Change Evidence Table',
+  3: 'Pull Strength Data Trial',
+  4: 'Worked Acceleration Case Set',
+};
+
+export const validateForceMotionK12PlanUnitSlidesSeed = (
+  dayNumber: number,
+  slides: Slide[] = getSessionSlides(dayNumber),
+): SessionPresentationQualityResult => {
+  const structure = sessionStructure[dayNumber];
+  return validateK12ScienceSessionPresentation(slides, {
+    subject: forceMotionBlueprint.subject,
+    gradeLevel: forceMotionBlueprint.gradeLevel,
+    sessionNumber: dayNumber,
+    objective: structure?.objective,
+    expectedOutput: structure?.output,
+    mainActivityTitle: forceMotionMainActivityByDayNumber[dayNumber],
+    minSlides: 8,
+    maxSlides: 14,
+    minPromptsPerSlide: dayNumber === 1 ? 4 : 3,
+    maxPromptsPerSlide: 6,
+    maxPromptLength: 72,
+    requireEvidenceImages: true,
+    requirePhotorealisticScienceVisuals: true,
+  });
+};
+
 export const getForceMotionK12LessonPlanSeed = (): CachedLessonPlanSeed => {
   const blueprint = cloneBlueprint();
   return {
@@ -649,6 +682,14 @@ export const getForceMotionK12LessonPlanSeed = (): CachedLessonPlanSeed => {
 
 export const getForceMotionK12PlanUnitSlidesSeed = (dayNumber: number): Slide[] | null => {
   const slides = getSessionSlides(dayNumber);
+  const qualityResult = validateForceMotionK12PlanUnitSlidesSeed(dayNumber, slides);
+  if (!qualityResult.ok) {
+    console.warn('Force motion reusable session deck failed quality validation.', {
+      dayNumber,
+      score: qualityResult.score,
+      issues: qualityResult.issues,
+    });
+  }
   return slides.length > 0 ? cloneSlides(slides) : null;
 };
 
