@@ -82,6 +82,7 @@ const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'math-statistics-expressions': '/curated-images/math/statistics-expressions',
   'math-geometry-construction': '/curated-images/math/geometry-construction',
   'math-law-of-sines': '/curated-images/math/law-of-sines',
+  'math-wages-income': '/curated-images/math/wages-income',
   'science-particle-model': '/curated-images/science/particle-model',
   'science-digestive-system': '/curated-images/science/digestive-system',
   'science-force-motion': '/curated-images/science/force-motion',
@@ -177,6 +178,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'g10m-hd-opposite-pair-warmup.png',
     summary: 'g10m-hd-law-sines-performance.png',
     'success-criteria': 'g10m-hd-setup-checkpoint.png',
+  },
+  'math-wages-income': {
+    activity: 'g11m-hd-two-column-solution.png',
+    application: 'g11m-hd-portfolio-work.png',
+    assignment: 'g11m-hd-pay-brief-template.png',
+    assessment: 'g11m-hd-rubric-peer-review.png',
+    concept: 'g11m-hd-income-overview.png',
+    content: 'g11m-hd-income-overview.png',
+    discussion: 'g11m-hd-sample-answer-check.png',
+    generalization: 'g11m-hd-comparison-model.png',
+    model: 'g11m-hd-salary-hourly-worked.png',
+    objectives: 'g11m-hd-income-overview.png',
+    overview: 'g11m-hd-income-overview.png',
+    practice: 'g11m-hd-guided-payroll-pair.png',
+    review: 'g11m-hd-method-choice-check.png',
+    situation: 'g11m-hd-diagnostic-payroll-markup.png',
+    summary: 'g11m-hd-pay-brief-template.png',
+    'success-criteria': 'g11m-hd-pay-brief-template.png',
   },
   'science-particle-model': {
     activity: 'particle-evidence.png',
@@ -585,6 +604,39 @@ const isMathLawOfSinesSemanticSubject = (metadata: ImageSemanticMetadata): boole
   return hasMathSubject && hasLawOfSinesTopic;
 };
 
+const isMathWagesIncomeSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasMathSubject = subjectSlug === 'mathematics'
+    || subjectSlug === 'math'
+    || subjectSlug === 'general-mathematics'
+    || searchable.includes('mathematics')
+    || searchable.includes('math');
+  const hasWagesIncomeTopic = searchable.includes('wage')
+    || searchable.includes('salary')
+    || searchable.includes('benefit')
+    || searchable.includes('deduction')
+    || searchable.includes('commission')
+    || searchable.includes('piecework')
+    || searchable.includes('gross-income')
+    || searchable.includes('net-income')
+    || searchable.includes('overtime')
+    || searchable.includes('allowance')
+    || searchable.includes('payroll')
+    || searchable.includes('first-job')
+    || searchable.includes('source-data')
+    || searchable.includes('pay-computation-brief')
+    || searchable.includes('portfolio');
+
+  return hasMathSubject && hasWagesIncomeTopic;
+};
+
 const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
   const subjectSlug = slugifyImageSemanticText(metadata.subject);
   const searchable = slugifyImageSemanticText([
@@ -798,6 +850,7 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isMathWagesIncomeSemanticSubject(metadata)) return 'math-wages-income';
   if (isMathLawOfSinesSemanticSubject(metadata)) return 'math-law-of-sines';
   if (isMathGeometryConstructionSemanticSubject(metadata)) return 'math-geometry-construction';
   if (isMathStatisticsExpressionsSemanticSubject(metadata)) return 'math-statistics-expressions';
@@ -1621,6 +1674,86 @@ const getMathLawOfSinesImageFileName = (
   return templateMap?.[template] || templateMap?.content;
 };
 
+const getMathWagesIncomeImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['wages-benefits-deductions-and-net-income', 'g11m-hd-income-overview.png'],
+    ['learning-roadmap', 'g11m-hd-income-overview.png'],
+    ['how-we-will-work-like-financial-problem-solvers', 'g11m-hd-income-overview.png'],
+
+    ['what-does-this-paycheck-number-mean', 'g11m-hd-diagnostic-payroll-markup.png'],
+    ['today-s-payroll-meaning-path', 'g11m-hd-two-column-solution.png'],
+    ['todays-payroll-meaning-path', 'g11m-hd-two-column-solution.png'],
+    ['evidence-goal-quantities-units-and-meaning', 'g11m-hd-income-overview.png'],
+    ['diagnostic-payroll-mark-up', 'g11m-hd-diagnostic-payroll-markup.png'],
+    ['salary-and-hourly-offer-worked-example', 'g11m-hd-salary-hourly-worked.png'],
+    ['guided-payroll-pair-practice', 'g11m-hd-guided-payroll-pair.png'],
+    ['two-column-solution', 'g11m-hd-two-column-solution.png'],
+    ['output-check-two-column-solution', 'g11m-hd-two-column-solution.png'],
+    ['gross-and-net-income-error-repair', 'g11m-hd-gross-net-error.png'],
+    ['reasonableness-conference', 'g11m-hd-two-column-solution.png'],
+    ['payroll-meaning-exit', 'g11m-hd-gross-net-error.png'],
+
+    ['what-method-fits-this-payroll-problem', 'g11m-hd-method-choice-check.png'],
+    ['which-method-fits-this-payroll-problem', 'g11m-hd-method-choice-check.png'],
+    ['today-s-multi-step-method-path', 'g11m-hd-math-decision-board.png'],
+    ['todays-multi-step-method-path', 'g11m-hd-math-decision-board.png'],
+    ['evidence-goal-method-choice-and-verification', 'g11m-hd-method-choice-check.png'],
+    ['method-choice-check', 'g11m-hd-method-choice-check.png'],
+    ['gross-to-net-sequence-model', 'g11m-hd-gross-net-sequence.png'],
+    ['math-decision-board', 'g11m-hd-math-decision-board.png'],
+    ['output-check-decision-board', 'g11m-hd-math-decision-board.png'],
+    ['spreadsheet-verification', 'g11m-hd-spreadsheet-verification.png'],
+    ['sample-answer-check', 'g11m-hd-sample-answer-check.png'],
+    ['technology-is-not-a-black-box', 'g11m-hd-spreadsheet-verification.png'],
+    ['net-weekly-income-exit', 'g11m-hd-sample-answer-check.png'],
+
+    ['what-pay-option-should-we-recommend', 'g11m-hd-decision-prompt.png'],
+    ['which-pay-option-should-we-recommend', 'g11m-hd-decision-prompt.png'],
+    ['today-s-recommendation-evidence-path', 'g11m-hd-criteria-matrix.png'],
+    ['todays-recommendation-evidence-path', 'g11m-hd-criteria-matrix.png'],
+    ['evidence-goal-compare-evaluate-defend', 'g11m-hd-comparison-model.png'],
+    ['decision-prompt', 'g11m-hd-decision-prompt.png'],
+    ['comparison-model', 'g11m-hd-comparison-model.png'],
+    ['criteria-matrix', 'g11m-hd-criteria-matrix.png'],
+    ['output-check-criteria-matrix', 'g11m-hd-criteria-matrix.png'],
+    ['recommendation-draft', 'g11m-hd-recommendation-draft.png'],
+    ['peer-feedback-and-revision', 'g11m-hd-peer-feedback-revision.png'],
+    ['recommendation-conference', 'g11m-hd-comparison-model.png'],
+    ['evidence-highlight-exit', 'g11m-hd-peer-feedback-revision.png'],
+
+    ['what-makes-a-pay-brief-portfolio-ready', 'g11m-hd-portfolio-readiness.png'],
+    ['today-s-portfolio-brief-path', 'g11m-hd-pay-brief-template.png'],
+    ['todays-portfolio-brief-path', 'g11m-hd-pay-brief-template.png'],
+    ['evidence-goal-accurate-clear-ethical-brief', 'g11m-hd-portfolio-readiness.png'],
+    ['portfolio-readiness-check', 'g11m-hd-portfolio-readiness.png'],
+    ['weak-and-strong-output-review', 'g11m-hd-strong-weak-output.png'],
+    ['pay-computation-brief', 'g11m-hd-pay-brief-template.png'],
+    ['output-check-pay-computation-brief', 'g11m-hd-pay-brief-template.png'],
+    ['independent-portfolio-work', 'g11m-hd-portfolio-work.png'],
+    ['rubric-peer-review', 'g11m-hd-rubric-peer-review.png'],
+    ['privacy-and-source-check', 'g11m-hd-portfolio-readiness.png'],
+    ['portfolio-reflection-exit', 'g11m-hd-rubric-peer-review.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-wages-income'];
+  return templateMap?.[template] || templateMap?.content;
+};
+
 const buildCuratedStaticImageUrl = (basePath: string, fileName: string): string => (
   `${basePath}/${fileName}?v=${CURATED_STATIC_IMAGE_ASSET_VERSION}`
 );
@@ -1638,23 +1771,25 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'math-law-of-sines'
-    ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'math-geometry-construction'
-      ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collection === 'math-statistics-expressions'
-        ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collection === 'math-polygons'
-          ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-          : collection === 'science-digestive-system'
-            ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-            : collection === 'science-force-motion'
-              ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-              : collection === 'science-chemistry-reactions'
-                ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                : collection === 'science-general-motion'
-                  ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                  : collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'math-wages-income'
+    ? getMathWagesIncomeImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    : collection === 'math-law-of-sines'
+      ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collection === 'math-geometry-construction'
+        ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        : collection === 'math-statistics-expressions'
+          ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          : collection === 'math-polygons'
+            ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+            : collection === 'science-digestive-system'
+              ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+              : collection === 'science-force-motion'
+                ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                : collection === 'science-chemistry-reactions'
+                  ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                  : collection === 'science-general-motion'
+                    ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                    : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1663,7 +1798,8 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (
-    collection !== 'math-law-of-sines'
+    collection !== 'math-wages-income'
+    && collection !== 'math-law-of-sines'
     && collection !== 'math-geometry-construction'
     && collection !== 'math-statistics-expressions'
     && collection !== 'math-polygons'
@@ -1674,23 +1810,25 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
     && collection !== 'science-general-motion'
   ) return undefined;
 
-  const fileName = collection === 'math-law-of-sines'
-    ? getMathLawOfSinesImageFileName(metadata, true)
-    : collection === 'math-geometry-construction'
-      ? getMathGeometryConstructionImageFileName(metadata, true)
-      : collection === 'math-statistics-expressions'
-        ? getMathStatisticsExpressionsImageFileName(metadata, true)
-        : collection === 'math-polygons'
-          ? getMathPolygonsImageFileName(metadata, true)
-          : collection === 'science-particle-model'
-            ? getScienceParticleModelImageFileName(metadata, true)
-            : collection === 'science-digestive-system'
-              ? getScienceDigestiveImageFileName(metadata, true)
-              : collection === 'science-force-motion'
-                ? getScienceForceMotionImageFileName(metadata, true)
-                : collection === 'science-chemistry-reactions'
-                  ? getScienceChemistryReactionsImageFileName(metadata, true)
-                  : getScienceGeneralMotionImageFileName(metadata, true);
+  const fileName = collection === 'math-wages-income'
+    ? getMathWagesIncomeImageFileName(metadata, true)
+    : collection === 'math-law-of-sines'
+      ? getMathLawOfSinesImageFileName(metadata, true)
+      : collection === 'math-geometry-construction'
+        ? getMathGeometryConstructionImageFileName(metadata, true)
+        : collection === 'math-statistics-expressions'
+          ? getMathStatisticsExpressionsImageFileName(metadata, true)
+          : collection === 'math-polygons'
+            ? getMathPolygonsImageFileName(metadata, true)
+            : collection === 'science-particle-model'
+              ? getScienceParticleModelImageFileName(metadata, true)
+              : collection === 'science-digestive-system'
+                ? getScienceDigestiveImageFileName(metadata, true)
+                : collection === 'science-force-motion'
+                  ? getScienceForceMotionImageFileName(metadata, true)
+                  : collection === 'science-chemistry-reactions'
+                    ? getScienceChemistryReactionsImageFileName(metadata, true)
+                    : getScienceGeneralMotionImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
