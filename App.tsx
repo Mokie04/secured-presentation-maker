@@ -75,12 +75,13 @@ const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-science-week1-approved-v3';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-science-week1-approved-v4';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
   'science-digestive-system': '/curated-images/science/digestive-system',
   'science-force-motion': '/curated-images/science/force-motion',
+  'science-chemistry-reactions': '/curated-images/science/chemistry-reactions',
 };
 const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string, string>> = {
   'values-education': {
@@ -158,6 +159,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'g9-hd-seatbelt-sort.png',
     summary: 'g9-hd-fma-model.png',
     'success-criteria': 'g9-hd-output-table.png',
+  },
+  'science-chemistry-reactions': {
+    activity: 'g10-hd-micro-reaction-table.png',
+    application: 'g10-hd-reaction-card-exit.png',
+    assignment: 'g10-hd-reaction-card-exit.png',
+    assessment: 'g10-hd-reaction-card-exit.png',
+    concept: 'g10-hd-reaction-overview.png',
+    content: 'g10-hd-reaction-overview.png',
+    discussion: 'g10-hd-evidence-ladder.png',
+    generalization: 'g10-hd-evidence-ladder.png',
+    model: 'g10-hd-reaction-card-exit.png',
+    objectives: 'g10-hd-reaction-overview.png',
+    overview: 'g10-hd-reaction-overview.png',
+    practice: 'g10-hd-micro-reaction-table.png',
+    review: 'g10-hd-evidence-ladder.png',
+    situation: 'g10-hd-reaction-overview.png',
+    summary: 'g10-hd-reaction-card-exit.png',
+    'success-criteria': 'g10-hd-micro-reaction-table.png',
   },
 };
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
@@ -426,6 +445,38 @@ const isScienceForceMotionSemanticSubject = (metadata: ImageSemanticMetadata): b
   return hasScienceSubject && hasForceMotionTopic;
 };
 
+const isScienceChemistryReactionsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasScienceSubject = subjectSlug === 'science'
+    || subjectSlug.includes('science')
+    || searchable.includes('science');
+  const hasChemistryTopic = searchable.includes('reaction-indicator')
+    || searchable.includes('chemical-reaction')
+    || searchable.includes('acid-base')
+    || searchable.includes('acid')
+    || searchable.includes('base')
+    || searchable.includes('salt')
+    || searchable.includes('indicator')
+    || searchable.includes('red-cabbage')
+    || searchable.includes('litmus')
+    || searchable.includes('ph-paper')
+    || searchable.includes('neutralization')
+    || searchable.includes('unknown-sample')
+    || searchable.includes('micro-reaction')
+    || searchable.includes('color-trail')
+    || searchable.includes('vinegar')
+    || searchable.includes('baking-soda');
+
+  return hasScienceSubject && hasChemistryTopic;
+};
+
 const LEGACY_SCIENCE_PARTICLE_MODEL_STATIC_FILES = new Set([
   'air-compression.png',
   'assessment.png',
@@ -492,6 +543,7 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isScienceChemistryReactionsSemanticSubject(metadata)) return 'science-chemistry-reactions';
   if (isScienceForceMotionSemanticSubject(metadata)) return 'science-force-motion';
   if (isScienceParticleModelSemanticSubject(metadata)) return 'science-particle-model';
   if (isScienceDigestiveSemanticSubject(metadata)) return 'science-digestive-system';
@@ -650,6 +702,81 @@ const getScienceDigestiveImageFileName = (
   }
 
   const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['science-digestive-system'];
+  return templateMap?.[template] || templateMap?.content;
+};
+
+const getScienceChemistryReactionsImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['reaction-indicators-acids-bases-and-salts', 'g10-hd-reaction-overview.png'],
+    ['how-can-evidence-show-a-chemical-reaction', 'g10-hd-reaction-overview.png'],
+    ['today-s-reaction-evidence-path', 'g10-hd-micro-reaction-table.png'],
+    ['todays-reaction-evidence-path', 'g10-hd-micro-reaction-table.png'],
+    ['evidence-goal-reaction-indicators', 'g10-hd-reaction-overview.png'],
+    ['change-evidence-warm-up', 'g10-hd-reaction-overview.png'],
+    ['micro-reaction-evidence-table', 'g10-hd-micro-reaction-table.png'],
+    ['output-check-reaction-evidence-table', 'g10-hd-micro-reaction-table.png'],
+    ['team-roles-and-safety-micro-reactions', 'g10-hd-micro-reaction-table.png'],
+    ['evidence-ladder-discussion', 'g10-hd-evidence-ladder.png'],
+    ['reaction-evidence-card', 'g10-hd-reaction-card-exit.png'],
+    ['reaction-evidence-caution', 'g10-hd-evidence-ladder.png'],
+    ['evidence-exit-sort', 'g10-hd-reaction-card-exit.png'],
+
+    ['how-can-an-indicator-replace-guessing', 'g10-hd-indicator-color-trail.png'],
+    ['today-s-indicator-evidence-path', 'g10-hd-indicator-color-trail.png'],
+    ['todays-indicator-evidence-path', 'g10-hd-indicator-color-trail.png'],
+    ['evidence-goal-indicator-classification', 'g10-hd-indicator-color-trail.png'],
+    ['safe-indicator-prediction', 'g10-hd-indicator-color-trail.png'],
+    ['indicator-color-trail', 'g10-hd-indicator-color-trail.png'],
+    ['output-check-color-trail-table', 'g10-hd-indicator-color-trail.png'],
+    ['team-roles-and-safety-indicators', 'g10-hd-indicator-color-trail.png'],
+    ['color-evidence-conference', 'g10-hd-indicator-color-trail.png'],
+    ['unknown-sample-evidence-trail', 'g10-hd-unknown-evidence-trail.png'],
+    ['tasting-is-not-evidence', 'g10-hd-unknown-evidence-trail.png'],
+    ['indicator-safety-exit', 'g10-hd-unknown-evidence-trail.png'],
+
+    ['what-changes-drop-by-drop', 'g10-hd-neutralization-sequence.png'],
+    ['today-s-neutralization-evidence-path', 'g10-hd-neutralization-sequence.png'],
+    ['todays-neutralization-evidence-path', 'g10-hd-neutralization-sequence.png'],
+    ['evidence-goal-neutralization', 'g10-hd-neutralization-sequence.png'],
+    ['drop-by-drop-forecast', 'g10-hd-neutralization-sequence.png'],
+    ['neutralization-color-sequence', 'g10-hd-neutralization-sequence.png'],
+    ['output-check-drop-count-sequence-table', 'g10-hd-neutralization-sequence.png'],
+    ['team-roles-and-safety-neutralization', 'g10-hd-neutralization-model.png'],
+    ['what-changed-discussion', 'g10-hd-neutralization-model.png'],
+    ['before-during-after-neutralization-model', 'g10-hd-neutralization-model.png'],
+    ['near-neutral-does-not-mean-nothing', 'g10-hd-neutralization-model.png'],
+    ['neutralization-interpretation-slip', 'g10-hd-neutralization-model.png'],
+
+    ['how-do-scientists-classify-an-unknown-safely', 'g10-hd-unknown-investigation.png'],
+    ['today-s-unknown-evidence-path', 'g10-hd-unknown-investigation.png'],
+    ['todays-unknown-evidence-path', 'g10-hd-unknown-investigation.png'],
+    ['evidence-goal-unknown-classification', 'g10-hd-unknown-investigation.png'],
+    ['evidence-before-claim', 'g10-hd-unknown-investigation.png'],
+    ['unknown-sample-investigation', 'g10-hd-unknown-investigation.png'],
+    ['output-check-unknown-sample-table', 'g10-hd-unknown-investigation.png'],
+    ['team-roles-and-safety-unknowns', 'g10-hd-unknown-investigation.png'],
+    ['disagreement-clinic', 'g10-hd-unknown-cer-mastery.png'],
+    ['unknown-sample-cer-brief', 'g10-hd-unknown-cer-mastery.png'],
+    ['likely-or-unsure-is-scientific', 'g10-hd-unknown-cer-mastery.png'],
+    ['individual-mastery-case', 'g10-hd-unknown-cer-mastery.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['science-chemistry-reactions'];
   return templateMap?.[template] || templateMap?.content;
 };
 
@@ -858,7 +985,9 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
     ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
     : collection === 'science-force-motion'
       ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collectionMap?.[template] || collectionMap?.content;
+      : collection === 'science-chemistry-reactions'
+        ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -866,13 +995,20 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
-  if (collection !== 'science-particle-model' && collection !== 'science-digestive-system' && collection !== 'science-force-motion') return undefined;
+  if (
+    collection !== 'science-particle-model'
+    && collection !== 'science-digestive-system'
+    && collection !== 'science-force-motion'
+    && collection !== 'science-chemistry-reactions'
+  ) return undefined;
 
   const fileName = collection === 'science-particle-model'
     ? getScienceParticleModelImageFileName(metadata, true)
     : collection === 'science-digestive-system'
       ? getScienceDigestiveImageFileName(metadata, true)
-      : getScienceForceMotionImageFileName(metadata, true);
+      : collection === 'science-force-motion'
+        ? getScienceForceMotionImageFileName(metadata, true)
+        : getScienceChemistryReactionsImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };

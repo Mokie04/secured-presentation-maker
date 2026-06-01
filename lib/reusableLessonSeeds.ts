@@ -6,6 +6,12 @@ import {
   isReusableDigestiveLesson,
 } from './digestiveLessonSeed';
 import {
+  getChemistryReactionsK12CompleteLessonPlanSeed,
+  getChemistryReactionsK12LessonPlanSeed,
+  getChemistryReactionsK12PlanUnitSlidesSeed,
+  isReusableChemistryReactionsLesson,
+} from './chemistryReactionsLessonSeed';
+import {
   getForceMotionK12CompleteLessonPlanSeed,
   getForceMotionK12LessonPlanSeed,
   getForceMotionK12PlanUnitSlidesSeed,
@@ -1122,6 +1128,7 @@ export const getReusableK12LessonPlanSeed = (
   if (language !== 'EN') return null;
   if (isReusableForceMotionLesson(content)) return getForceMotionK12LessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12LessonPlanSeed();
+  if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12LessonPlanSeed();
   if (!isReusableParticleModelLesson(content)) return null;
 
   const blueprint = cloneBlueprint();
@@ -1142,6 +1149,7 @@ export const getReusableK12PlanUnitSlidesSeed = (
   if (language !== 'EN') return null;
   if (isReusableForceMotionLesson(content)) return getForceMotionK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableDigestiveLesson(content)) return getDigestiveK12PlanUnitSlidesSeed(dayNumber);
+  if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12PlanUnitSlidesSeed(dayNumber);
   if (!isReusableParticleModelLesson(content)) return null;
   const slides = getSessionSlides(dayNumber);
   return slides.length > 0 ? cloneSlides(slides) : null;
@@ -1154,6 +1162,7 @@ export const getReusableK12CompleteLessonPlanSeed = (
   if (language !== 'EN') return null;
   if (isReusableForceMotionLesson(content)) return getForceMotionK12CompleteLessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12CompleteLessonPlanSeed();
+  if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12CompleteLessonPlanSeed();
   if (!isReusableParticleModelLesson(content)) return null;
 
   const blueprint = cloneBlueprint();
