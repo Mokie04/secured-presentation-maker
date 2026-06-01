@@ -53,6 +53,12 @@ import {
   getMathWagesIncomeK12PlanUnitSlidesSeed,
   isReusableMathWagesIncomeLesson,
 } from './mathWagesIncomeLessonSeed';
+import {
+  getEnglishLiteratureValuesK12CompleteLessonPlanSeed,
+  getEnglishLiteratureValuesK12LessonPlanSeed,
+  getEnglishLiteratureValuesK12PlanUnitSlidesSeed,
+  isReusableEnglishLiteratureValuesLesson,
+} from './englishLiteratureValuesLessonSeed';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -1162,6 +1168,7 @@ export const getReusableK12LessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12LessonPlanSeed();
   if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12LessonPlanSeed();
   if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12LessonPlanSeed();
   if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12LessonPlanSeed();
@@ -1189,6 +1196,7 @@ export const getReusableK12PlanUnitSlidesSeed = (
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
   if (language !== 'EN') return null;
+  if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12PlanUnitSlidesSeed(dayNumber);
@@ -1208,6 +1216,7 @@ export const getReusableK12CompleteLessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12CompleteLessonPlanSeed();
   if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12CompleteLessonPlanSeed();
   if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12CompleteLessonPlanSeed();
   if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12CompleteLessonPlanSeed();

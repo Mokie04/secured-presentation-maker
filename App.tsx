@@ -78,6 +78,7 @@ const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
 const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-week1-approved-v6';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
+  'english-literature-values': '/curated-images/english/philippine-literature-values',
   'math-polygons': '/curated-images/math/polygons',
   'math-statistics-expressions': '/curated-images/math/statistics-expressions',
   'math-geometry-construction': '/curated-images/math/geometry-construction',
@@ -106,6 +107,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'situation.jpg',
     summary: 'generalization.jpg',
     'success-criteria': 'success-criteria.jpg',
+  },
+  'english-literature-values': {
+    activity: 'g7e-hd-claim-evidence-table.png',
+    application: 'g7e-hd-four-sentence-response.png',
+    assignment: 'g7e-hd-focused-response-draft.png',
+    assessment: 'g7e-hd-revision-reflection.png',
+    concept: 'g7e-hd-literature-values-overview.png',
+    content: 'g7e-hd-literature-values-overview.png',
+    discussion: 'g7e-hd-context-meaning.png',
+    generalization: 'g7e-hd-synthesis-sentence.png',
+    model: 'g7e-hd-first-reading-trail.png',
+    objectives: 'g7e-hd-literature-values-overview.png',
+    overview: 'g7e-hd-literature-values-overview.png',
+    practice: 'g7e-hd-four-sentence-response.png',
+    review: 'g7e-hd-response-target-check.png',
+    situation: 'g7e-hd-value-lens-warmup.png',
+    summary: 'g7e-hd-focused-response-draft.png',
+    'success-criteria': 'g7e-hd-response-target-check.png',
   },
   'math-polygons': {
     activity: 'g7-hd-side-angle-lab.png',
@@ -509,6 +528,35 @@ const isMathPolygonsSemanticSubject = (metadata: ImageSemanticMetadata): boolean
   return hasMathSubject && hasPolygonTopic;
 };
 
+const isEnglishLiteratureValuesSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasEnglishSubject = subjectSlug === 'english'
+    || searchable.includes('english');
+  const hasLiteratureValuesTopic = searchable.includes('philippine-literary-text')
+    || searchable.includes('literary-text')
+    || searchable.includes('communal-value')
+    || searchable.includes('individual-value')
+    || searchable.includes('characterization')
+    || searchable.includes('character-evidence')
+    || searchable.includes('claim-evidence')
+    || searchable.includes('conflict-type')
+    || searchable.includes('plot-pressure')
+    || searchable.includes('value-under-pressure')
+    || searchable.includes('literary-response')
+    || searchable.includes('context-meaning')
+    || searchable.includes('response-draft')
+    || searchable.includes('trait-precision');
+
+  return hasEnglishSubject && hasLiteratureValuesTopic;
+};
+
 const isMathStatisticsExpressionsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
   const subjectSlug = slugifyImageSemanticText(metadata.subject);
   const searchable = slugifyImageSemanticText([
@@ -850,6 +898,7 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isEnglishLiteratureValuesSemanticSubject(metadata)) return 'english-literature-values';
   if (isMathWagesIncomeSemanticSubject(metadata)) return 'math-wages-income';
   if (isMathLawOfSinesSemanticSubject(metadata)) return 'math-law-of-sines';
   if (isMathGeometryConstructionSemanticSubject(metadata)) return 'math-geometry-construction';
@@ -1355,6 +1404,84 @@ const getScienceParticleModelImageFileName = (
   return undefined;
 };
 
+const getEnglishLiteratureValuesImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['philippine-literary-texts-as-windows-to-values-and-contexts', 'g7e-hd-literature-values-overview.png'],
+    ['learning-roadmap', 'g7e-hd-literature-values-overview.png'],
+    ['how-we-will-work-like-literary-readers', 'g7e-hd-literature-values-overview.png'],
+
+    ['what-value-does-the-text-show', 'g7e-hd-value-lens-warmup.png'],
+    ['today-s-value-evidence-path', 'g7e-hd-claim-evidence-table.png'],
+    ['todays-value-evidence-path', 'g7e-hd-claim-evidence-table.png'],
+    ['evidence-goal-detail-value-context', 'g7e-hd-literature-values-overview.png'],
+    ['value-lens-warm-up', 'g7e-hd-value-lens-warmup.png'],
+    ['first-reading-trail', 'g7e-hd-first-reading-trail.png'],
+    ['claim-and-evidence-pair-check', 'g7e-hd-claim-evidence-table.png'],
+    ['output-check-claim-evidence-table', 'g7e-hd-claim-evidence-table.png'],
+    ['context-makes-meaning', 'g7e-hd-context-meaning.png'],
+    ['four-sentence-value-response', 'g7e-hd-four-sentence-response.png'],
+    ['retelling-is-not-explaining', 'g7e-hd-four-sentence-response.png'],
+    ['value-response-exit', 'g7e-hd-four-sentence-response.png'],
+
+    ['what-does-this-line-reveal-about-the-character', 'g7e-hd-character-clue-recall.png'],
+    ['today-s-character-evidence-path', 'g7e-hd-character-claim-builder.png'],
+    ['todays-character-evidence-path', 'g7e-hd-character-claim-builder.png'],
+    ['evidence-goal-character-evidence', 'g7e-hd-four-way-evidence-hunt.png'],
+    ['character-clue-recall', 'g7e-hd-character-clue-recall.png'],
+    ['four-way-evidence-hunt', 'g7e-hd-four-way-evidence-hunt.png'],
+    ['setting-pressure-talk', 'g7e-hd-setting-pressure-talk.png'],
+    ['character-claim-builder', 'g7e-hd-character-claim-builder.png'],
+    ['output-check-character-claim', 'g7e-hd-character-claim-builder.png'],
+    ['trait-precision-exit', 'g7e-hd-trait-precision-exit.png'],
+    ['character-evidence-conference', 'g7e-hd-four-way-evidence-hunt.png'],
+    ['good-or-bad-is-not-analysis', 'g7e-hd-trait-precision-exit.png'],
+
+    ['what-force-opposes-the-character', 'g7e-hd-conflict-type-sort.png'],
+    ['today-s-conflict-evidence-path', 'g7e-hd-value-under-pressure.png'],
+    ['todays-conflict-evidence-path', 'g7e-hd-value-under-pressure.png'],
+    ['evidence-goal-conflict-choice-value', 'g7e-hd-plot-pressure-map.png'],
+    ['conflict-type-quick-sort', 'g7e-hd-conflict-type-sort.png'],
+    ['plot-pressure-map', 'g7e-hd-plot-pressure-map.png'],
+    ['value-under-pressure', 'g7e-hd-value-under-pressure.png'],
+    ['output-check-evidence-card', 'g7e-hd-value-under-pressure.png'],
+    ['synthesis-sentence-workshop', 'g7e-hd-synthesis-sentence.png'],
+    ['conflict-to-value-exit-slip', 'g7e-hd-conflict-value-exit.png'],
+    ['event-is-not-always-conflict', 'g7e-hd-conflict-type-sort.png'],
+    ['conflict-discussion', 'g7e-hd-conflict-value-exit.png'],
+
+    ['what-makes-a-literary-response-clear', 'g7e-hd-response-target-check.png'],
+    ['today-s-response-writing-path', 'g7e-hd-focused-response-draft.png'],
+    ['todays-response-writing-path', 'g7e-hd-focused-response-draft.png'],
+    ['evidence-goal-focused-literary-response', 'g7e-hd-response-target-check.png'],
+    ['response-target-check', 'g7e-hd-response-target-check.png'],
+    ['evidence-selection-board', 'g7e-hd-evidence-selection-board.png'],
+    ['focused-literary-response-draft', 'g7e-hd-focused-response-draft.png'],
+    ['output-check-literary-response', 'g7e-hd-response-target-check.png'],
+    ['partner-clarity-review', 'g7e-hd-partner-clarity-review.png'],
+    ['revision-and-reflection-close', 'g7e-hd-revision-reflection.png'],
+    ['listing-evidence-is-not-enough', 'g7e-hd-focused-response-draft.png'],
+    ['response-reflection-exit', 'g7e-hd-revision-reflection.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['english-literature-values'];
+  return templateMap?.[template] || templateMap?.content;
+};
+
 const getMathPolygonsImageFileName = (
   metadata: ImageSemanticMetadata,
   exactOnly = false,
@@ -1771,25 +1898,27 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'math-wages-income'
-    ? getMathWagesIncomeImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'math-law-of-sines'
-      ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collection === 'math-geometry-construction'
-        ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collection === 'math-statistics-expressions'
-          ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-          : collection === 'math-polygons'
-            ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-            : collection === 'science-digestive-system'
-              ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-              : collection === 'science-force-motion'
-                ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                : collection === 'science-chemistry-reactions'
-                  ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                  : collection === 'science-general-motion'
-                    ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                    : collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'english-literature-values'
+    ? getEnglishLiteratureValuesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    : collection === 'math-wages-income'
+      ? getMathWagesIncomeImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collection === 'math-law-of-sines'
+        ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        : collection === 'math-geometry-construction'
+          ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          : collection === 'math-statistics-expressions'
+            ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+            : collection === 'math-polygons'
+              ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+              : collection === 'science-digestive-system'
+                ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                : collection === 'science-force-motion'
+                  ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                  : collection === 'science-chemistry-reactions'
+                    ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                    : collection === 'science-general-motion'
+                      ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                      : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1798,7 +1927,8 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (
-    collection !== 'math-wages-income'
+    collection !== 'english-literature-values'
+    && collection !== 'math-wages-income'
     && collection !== 'math-law-of-sines'
     && collection !== 'math-geometry-construction'
     && collection !== 'math-statistics-expressions'
@@ -1810,25 +1940,27 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
     && collection !== 'science-general-motion'
   ) return undefined;
 
-  const fileName = collection === 'math-wages-income'
-    ? getMathWagesIncomeImageFileName(metadata, true)
-    : collection === 'math-law-of-sines'
-      ? getMathLawOfSinesImageFileName(metadata, true)
-      : collection === 'math-geometry-construction'
-        ? getMathGeometryConstructionImageFileName(metadata, true)
-        : collection === 'math-statistics-expressions'
-          ? getMathStatisticsExpressionsImageFileName(metadata, true)
-          : collection === 'math-polygons'
-            ? getMathPolygonsImageFileName(metadata, true)
-            : collection === 'science-particle-model'
-              ? getScienceParticleModelImageFileName(metadata, true)
-              : collection === 'science-digestive-system'
-                ? getScienceDigestiveImageFileName(metadata, true)
-                : collection === 'science-force-motion'
-                  ? getScienceForceMotionImageFileName(metadata, true)
-                  : collection === 'science-chemistry-reactions'
-                    ? getScienceChemistryReactionsImageFileName(metadata, true)
-                    : getScienceGeneralMotionImageFileName(metadata, true);
+  const fileName = collection === 'english-literature-values'
+    ? getEnglishLiteratureValuesImageFileName(metadata, true)
+    : collection === 'math-wages-income'
+      ? getMathWagesIncomeImageFileName(metadata, true)
+      : collection === 'math-law-of-sines'
+        ? getMathLawOfSinesImageFileName(metadata, true)
+        : collection === 'math-geometry-construction'
+          ? getMathGeometryConstructionImageFileName(metadata, true)
+          : collection === 'math-statistics-expressions'
+            ? getMathStatisticsExpressionsImageFileName(metadata, true)
+            : collection === 'math-polygons'
+              ? getMathPolygonsImageFileName(metadata, true)
+              : collection === 'science-particle-model'
+                ? getScienceParticleModelImageFileName(metadata, true)
+                : collection === 'science-digestive-system'
+                  ? getScienceDigestiveImageFileName(metadata, true)
+                  : collection === 'science-force-motion'
+                    ? getScienceForceMotionImageFileName(metadata, true)
+                    : collection === 'science-chemistry-reactions'
+                      ? getScienceChemistryReactionsImageFileName(metadata, true)
+                      : getScienceGeneralMotionImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
