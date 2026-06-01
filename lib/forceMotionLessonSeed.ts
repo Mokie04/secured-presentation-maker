@@ -217,6 +217,28 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
     );
   }
 
+  if (dayNumber === 3) {
+    return slide(
+      'How Do We Test Force Fairly?',
+      [
+        'Change only the pull strength.',
+        'Keep the cart mass the same.',
+        'Use distance or time-marker evidence.',
+        'Output: data table, model, transfer claim.',
+      ],
+      `Use this student-facing opener before the first task. Exact lesson-plan objective: ${structure.objective}. Evidence source: ${structure.evidence}. Ask: What will count as proof that we met the objective today?`,
+      'A high-resolution realistic classroom physics scene showing two same-mass cart-and-track setups with spring scales, weak-pull and stronger-pull arrow cards, mass blocks kept identical, and a blank data table on a lab table, accurate Grade 9 fair-test materials, no readable text.',
+      'force-acceleration-fair-test',
+      'situation',
+      'photorealistic',
+      [
+        { id: 'same-mass', text: 'same mass', x: 33, y: 55, fontSize: 20 },
+        { id: 'pull-strength', text: 'pull strength', x: 72, y: 48, fontSize: 20 },
+      ],
+      'evidence',
+    );
+  }
+
   return slide(
     day?.title || 'Lesson Focus',
     [...structure.studentGoals, `Question: ${structure.question}`, `Output: ${structure.output}`],
@@ -429,14 +451,27 @@ const sessionSlides: Record<number, Slide[]> = {
   ],
   3: [
     slide(
-      'Learning Target: Force and Acceleration',
-      ['Test force fairly', 'Keep mass constant', 'Use evidence to compare weak and stronger pulls'],
-      'Bridge from Session 2 by asking which variable must stay the same if we want to test force and acceleration fairly.',
-      '',
+      'Evidence Goal: Force and Acceleration',
+      [
+        'Changed variable: pull strength.',
+        'Controlled variable: cart mass.',
+        'Evidence: distance or time markers.',
+        'Claim: stronger net force causes ___ acceleration.',
+      ],
+      'Bridge from Session 2 by asking which variable must stay the same if we want to test force and acceleration fairly. Ask: What would make this comparison unfair?',
+      'A high-resolution realistic classroom physics comparison board showing same-mass cart setups, weak-pull and stronger-pull force arrows, distance markers, and a blank claim frame, no readable text.',
+      'force-acceleration-fair-test',
+      'overview',
+      'photorealistic',
+      [
+        { id: 'changed', text: 'changed', x: 70, y: 45, fontSize: 20 },
+        { id: 'controlled', text: 'same mass', x: 35, y: 57, fontSize: 20 },
+      ],
+      'evidence',
     ),
     evidenceSlide(
-      'Fair Push Question',
-      ['Inspect two proposed setups', 'Identify the changed variable', 'Identify what stays the same', 'Predict which setup gives greater acceleration'],
+      'Fair-Test Setup Decision',
+      ['Compare Setup A and Setup B.', 'Circle the changed variable.', 'Box what stayed the same.', 'Choose the fair test and justify it.', 'Predict which pull gives larger acceleration.'],
       'This is the connect-and-diagnose task. Learners inspect two proposed tests, one fair and one unfair. Output: fair-test decision slip. Ask: What is being changed? What is being measured? Why would changing mass and force at the same time weaken the evidence?',
       'A high-resolution realistic classroom physics comparison showing two toy-cart test setups side by side: one fair test with same mass and different pull strength, one unfair test changing both mass and pull strength, no readable text.',
       'force-acceleration-fair-test',
@@ -444,31 +479,31 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Pull Strength Data Trial',
-      ['Use the same cart or object', 'Apply a weak pull and a stronger pull', 'Record distance reached or time-marker evidence', 'Keep mass constant', 'Write why the comparison is fair'],
+      ['1. Set the same cart mass for both trials.', '2. Apply one gentle weak pull.', '3. Apply one gentle stronger pull.', '4. Record distance or time-marker evidence.', '5. Explain why the comparison is fair.'],
       'This slide starts the main activity. Groups use a toy cart, box lid, bottle-cap slider, or teacher-provided data if materials are limited. Output: force-acceleration data table. Check gentle pulls only and avoid stretched rubber bands near faces.',
       'A high-resolution realistic classroom physics lab setup with the same toy cart on a meter track, a spring scale showing weak and stronger pull positions, mass blocks unchanged on the cart, and a blank data table nearby, no readable text.',
       'force-acceleration-fair-test',
       'activity',
     ),
     evidenceSlide(
-      'Expected Output: Force-Acceleration Data Table',
-      ['Weak-pull row completed', 'Stronger-pull row completed', 'Mass condition is marked the same', 'Acceleration evidence is recorded', 'Conclusion compares force and acceleration'],
+      'Output Check: Force-Acceleration Data Table',
+      ['Weak-pull row: force and evidence recorded.', 'Stronger-pull row: force and evidence recorded.', 'Mass condition: marked the same.', 'Acceleration evidence: distance or time marker.', 'Conclusion: compare force and acceleration.'],
       'Make output criteria explicit. Connect the product to the objective: learners organize data and conclude that greater net force produces greater acceleration at constant mass.',
       'A high-resolution realistic classroom image of a two-row force-acceleration data table beside a toy cart, unchanged mass blocks, weak and strong pull arrow cards, and a meter stick, no readable text.',
       'force-acceleration-fair-test',
       'success-criteria',
     ),
     evidenceSlide(
-      'Roles, Timing, and Safety: Pull Trial',
-      ['Puller uses gentle pulls only', 'Mass checker confirms the same mass', 'Data recorder marks distance or time evidence', 'Trend speaker states the pattern', 'Keep materials on desks or marked lanes'],
-      'Recommended pacing: 5 minutes fair-push decision, 15 minutes pull-strength data trial, 10 minutes trend board, 12 minutes relationship model, 8 minutes fair-test transfer exit.',
+      'Team Roles and Safety: Pull Trial',
+      ['Puller: use gentle pulls only.', 'Mass checker: confirm the same mass.', 'Data recorder: mark distance or time evidence.', 'Trend speaker: state the pattern.', 'Safety first: keep carts on marked lanes.'],
+      'Recommended pacing: 5 minutes fair-test setup decision, 15 minutes pull-strength data trial, 10 minutes trend board, 12 minutes relationship model, 8 minutes fair-test transfer exit.',
       'A high-resolution realistic classroom image of a cart-track station with role cards, timer, spring scale, meter stick, mass blocks, masking-tape lane, and exit slips, no readable text.',
       'force-acceleration-roles',
       'activity',
     ),
     evidenceSlide(
       'Trend Talk Board',
-      ['Report one evidence pattern', 'Compare weak pull and stronger pull', 'Check that mass stayed constant', 'Use data before making a claim'],
+      ['Report one evidence pattern.', 'Compare weak pull and stronger pull.', 'Check that mass stayed constant.', 'Use data before making a claim.', 'Question: what evidence changed your prediction?'],
       'This is the make-meaning task. Groups report one evidence pattern and compare whether stronger pull gave a larger motion change. Output: class force-acceleration trend board. Ask: Which trial had greater pull? What evidence shows greater acceleration? What stayed the same?',
       'A high-resolution realistic classroom board with two evidence panels: weak pull on same-mass cart and stronger pull on same-mass cart, distance markers and larger acceleration arrow on the stronger-pull panel, no readable text.',
       'force-acceleration-fair-test',
@@ -476,7 +511,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Constant-Mass Relationship Model',
-      ['Draw the same mass in both panels', 'Show weak pull and stronger pull arrows', 'Label the acceleration evidence', 'Complete: At constant mass, greater net force causes ___'],
+      ['Draw the same mass in both panels.', 'Show weak-pull and stronger-pull arrows.', 'Label the acceleration evidence.', 'Complete: at constant mass, greater net force causes ___.'],
       'This is the guided modeling task. Learners create a two-panel model showing same mass with weak pull and stronger pull. Output: two-panel force-acceleration model. The model must not change mass between panels.',
       'A high-resolution realistic classroom image of a two-panel force-acceleration model worksheet: same cart mass in both panels, weak pull arrow on one panel, stronger pull arrow on the other, larger acceleration arrow on the stronger-pull panel, no readable text.',
       'force-acceleration-fair-test',
@@ -484,7 +519,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Fair Test Mischeck',
-      ['Changing force is allowed', 'Changing mass is not allowed in this test', 'Changing both weakens the conclusion', 'A fair conclusion names what stayed the same'],
+      ['Changing force is allowed.', 'Changing mass is not allowed in this test.', 'Changing both weakens the conclusion.', 'A fair conclusion names what stayed the same.'],
       'Use this misconception repair before the exit task. Ask: Why is “the cart moved farther because someone tried harder” not enough? What must be controlled to make the claim scientific?',
       'A high-resolution realistic classroom comparison image showing a crossed-out unfair cart setup where both mass and pull strength change, beside a checked fair setup where mass stays the same and pull changes, no readable text.',
       'force-acceleration-fair-test',
@@ -492,7 +527,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Fair-Test Transfer Exit',
-      ['Identify the independent variable', 'State the evidence of acceleration', 'Write the force-acceleration relationship', 'Name the constant mass condition'],
+      ['Identify the independent variable.', 'State the evidence of acceleration.', 'Write the force-acceleration relationship.', 'Name the constant-mass condition.', 'Finish: greater net force caused ___.'],
       'Use a new case where one cart is pulled weakly and strongly while mass stays the same. Learners identify the independent variable, state evidence of acceleration, and write the relationship. Output: individual exit slip.',
       'A high-resolution realistic classroom image of a transfer exit slip beside a same-mass cart comparison card, weak and strong pull arrows, and distance markers, no readable text.',
       'assessment',
@@ -602,10 +637,15 @@ const sessionDetailSlides: Record<number, Slide[]> = {
   ],
   3: [
     slide(
-      'Learning Sequence: Force-Acceleration Fair Test',
-      ['Fair push question', 'Pull-strength data trial', 'Expected output check', 'Trend talk board', 'Constant-mass model', 'Fair-test transfer exit'],
+      "Today's Fair-Test Evidence Path",
+      ['Choose the fair setup.', 'Run weak and stronger pulls.', 'Record acceleration evidence.', 'Build the constant-mass model.', 'Defend the transfer claim.'],
       'Use this as the pacing guide. Keep the same-mass condition visible before interpreting the force-acceleration trend.',
-      '',
+      'A high-resolution realistic classroom physics activity path showing a fair-test decision slip, same-mass cart, spring scale, weak and stronger pull cards, data table, trend board, and transfer exit slip arranged left-to-right on a lab table, no readable text.',
+      'force-acceleration-roles',
+      'activity',
+      'photorealistic',
+      undefined,
+      'evidence',
     ),
   ],
   4: [
@@ -707,7 +747,7 @@ export const validateForceMotionK12PlanUnitSlidesSeed = (
     mainActivityTitle: forceMotionMainActivityByDayNumber[dayNumber],
     minSlides: 8,
     maxSlides: 14,
-    minPromptsPerSlide: dayNumber <= 2 ? 4 : 3,
+    minPromptsPerSlide: dayNumber <= 3 ? 4 : 3,
     maxPromptsPerSlide: 6,
     maxPromptLength: 72,
     requireEvidenceImages: true,
