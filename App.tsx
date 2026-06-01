@@ -75,9 +75,10 @@ const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-science-week1-approved-v5';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-week1-approved-v6';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
+  'math-polygons': '/curated-images/math/polygons',
   'science-particle-model': '/curated-images/science/particle-model',
   'science-digestive-system': '/curated-images/science/digestive-system',
   'science-force-motion': '/curated-images/science/force-motion',
@@ -101,6 +102,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'situation.jpg',
     summary: 'generalization.jpg',
     'success-criteria': 'success-criteria.jpg',
+  },
+  'math-polygons': {
+    activity: 'g7-hd-side-angle-lab.png',
+    application: 'g7-hd-measurement-audit.png',
+    assignment: 'g7-hd-measurement-audit.png',
+    assessment: 'g7-hd-measurement-audit.png',
+    concept: 'g7-hd-polygon-overview.png',
+    content: 'g7-hd-polygon-overview.png',
+    discussion: 'g7-hd-regularity-rule.png',
+    generalization: 'g7-hd-regularity-rule.png',
+    model: 'g7-hd-pentagon-trace.png',
+    objectives: 'g7-hd-polygon-overview.png',
+    overview: 'g7-hd-polygon-overview.png',
+    practice: 'g7-hd-polygon-studio.png',
+    review: 'g7-hd-polygon-sort.png',
+    situation: 'g7-hd-polygon-sort.png',
+    summary: 'g7-hd-measurement-audit.png',
+    'success-criteria': 'g7-hd-side-angle-lab.png',
   },
   'science-particle-model': {
     activity: 'particle-evidence.png',
@@ -382,6 +401,38 @@ const isValuesEducationSemanticSubject = (value: string | undefined): boolean =>
     || parts.includes('esp');
 };
 
+const isMathPolygonsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasMathSubject = subjectSlug === 'mathematics'
+    || subjectSlug === 'math'
+    || searchable.includes('mathematics')
+    || searchable.includes('math');
+  const hasPolygonTopic = searchable.includes('constructing-and-describing-polygons')
+    || searchable.includes('regular-polygon')
+    || searchable.includes('irregular-polygon')
+    || searchable.includes('polygon')
+    || searchable.includes('side-angle')
+    || searchable.includes('side-length')
+    || searchable.includes('angle-measure')
+    || searchable.includes('protractor')
+    || searchable.includes('ruler')
+    || searchable.includes('triangle')
+    || searchable.includes('quadrilateral')
+    || searchable.includes('pentagon')
+    || searchable.includes('hexagon')
+    || searchable.includes('octagon')
+    || searchable.includes('decagon');
+
+  return hasMathSubject && hasPolygonTopic;
+};
+
 const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
   const subjectSlug = slugifyImageSemanticText(metadata.subject);
   const searchable = slugifyImageSemanticText([
@@ -595,6 +646,7 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isMathPolygonsSemanticSubject(metadata)) return 'math-polygons';
   if (isScienceChemistryReactionsSemanticSubject(metadata)) return 'science-chemistry-reactions';
   if (isScienceGeneralMotionSemanticSubject(metadata)) return 'science-general-motion';
   if (isScienceForceMotionSemanticSubject(metadata)) return 'science-force-motion';
@@ -1095,6 +1147,85 @@ const getScienceParticleModelImageFileName = (
   return undefined;
 };
 
+const getMathPolygonsImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['constructing-and-describing-polygons', 'g7-hd-polygon-overview.png'],
+    ['learning-roadmap', 'g7-hd-polygon-overview.png'],
+    ['how-we-will-work-like-mathematicians', 'g7-hd-regularity-rule.png'],
+
+    ['what-evidence-makes-a-shape-a-polygon', 'g7-hd-polygon-sort.png'],
+    ['today-s-polygon-evidence-path', 'g7-hd-side-angle-lab.png'],
+    ['todays-polygon-evidence-path', 'g7-hd-side-angle-lab.png'],
+    ['evidence-goal-polygon-and-regularity', 'g7-hd-polygon-overview.png'],
+    ['polygon-or-not', 'g7-hd-polygon-sort.png'],
+    ['side-and-angle-evidence-lab', 'g7-hd-side-angle-lab.png'],
+    ['output-check-measurement-table', 'g7-hd-side-angle-lab.png'],
+    ['team-roles-and-tool-safety', 'g7-hd-side-angle-lab.png'],
+    ['regularity-rule-board', 'g7-hd-regularity-rule.png'],
+    ['worked-example-pentagon-trace', 'g7-hd-pentagon-trace.png'],
+    ['looks-equal-is-not-proof', 'g7-hd-regularity-rule.png'],
+    ['two-polygon-exit-defense', 'g7-hd-measurement-audit.png'],
+
+    ['how-can-angle-data-build-a-figure', 'g7-hd-protractor-readiness.png'],
+    ['today-s-angle-construction-path', 'g7-hd-angle-routine.png'],
+    ['todays-angle-construction-path', 'g7-hd-angle-routine.png'],
+    ['evidence-goal-construct-from-angles', 'g7-hd-protractor-readiness.png'],
+    ['angle-data-readiness', 'g7-hd-protractor-readiness.png'],
+    ['build-from-two-angles', 'g7-hd-angle-routine.png'],
+    ['output-check-routine-notes', 'g7-hd-angle-routine.png'],
+    ['triangle-quadrilateral-builder', 'g7-hd-triangle-quadrilateral-builder.png'],
+    ['wrong-scale-repair-shop', 'g7-hd-wrong-scale-repair.png'],
+    ['construction-accuracy-conference', 'g7-hd-angle-routine.png'],
+    ['protractor-habits-that-prevent-errors', 'g7-hd-protractor-readiness.png'],
+    ['solo-quadrilateral-check', 'g7-hd-measurement-audit.png'],
+
+    ['what-makes-a-polygon-regular', 'g7-hd-regularity-rule.png'],
+    ['today-s-regular-polygon-path', 'g7-hd-regular-polygon-planning.png'],
+    ['todays-regular-polygon-path', 'g7-hd-regular-polygon-planning.png'],
+    ['evidence-goal-regular-polygons', 'g7-hd-regularity-rule.png'],
+    ['almost-regular-challenge', 'g7-hd-regularity-rule.png'],
+    ['regular-polygon-planning-grid', 'g7-hd-regular-polygon-planning.png'],
+    ['output-check-planning-grid', 'g7-hd-regular-polygon-planning.png'],
+    ['worked-example-hexagon-build', 'g7-hd-hexagon-build.png'],
+    ['polygon-studio', 'g7-hd-polygon-studio.png'],
+    ['regularity-evidence-talk', 'g7-hd-regularity-rule.png'],
+    ['equal-looking-sides-are-not-enough', 'g7-hd-regularity-rule.png'],
+    ['regularity-proof-slip', 'g7-hd-measurement-audit.png'],
+
+    ['how-can-measurements-defend-a-classification', 'g7-hd-polygon-set-blueprint.png'],
+    ['how-can-a-drawing-prove-its-classification', 'g7-hd-polygon-set-blueprint.png'],
+    ['today-s-polygon-set-defense-path', 'g7-hd-polygon-set-blueprint.png'],
+    ['todays-polygon-set-defense-path', 'g7-hd-polygon-set-blueprint.png'],
+    ['evidence-goal-polygon-set-defense', 'g7-hd-polygon-set-blueprint.png'],
+    ['checklist-calibration', 'g7-hd-regularity-rule.png'],
+    ['polygon-set-blueprint', 'g7-hd-polygon-set-blueprint.png'],
+    ['output-check-approved-blueprint', 'g7-hd-polygon-set-blueprint.png'],
+    ['evidence-drawing-studio', 'g7-hd-evidence-drawing-studio.png'],
+    ['measurement-audit-exchange', 'g7-hd-measurement-audit.png'],
+    ['defense-sentence-builder', 'g7-hd-measurement-audit.png'],
+    ['decorative-drawing-is-not-evidence', 'g7-hd-measurement-audit.png'],
+    ['evidence-defense-exit', 'g7-hd-measurement-audit.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-polygons'];
+  return templateMap?.[template] || templateMap?.content;
+};
+
 const buildCuratedStaticImageUrl = (basePath: string, fileName: string): string => (
   `${basePath}/${fileName}?v=${CURATED_STATIC_IMAGE_ASSET_VERSION}`
 );
@@ -1112,15 +1243,17 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'science-digestive-system'
-    ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'science-force-motion'
-      ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collection === 'science-chemistry-reactions'
-        ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collection === 'science-general-motion'
-          ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-          : collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'math-polygons'
+    ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    : collection === 'science-digestive-system'
+      ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collection === 'science-force-motion'
+        ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        : collection === 'science-chemistry-reactions'
+          ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          : collection === 'science-general-motion'
+            ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+            : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1129,22 +1262,25 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (
-    collection !== 'science-particle-model'
+    collection !== 'math-polygons'
+    && collection !== 'science-particle-model'
     && collection !== 'science-digestive-system'
     && collection !== 'science-force-motion'
     && collection !== 'science-chemistry-reactions'
     && collection !== 'science-general-motion'
   ) return undefined;
 
-  const fileName = collection === 'science-particle-model'
-    ? getScienceParticleModelImageFileName(metadata, true)
-    : collection === 'science-digestive-system'
-      ? getScienceDigestiveImageFileName(metadata, true)
-      : collection === 'science-force-motion'
-        ? getScienceForceMotionImageFileName(metadata, true)
-        : collection === 'science-chemistry-reactions'
-          ? getScienceChemistryReactionsImageFileName(metadata, true)
-          : getScienceGeneralMotionImageFileName(metadata, true);
+  const fileName = collection === 'math-polygons'
+    ? getMathPolygonsImageFileName(metadata, true)
+    : collection === 'science-particle-model'
+      ? getScienceParticleModelImageFileName(metadata, true)
+      : collection === 'science-digestive-system'
+        ? getScienceDigestiveImageFileName(metadata, true)
+        : collection === 'science-force-motion'
+          ? getScienceForceMotionImageFileName(metadata, true)
+          : collection === 'science-chemistry-reactions'
+            ? getScienceChemistryReactionsImageFileName(metadata, true)
+            : getScienceGeneralMotionImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };

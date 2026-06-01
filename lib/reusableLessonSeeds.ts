@@ -23,6 +23,12 @@ import {
   getForceMotionK12PlanUnitSlidesSeed,
   isReusableForceMotionLesson,
 } from './forceMotionLessonSeed';
+import {
+  getMathPolygonsK12CompleteLessonPlanSeed,
+  getMathPolygonsK12LessonPlanSeed,
+  getMathPolygonsK12PlanUnitSlidesSeed,
+  isReusableMathPolygonsLesson,
+} from './mathPolygonsLessonSeed';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -1132,6 +1138,7 @@ export const getReusableK12LessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12LessonPlanSeed();
   if (isReusableForceMotionLesson(content)) return getForceMotionK12LessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12LessonPlanSeed();
   if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12LessonPlanSeed();
@@ -1154,6 +1161,7 @@ export const getReusableK12PlanUnitSlidesSeed = (
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableForceMotionLesson(content)) return getForceMotionK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableDigestiveLesson(content)) return getDigestiveK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12PlanUnitSlidesSeed(dayNumber);
@@ -1168,6 +1176,7 @@ export const getReusableK12CompleteLessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12CompleteLessonPlanSeed();
   if (isReusableForceMotionLesson(content)) return getForceMotionK12CompleteLessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12CompleteLessonPlanSeed();
   if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12CompleteLessonPlanSeed();
