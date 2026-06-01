@@ -195,6 +195,28 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
     );
   }
 
+  if (dayNumber === 2) {
+    return slide(
+      'How Can Motion Change Without Speeding Up?',
+      [
+        'Look for speed change, direction change, or both.',
+        'Find the unbalanced-force clue.',
+        'Decide if acceleration happened.',
+        'Output: motion-change table and exit explanation.',
+      ],
+      `Use this student-facing opener before the first task. Exact lesson-plan objective: ${structure.objective}. Evidence source: ${structure.evidence}. Ask: What will count as proof that we met the objective today?`,
+      'A high-resolution realistic classroom physics scene showing a ball following a curved path on a marked table lane, force-arrow cards, motion-change cards, and a blank evidence table arranged on a lab table, accurate Grade 9 acceleration evidence materials, no readable text.',
+      'acceleration-velocity-change',
+      'situation',
+      'photorealistic',
+      [
+        { id: 'speed-change', text: 'speed?', x: 27, y: 52, fontSize: 20 },
+        { id: 'direction-change', text: 'direction?', x: 66, y: 43, fontSize: 20 },
+      ],
+      'evidence',
+    );
+  }
+
   return slide(
     day?.title || 'Lesson Focus',
     [...structure.studentGoals, `Question: ${structure.question}`, `Output: ${structure.output}`],
@@ -316,14 +338,27 @@ const sessionSlides: Record<number, Slide[]> = {
   ],
   2: [
     slide(
-      'Learning Target: Acceleration Evidence',
-      ['Decide whether velocity changed', 'Name speed change, direction change, or both', 'Connect each change to an unbalanced net force'],
+      'Evidence Goal: Acceleration',
+      [
+        'Motion before: what is the object doing?',
+        'Motion after: what changed?',
+        'Force clue: where is the unbalanced force?',
+        'Proof: classify the velocity change.',
+      ],
       'Bridge from Session 1 by asking learners to recall one case where unbalanced net force changed motion. Ask: Did speed change, direction change, or both?',
-      '',
+      'A high-resolution realistic classroom physics board showing speed-change, direction-change, and both-change cards beside net-force arrows, a ball path, a small cart, and a blank evidence table, no readable text.',
+      'acceleration-velocity-change',
+      'overview',
+      'photorealistic',
+      [
+        { id: 'speed', text: 'speed change', x: 24, y: 53, fontSize: 20 },
+        { id: 'direction', text: 'direction change', x: 69, y: 46, fontSize: 20 },
+      ],
+      'evidence',
     ),
     evidenceSlide(
       'Acceleration or Not Triage',
-      ['Classify each card as acceleration or no acceleration', 'Circle the force clue', 'Underline speed change, direction change, or both', 'Defend one card with evidence'],
+      ['1. Read each motion card.', '2. Choose: acceleration or no acceleration.', '3. Mark speed change, direction change, or both.', '4. Circle the unbalanced-force clue.'],
       'This is the connect-and-diagnose task from the lesson plan. Use cards for runner speeding up, ball slowing after a push, bicycle turning, and book resting. Output: triage card. Ask: What changed? Did speed change? Did direction change? What force caused the change?',
       'A high-resolution realistic classroom physics table showing four motion triage cards: runner speeding up, ball slowing, bicycle turning, and book resting, with force-arrow tokens and blank triage slips nearby, no readable text.',
       'acceleration-velocity-change',
@@ -331,23 +366,29 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Motion Change Evidence Table',
-      ['Describe the before-motion', 'Identify the unbalanced-force direction', 'Classify the result as speeding up, slowing down, or turning', 'Use the same evidence rule for every row'],
+      [
+        '1. Describe the motion before the force.',
+        '2. Identify the unbalanced-force direction.',
+        '3. Describe the motion after the force.',
+        '4. Classify: speeding up, slowing down, turning, or both.',
+        '5. Justify the row with evidence.',
+      ],
       'This slide starts the main activity. Groups use teacher-safe cards or one controlled rolling-ball lane. Learners complete three rows and must name the force causing acceleration, not only the visible motion. Output: three-row motion-change table.',
       'A high-resolution realistic classroom physics setup with a controlled rolling-ball lane, motion cards, force-arrow cards, and a three-row evidence table on a lab table, no readable text.',
       'acceleration-velocity-change',
       'activity',
     ),
     evidenceSlide(
-      'Expected Output: Motion-Change Table',
-      ['Three cases completed', 'Each row names before-motion', 'Each row names the unbalanced force direction', 'Each row classifies acceleration type', 'Each row uses evidence, not guessing'],
+      'Output Check: Motion-Change Table',
+      ['Case: identify the object and situation.', 'Before and after: describe motion clearly.', 'Force clue: name direction of net force.', 'Claim: classify the acceleration type.', 'Reason: use evidence, not guessing.'],
       'Make the output criteria explicit before learners complete the table. The product must support the objective: learners classify acceleration and justify it with unbalanced net force evidence.',
       'A high-resolution realistic classroom image of a blank three-row motion-change evidence table beside speed-change, direction-change, and both-change icon cards with force arrows, no readable text.',
       'acceleration-velocity-change',
       'success-criteria',
     ),
     evidenceSlide(
-      'Roles, Timing, and Safety: Motion Evidence',
-      ['Motion reader describes the card or lane', 'Force finder points to the force clue', 'Classifier names the acceleration type', 'Evidence speaker defends one row', 'Keep balls inside the marked lane'],
+      'Team Roles and Safety: Motion Evidence',
+      ['Motion reader: describe before and after.', 'Force finder: point to the force clue.', 'Classifier: name the acceleration type.', 'Evidence speaker: defend one row.', 'Safety first: keep balls inside the marked lane.'],
       'Recommended pacing: 5 minutes triage, 15 minutes evidence table, 10 minutes velocity-change map, 12 minutes cause-effect strip, 8 minutes direction-change exit.',
       'A high-resolution realistic classroom image of a marked rolling-ball lane with foam bumper, role cards, force-arrow tokens, timer, and blank exit slips on a lab table, no readable text.',
       'acceleration-roles',
@@ -355,7 +396,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Velocity-Change Map',
-      ['Place each example in speed change, direction change, or both', 'Defend the column with a force cause', 'Move a card if the evidence improves', 'Remember: turning can be acceleration'],
+      ['Place each example in the best column.', 'Use speed, direction, or both as evidence.', 'Name the force cause for each column.', 'Move a card if the evidence improves.', 'Remember: turning can be acceleration.'],
       'This is the make-meaning task. The class builds a board with three columns: speed changes, direction changes, and speed-and-direction both change. Output: class velocity-change map. Ask: Which examples changed speed? Which changed direction? Why can a turning object accelerate even if speed seems steady?',
       'A high-resolution realistic classroom board with three columns of motion examples: speeding up, slowing down, turning, and both-changing cards, with net-force arrows beside each column, no readable text.',
       'acceleration-velocity-change',
@@ -363,7 +404,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Acceleration Cause-and-Effect Strip',
-      ['Name the object', 'Show the initial motion', 'Draw the unbalanced net-force arrow', 'Name the motion change', 'Classify the acceleration type'],
+      ['Name the object.', 'Show the initial motion.', 'Draw the unbalanced net-force arrow.', 'Name the motion change.', 'Classify the acceleration type.'],
       'This is the guided modeling task. Pairs choose one case and build a strip with object, initial motion, unbalanced force, motion change, and acceleration type. Output: labeled acceleration strip.',
       'A high-resolution realistic classroom image of a five-panel cause-and-effect strip template with a toy car, ball, and bicycle-turning card, force-arrow markers, and blank caption spaces, no readable text.',
       'acceleration-velocity-change',
@@ -371,7 +412,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Turning Can Still Be Acceleration',
-      ['Acceleration means velocity changed', 'Velocity includes direction', 'A sideways net force can change direction', 'The speed may look nearly constant'],
+      ['Acceleration means velocity changed.', 'Velocity includes direction.', 'A sideways net force can change direction.', 'Speed may look nearly constant.', 'Use direction evidence before deciding.'],
       'Use this misconception repair. Ask: What changed if the bicycle or ball turned? Where did the unbalanced force point? Why is “not speeding up” not the same as “not accelerating”?',
       'A high-resolution realistic classroom physics image showing a ball following a curved path on a marked table lane with tangent motion arrows and a sideways net-force arrow, clean accurate diagram overlays, no readable text.',
       'acceleration-velocity-change',
@@ -379,7 +420,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Direction-Change Exit Case',
-      ['Choose: accelerating or not accelerating', 'Identify the unbalanced force', 'Explain the velocity change', 'Use speed or direction language'],
+      ['Choose: accelerating or not accelerating.', 'Identify the unbalanced force.', 'Explain the velocity change.', 'Use speed or direction language.', 'Finish: the object accelerates because ___.'],
       'Use a bicycle or ball turning at nearly constant speed. Learners answer whether it is accelerating, identify the unbalanced force, and explain the velocity change. Output: individual explanation slip.',
       'A high-resolution realistic classroom image of an exit slip beside a curved-path ball diagram, a small toy bicycle model, and force-arrow cards, no readable text.',
       'assessment',
@@ -548,10 +589,15 @@ const sessionDetailSlides: Record<number, Slide[]> = {
   ],
   2: [
     slide(
-      'Learning Sequence: Acceleration Evidence',
-      ['Acceleration triage', 'Motion-change evidence table', 'Expected output check', 'Velocity-change map', 'Cause-effect strip', 'Direction-change exit'],
+      "Today's Motion Evidence Path",
+      ['Sort acceleration examples.', 'Complete the motion-change table.', 'Build a velocity-change map.', 'Model cause and effect.', 'Defend a direction-change exit case.'],
       'Use this as the pacing guide. The session must expand acceleration beyond speeding up to include slowing down and turning.',
-      '',
+      'A high-resolution realistic classroom physics activity path showing acceleration triage cards, a rolling-ball lane, force-arrow tokens, a motion-change table, and exit slips arranged left-to-right on a lab table, no readable text.',
+      'acceleration-roles',
+      'activity',
+      'photorealistic',
+      undefined,
+      'evidence',
     ),
   ],
   3: [
@@ -661,7 +707,7 @@ export const validateForceMotionK12PlanUnitSlidesSeed = (
     mainActivityTitle: forceMotionMainActivityByDayNumber[dayNumber],
     minSlides: 8,
     maxSlides: 14,
-    minPromptsPerSlide: dayNumber === 1 ? 4 : 3,
+    minPromptsPerSlide: dayNumber <= 2 ? 4 : 3,
     maxPromptsPerSlide: 6,
     maxPromptLength: 72,
     requireEvidenceImages: true,
