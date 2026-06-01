@@ -239,6 +239,28 @@ const sessionOpenerSlide = (dayNumber: number): Slide => {
     );
   }
 
+  if (dayNumber === 4) {
+    return slide(
+      'How Does F = ma Keep Its Meaning?',
+      [
+        'Connect each symbol to a real quantity.',
+        'Check units before calculating.',
+        'Point acceleration with the net force.',
+        'Output: worked solutions and mastery slip.',
+      ],
+      `Use this student-facing opener before the first task. Exact lesson-plan objective: ${structure.objective}. Evidence source: ${structure.evidence}. Ask: What will count as proof that we met the objective today?`,
+      'A high-resolution realistic classroom physics scene showing a cart force diagram, F equals m a formula cards, unit cards for newtons kilograms and meters per second squared, net-force direction arrow, and blank worked-solution frames on a lab table, accurate Grade 9 calculation materials, no readable text.',
+      'fma-acceleration-direction',
+      'situation',
+      'photorealistic',
+      [
+        { id: 'symbols', text: 'symbols', x: 30, y: 48, fontSize: 20 },
+        { id: 'direction', text: 'direction', x: 72, y: 43, fontSize: 20 },
+      ],
+      'evidence',
+    );
+  }
+
   return slide(
     day?.title || 'Lesson Focus',
     [...structure.studentGoals, `Question: ${structure.question}`, `Output: ${structure.output}`],
@@ -536,14 +558,27 @@ const sessionSlides: Record<number, Slide[]> = {
   ],
   4: [
     slide(
-      'Learning Target: F = ma With Meaning',
-      ['Match symbols to quantities and units', 'Compute acceleration with direction', 'Justify the answer with a force diagram'],
-      'Bridge from Session 3 by reviewing the class trend: same mass, stronger net force, greater acceleration. Tell learners that today the calculation must still match the force diagram.',
-      '',
+      'Evidence Goal: F = ma With Meaning',
+      [
+        'F: net force with direction.',
+        'm: mass in kilograms.',
+        'a: acceleration with units and direction.',
+        'Proof: number, diagram, and explanation agree.',
+      ],
+      'Bridge from Session 3 by reviewing the class trend: same mass, stronger net force, greater acceleration. Ask: How should a calculation still match the force diagram?',
+      'A high-resolution realistic classroom physics evidence board showing a cart force diagram, net-force arrow, mass block card, acceleration answer frame, unit checklist, and explanation caption space, no readable text.',
+      'fma-acceleration-direction',
+      'overview',
+      'photorealistic',
+      [
+        { id: 'net-force', text: 'net force', x: 27, y: 48, fontSize: 20 },
+        { id: 'acceleration', text: 'acceleration', x: 72, y: 52, fontSize: 20 },
+      ],
+      'evidence',
     ),
     evidenceSlide(
       'Formula Meaning Warm-Up',
-      ['Match F, m, and a to the quantity', 'State the SI unit for each symbol', 'Predict which direction acceleration points', 'Connect direction to net force before calculating'],
+      ['Match F, m, and a to the quantity.', 'State the SI unit for each symbol.', 'Predict which direction acceleration points.', 'Connect direction to net force before calculating.'],
       'This is the connect-and-diagnose task. Learners match F, m, and a to force, mass, and acceleration, then connect each symbol to the Session 3 data table. Output: formula meaning slip. Ask: What does each symbol represent? Which quantity stayed constant yesterday? Why should direction be checked before calculating?',
       'A high-resolution realistic classroom physics warm-up image with three formula-symbol cards, unit cards, a net-force arrow card, a same-mass cart card, and blank matching slip on a desk, no readable text.',
       'fma-acceleration-direction',
@@ -551,23 +586,23 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Worked Acceleration Case Set',
-      ['Write the formula', 'Substitute values with units', 'Compute acceleration', 'Add the acceleration direction', 'Check whether the answer is reasonable'],
+      ['1. Write the formula from the model.', '2. Substitute force and mass with units.', '3. Calculate acceleration.', '4. Draw the acceleration direction.', '5. Explain if the answer matches the diagram.'],
       'This slide starts the main activity. Learners solve two Q1-LAS 06 or Q1-LAS 07 style cases with given net force and mass. Output: two worked solutions. Check the first solution before learners complete the second case independently.',
       'A high-resolution realistic classroom image of a worked acceleration case set: blank formula boxes, a toy cart force diagram, mass block card, calculator, and unit checklist on a lab table, no readable text.',
       'fma-acceleration-direction',
       'activity',
     ),
     evidenceSlide(
-      'Expected Output: Two Worked Solutions',
-      ['Formula is written correctly', 'Substitution includes units', 'Answer includes acceleration unit', 'Direction matches the net force', 'Force diagram supports the number'],
+      'Output Check: Two Worked Solutions',
+      ['Formula is written correctly.', 'Substitution includes units.', 'Answer includes acceleration unit.', 'Direction matches the net force.', 'Force diagram supports the number.'],
       'Make output criteria explicit before independent work. The product must include computation and concept, not just an answer.',
       'A high-resolution realistic classroom image of two blank worked-solution frames beside a cart force diagram, formula card, unit checklist, and direction arrow card, no readable text.',
       'fma-acceleration-direction',
       'success-criteria',
     ),
     evidenceSlide(
-      'Roles, Timing, and Accuracy Checks',
-      ['Formula checker verifies setup', 'Unit checker tracks N, kg, and m/s^2', 'Diagram checker matches direction', 'Reasonableness speaker explains the trend', 'Calculator supports thinking; it does not replace the model'],
+      'Team Roles and Accuracy Checks',
+      ['Formula checker: verify setup.', 'Unit checker: track N, kg, and m/s^2.', 'Diagram checker: match direction.', 'Reasonableness speaker: explain the trend.', 'Calculator: support thinking; do not replace the model.'],
       'Recommended pacing: 5 minutes formula meaning warm-up, 15 minutes worked case set, 10 minutes answer conference, 12 minutes force-to-acceleration model, 8 minutes mastery slip.',
       'A high-resolution realistic classroom physics station with role cards, calculator, unit checklist, formula card, force diagram template, and mastery slips arranged on a lab table, no readable text.',
       'fma-roles',
@@ -575,7 +610,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Answer-Reasonableness Conference',
-      ['Compare the answers', 'Check net force and mass', 'Check the direction', 'Use the Session 3 trend to reject impossible answers'],
+      ['Compare the answers.', 'Check net force and mass.', 'Check the direction.', 'Use the Session 3 trend to reject impossible answers.'],
       'This is the make-meaning task. The class compares answers and asks whether each result matches the force-acceleration trend from Session 3. Ask: What is the net force? What is the mass? What acceleration did you calculate? Why should a larger net force at the same mass give a larger acceleration?',
       'A high-resolution realistic classroom board showing two worked acceleration examples with matching force diagrams, unit check marks, and a trend arrow from smaller to larger acceleration, no readable text.',
       'fma-acceleration-direction',
@@ -583,7 +618,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Force-to-Acceleration Worked Model',
-      ['Choose one problem', 'Draw force arrows and net-force direction', 'Substitute into F = ma', 'Compute acceleration with units', 'Write a relationship caption'],
+      ['Choose one problem.', 'Draw force arrows and net-force direction.', 'Substitute into F = ma.', 'Compute acceleration with units.', 'Write a relationship caption.'],
       'This is the guided modeling task. Pairs create a complete model with force arrows, net-force direction, formula substitution, acceleration answer, and relationship caption. Output: annotated worked model.',
       'A high-resolution realistic classroom image of a complete force-to-acceleration model template with cart arrows, net-force direction arrow, formula-substitution frame, acceleration answer box, and caption area, no readable text.',
       'fma-acceleration-direction',
@@ -591,7 +626,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Direction Before the Number',
-      ['Acceleration points with the net force', 'A correct number can still have missing meaning', 'Units and direction catch common mistakes', 'The diagram should agree with the answer'],
+      ['Acceleration points with the net force.', 'A correct number can still miss meaning.', 'Units and direction catch common mistakes.', 'The diagram should agree with the answer.'],
       'Use this misconception repair before the mastery slip. Ask: What would be incomplete about an answer with no direction? Which arrow proves the direction?',
       'A high-resolution realistic classroom image comparing two acceleration answers: one with only a number and one supported by a cart force diagram, direction arrow, and unit checklist, no readable text.',
       'fma-acceleration-direction',
@@ -599,7 +634,7 @@ const sessionSlides: Record<number, Slide[]> = {
     ),
     evidenceSlide(
       'Constant-Mass Mastery Slip',
-      ['Solve one new case', 'Draw the net-force arrow', 'Add units and direction', 'Justify: if the same mass receives twice the net force, what happens to acceleration?'],
+      ['Solve one new case.', 'Draw the net-force arrow.', 'Add units and direction.', 'Justify the force-acceleration relationship.', 'Finish: same mass, twice the net force means ___.'],
       'Use this independent check. The response must include correct units, direction, and the direct relationship at constant mass. Output: individual mastery slip.',
       'A high-resolution realistic classroom image of a mastery slip beside a same-mass two-force comparison card, net-force arrow, formula card, and calculator, no readable text.',
       'assessment',
@@ -650,10 +685,15 @@ const sessionDetailSlides: Record<number, Slide[]> = {
   ],
   4: [
     slide(
-      'Learning Sequence: F = ma With Direction',
-      ['Formula meaning warm-up', 'Worked acceleration cases', 'Expected output check', 'Answer-reasonableness conference', 'Force-to-acceleration model', 'Constant-mass mastery slip'],
+      "Today's Calculation Evidence Path",
+      ['Connect symbols to quantities.', 'Solve two worked cases.', 'Check units and direction.', 'Build the worked model.', 'Defend the mastery slip.'],
       'Use this as the pacing guide. Computation should stay tied to force diagrams, units, direction, and the Session 3 trend.',
-      '',
+      'A high-resolution realistic classroom physics activity path showing formula-symbol cards, unit checklist, worked-solution frames, cart force diagram, calculator, relationship model, and mastery slip arranged left-to-right on a lab table, no readable text.',
+      'fma-roles',
+      'activity',
+      'photorealistic',
+      undefined,
+      'evidence',
     ),
   ],
 };
@@ -747,7 +787,7 @@ export const validateForceMotionK12PlanUnitSlidesSeed = (
     mainActivityTitle: forceMotionMainActivityByDayNumber[dayNumber],
     minSlides: 8,
     maxSlides: 14,
-    minPromptsPerSlide: dayNumber <= 3 ? 4 : 3,
+    minPromptsPerSlide: 4,
     maxPromptsPerSlide: 6,
     maxPromptLength: 72,
     requireEvidenceImages: true,
