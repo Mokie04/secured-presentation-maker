@@ -2453,7 +2453,7 @@ const App: React.FC = () => {
                     const bulletCount = slideData.content.filter((point) => point.trim()).length;
                     const isEvidenceLayout = slideData.visualLayout === 'evidence';
                     const contentFontSize = isEvidenceLayout
-                        ? (bulletCount > 4 ? 20 : bulletCount > 3 ? 22 : 24)
+                        ? (bulletCount > 5 ? 20 : bulletCount > 4 ? 22 : 24)
                         : (bulletCount > 5 ? 18 : bulletCount > 3 ? 20 : 22);
                     slide.addText(contentForPptx, {
                         x: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_X : PPTX_CONTENT_X,
