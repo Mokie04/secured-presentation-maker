@@ -81,6 +81,7 @@ const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'math-polygons': '/curated-images/math/polygons',
   'math-statistics-expressions': '/curated-images/math/statistics-expressions',
   'math-geometry-construction': '/curated-images/math/geometry-construction',
+  'math-law-of-sines': '/curated-images/math/law-of-sines',
   'science-particle-model': '/curated-images/science/particle-model',
   'science-digestive-system': '/curated-images/science/digestive-system',
   'science-force-motion': '/curated-images/science/force-motion',
@@ -158,6 +159,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'g9m-hd-symbol-sort.png',
     summary: 'g9m-hd-construction-report.png',
     'success-criteria': 'g9m-hd-report-walkthrough.png',
+  },
+  'math-law-of-sines': {
+    activity: 'g10m-hd-asa-aas-solution-table.png',
+    application: 'g10m-hd-law-sines-performance.png',
+    assignment: 'g10m-hd-law-sines-performance.png',
+    assessment: 'g10m-hd-ambiguity-peer-review.png',
+    concept: 'g10m-hd-law-sines-overview.png',
+    content: 'g10m-hd-law-sines-overview.png',
+    discussion: 'g10m-hd-two-branch-sketch.png',
+    generalization: 'g10m-hd-ssa-solution-tree.png',
+    model: 'g10m-hd-aas-ratio-walkthrough.png',
+    objectives: 'g10m-hd-law-sines-overview.png',
+    overview: 'g10m-hd-law-sines-overview.png',
+    practice: 'g10m-hd-ssa-solution-tree.png',
+    review: 'g10m-hd-case-type-sort.png',
+    situation: 'g10m-hd-opposite-pair-warmup.png',
+    summary: 'g10m-hd-law-sines-performance.png',
+    'success-criteria': 'g10m-hd-setup-checkpoint.png',
   },
   'science-particle-model': {
     activity: 'particle-evidence.png',
@@ -533,6 +552,39 @@ const isMathGeometryConstructionSemanticSubject = (metadata: ImageSemanticMetada
   return hasMathSubject && hasGeometryConstructionTopic;
 };
 
+const isMathLawOfSinesSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasMathSubject = subjectSlug === 'mathematics'
+    || subjectSlug === 'math'
+    || searchable.includes('mathematics')
+    || searchable.includes('math');
+  const hasLawOfSinesTopic = searchable.includes('law-of-sines')
+    || searchable.includes('oblique-triangle')
+    || searchable.includes('ambiguous-case')
+    || searchable.includes('opposite-angle-side')
+    || searchable.includes('opposite-pair')
+    || searchable.includes('ssa')
+    || searchable.includes('asa')
+    || searchable.includes('aas')
+    || searchable.includes('height-test')
+    || searchable.includes('arcsin')
+    || searchable.includes('supplement')
+    || searchable.includes('solution-tree')
+    || searchable.includes('solution-fork')
+    || searchable.includes('branch')
+    || searchable.includes('case-type')
+    || searchable.includes('shoreline');
+
+  return hasMathSubject && hasLawOfSinesTopic;
+};
+
 const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
   const subjectSlug = slugifyImageSemanticText(metadata.subject);
   const searchable = slugifyImageSemanticText([
@@ -746,6 +798,7 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isMathLawOfSinesSemanticSubject(metadata)) return 'math-law-of-sines';
   if (isMathGeometryConstructionSemanticSubject(metadata)) return 'math-geometry-construction';
   if (isMathStatisticsExpressionsSemanticSubject(metadata)) return 'math-statistics-expressions';
   if (isMathPolygonsSemanticSubject(metadata)) return 'math-polygons';
@@ -1485,6 +1538,89 @@ const getMathGeometryConstructionImageFileName = (
   return templateMap?.[template] || templateMap?.content;
 };
 
+const getMathLawOfSinesImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['law-of-sines-and-ambiguous-cases', 'g10m-hd-law-sines-overview.png'],
+    ['learning-roadmap', 'g10m-hd-law-sines-overview.png'],
+    ['how-we-will-work-like-trigonometry-problem-solvers', 'g10m-hd-law-sines-overview.png'],
+
+    ['why-does-soh-cah-toa-fail-here', 'g10m-hd-opposite-pair-warmup.png'],
+    ['today-s-law-of-sines-evidence-path', 'g10m-hd-asa-aas-solution-table.png'],
+    ['todays-law-of-sines-evidence-path', 'g10m-hd-asa-aas-solution-table.png'],
+    ['evidence-goal-opposite-pairs-and-ratios', 'g10m-hd-law-sines-overview.png'],
+    ['opposite-pair-warm-up', 'g10m-hd-opposite-pair-warmup.png'],
+    ['aas-ratio-walkthrough', 'g10m-hd-aas-ratio-walkthrough.png'],
+    ['asa-aas-solution-table', 'g10m-hd-asa-aas-solution-table.png'],
+    ['output-check-solution-table', 'g10m-hd-asa-aas-solution-table.png'],
+    ['team-roles-and-calculator-checks', 'g10m-hd-asa-aas-solution-table.png'],
+    ['oblique-triangle-card-exchange', 'g10m-hd-oblique-card-exchange.png'],
+    ['ratio-setup-conference', 'g10m-hd-aas-ratio-walkthrough.png'],
+    ['wrong-pair-repair', 'g10m-hd-wrong-pair-repair.png'],
+    ['aas-exit-triangle', 'g10m-hd-wrong-pair-repair.png'],
+
+    ['how-can-the-same-ssa-data-make-two-triangles', 'g10m-hd-swinging-side-sketch.png'],
+    ['today-s-ssa-decision-path', 'g10m-hd-ssa-height-test.png'],
+    ['todays-ssa-decision-path', 'g10m-hd-ssa-height-test.png'],
+    ['evidence-goal-ssa-triangle-counts', 'g10m-hd-ssa-height-test.png'],
+    ['swinging-side-sketch', 'g10m-hd-swinging-side-sketch.png'],
+    ['ssa-height-test-model', 'g10m-hd-ssa-height-test.png'],
+    ['ambiguous-case-decision-table', 'g10m-hd-ambiguous-decision-table.png'],
+    ['output-check-decision-table', 'g10m-hd-ambiguous-decision-table.png'],
+    ['team-roles-and-height-checks', 'g10m-hd-ssa-height-test.png'],
+    ['two-branch-sketch-check', 'g10m-hd-two-branch-sketch.png'],
+    ['triangle-count-discussion', 'g10m-hd-two-branch-sketch.png'],
+    ['missed-supplement-repair', 'g10m-hd-missed-supplement-repair.png'],
+    ['ssa-classification-exit', 'g10m-hd-ambiguous-decision-table.png'],
+
+    ['how-do-we-know-which-branch-remains-valid', 'g10m-hd-solution-fork-preview.png'],
+    ['which-branch-remains-a-valid-triangle', 'g10m-hd-solution-fork-preview.png'],
+    ['today-s-branch-validation-path', 'g10m-hd-ssa-solution-tree.png'],
+    ['todays-branch-validation-path', 'g10m-hd-ssa-solution-tree.png'],
+    ['evidence-goal-branching-valid-solutions', 'g10m-hd-ssa-solution-tree.png'],
+    ['solution-fork-preview', 'g10m-hd-solution-fork-preview.png'],
+    ['two-branch-solution-model', 'g10m-hd-two-branch-model.png'],
+    ['ssa-solution-tree-set', 'g10m-hd-ssa-solution-tree.png'],
+    ['output-check-solution-trees', 'g10m-hd-ssa-solution-tree.png'],
+    ['team-roles-and-branch-checks', 'g10m-hd-ssa-solution-tree.png'],
+    ['shoreline-position-problem', 'g10m-hd-shoreline-position.png'],
+    ['branch-validity-conference', 'g10m-hd-ssa-solution-tree.png'],
+    ['invalid-branch-audit', 'g10m-hd-invalid-branch-audit.png'],
+    ['ssa-solution-exit', 'g10m-hd-invalid-branch-audit.png'],
+
+    ['why-identify-the-case-before-solving', 'g10m-hd-case-type-sort.png'],
+    ['today-s-performance-defense-path', 'g10m-hd-performance-response.png'],
+    ['todays-performance-defense-path', 'g10m-hd-performance-response.png'],
+    ['evidence-goal-case-type-and-defense', 'g10m-hd-performance-response.png'],
+    ['case-type-sort', 'g10m-hd-case-type-sort.png'],
+    ['performance-response-review', 'g10m-hd-performance-response.png'],
+    ['setup-checkpoint-pair', 'g10m-hd-setup-checkpoint.png'],
+    ['law-of-sines-performance-task', 'g10m-hd-law-sines-performance.png'],
+    ['output-check-performance-task', 'g10m-hd-law-sines-performance.png'],
+    ['team-roles-and-peer-checks', 'g10m-hd-ambiguity-peer-review.png'],
+    ['ambiguity-peer-review', 'g10m-hd-ambiguity-peer-review.png'],
+    ['ssa-is-different-from-asa-and-aas', 'g10m-hd-case-type-sort.png'],
+    ['transfer-defense-exit', 'g10m-hd-ambiguity-peer-review.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-law-of-sines'];
+  return templateMap?.[template] || templateMap?.content;
+};
+
 const buildCuratedStaticImageUrl = (basePath: string, fileName: string): string => (
   `${basePath}/${fileName}?v=${CURATED_STATIC_IMAGE_ASSET_VERSION}`
 );
@@ -1502,21 +1638,23 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'math-geometry-construction'
-    ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'math-statistics-expressions'
-      ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collection === 'math-polygons'
-        ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collection === 'science-digestive-system'
-          ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-          : collection === 'science-force-motion'
-            ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-            : collection === 'science-chemistry-reactions'
-              ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-              : collection === 'science-general-motion'
-                ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                : collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'math-law-of-sines'
+    ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    : collection === 'math-geometry-construction'
+      ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collection === 'math-statistics-expressions'
+        ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        : collection === 'math-polygons'
+          ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          : collection === 'science-digestive-system'
+            ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+            : collection === 'science-force-motion'
+              ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+              : collection === 'science-chemistry-reactions'
+                ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                : collection === 'science-general-motion'
+                  ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                  : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1525,7 +1663,8 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (
-    collection !== 'math-geometry-construction'
+    collection !== 'math-law-of-sines'
+    && collection !== 'math-geometry-construction'
     && collection !== 'math-statistics-expressions'
     && collection !== 'math-polygons'
     && collection !== 'science-particle-model'
@@ -1535,21 +1674,23 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
     && collection !== 'science-general-motion'
   ) return undefined;
 
-  const fileName = collection === 'math-geometry-construction'
-    ? getMathGeometryConstructionImageFileName(metadata, true)
-    : collection === 'math-statistics-expressions'
-      ? getMathStatisticsExpressionsImageFileName(metadata, true)
-      : collection === 'math-polygons'
-        ? getMathPolygonsImageFileName(metadata, true)
-        : collection === 'science-particle-model'
-          ? getScienceParticleModelImageFileName(metadata, true)
-          : collection === 'science-digestive-system'
-            ? getScienceDigestiveImageFileName(metadata, true)
-            : collection === 'science-force-motion'
-              ? getScienceForceMotionImageFileName(metadata, true)
-              : collection === 'science-chemistry-reactions'
-                ? getScienceChemistryReactionsImageFileName(metadata, true)
-                : getScienceGeneralMotionImageFileName(metadata, true);
+  const fileName = collection === 'math-law-of-sines'
+    ? getMathLawOfSinesImageFileName(metadata, true)
+    : collection === 'math-geometry-construction'
+      ? getMathGeometryConstructionImageFileName(metadata, true)
+      : collection === 'math-statistics-expressions'
+        ? getMathStatisticsExpressionsImageFileName(metadata, true)
+        : collection === 'math-polygons'
+          ? getMathPolygonsImageFileName(metadata, true)
+          : collection === 'science-particle-model'
+            ? getScienceParticleModelImageFileName(metadata, true)
+            : collection === 'science-digestive-system'
+              ? getScienceDigestiveImageFileName(metadata, true)
+              : collection === 'science-force-motion'
+                ? getScienceForceMotionImageFileName(metadata, true)
+                : collection === 'science-chemistry-reactions'
+                  ? getScienceChemistryReactionsImageFileName(metadata, true)
+                  : getScienceGeneralMotionImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };

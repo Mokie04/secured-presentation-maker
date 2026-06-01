@@ -41,6 +41,12 @@ import {
   getMathGeometryConstructionK12PlanUnitSlidesSeed,
   isReusableMathGeometryConstructionLesson,
 } from './mathGeometryConstructionLessonSeed';
+import {
+  getMathLawOfSinesK12CompleteLessonPlanSeed,
+  getMathLawOfSinesK12LessonPlanSeed,
+  getMathLawOfSinesK12PlanUnitSlidesSeed,
+  isReusableMathLawOfSinesLesson,
+} from './mathLawOfSinesLessonSeed';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -1150,6 +1156,7 @@ export const getReusableK12LessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12LessonPlanSeed();
   if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12LessonPlanSeed();
   if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12LessonPlanSeed();
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12LessonPlanSeed();
@@ -1175,6 +1182,7 @@ export const getReusableK12PlanUnitSlidesSeed = (
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12PlanUnitSlidesSeed(dayNumber);
@@ -1192,6 +1200,7 @@ export const getReusableK12CompleteLessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
+  if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12CompleteLessonPlanSeed();
   if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12CompleteLessonPlanSeed();
   if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12CompleteLessonPlanSeed();
   if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12CompleteLessonPlanSeed();
