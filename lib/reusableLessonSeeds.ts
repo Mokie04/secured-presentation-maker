@@ -12,6 +12,12 @@ import {
   isReusableChemistryReactionsLesson,
 } from './chemistryReactionsLessonSeed';
 import {
+  getGeneralScienceMotionK12CompleteLessonPlanSeed,
+  getGeneralScienceMotionK12LessonPlanSeed,
+  getGeneralScienceMotionK12PlanUnitSlidesSeed,
+  isReusableGeneralScienceMotionLesson,
+} from './generalScienceMotionLessonSeed';
+import {
   getForceMotionK12CompleteLessonPlanSeed,
   getForceMotionK12LessonPlanSeed,
   getForceMotionK12PlanUnitSlidesSeed,
@@ -1129,6 +1135,7 @@ export const getReusableK12LessonPlanSeed = (
   if (isReusableForceMotionLesson(content)) return getForceMotionK12LessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12LessonPlanSeed();
   if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12LessonPlanSeed();
+  if (isReusableGeneralScienceMotionLesson(content)) return getGeneralScienceMotionK12LessonPlanSeed();
   if (!isReusableParticleModelLesson(content)) return null;
 
   const blueprint = cloneBlueprint();
@@ -1150,6 +1157,7 @@ export const getReusableK12PlanUnitSlidesSeed = (
   if (isReusableForceMotionLesson(content)) return getForceMotionK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableDigestiveLesson(content)) return getDigestiveK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12PlanUnitSlidesSeed(dayNumber);
+  if (isReusableGeneralScienceMotionLesson(content)) return getGeneralScienceMotionK12PlanUnitSlidesSeed(dayNumber);
   if (!isReusableParticleModelLesson(content)) return null;
   const slides = getSessionSlides(dayNumber);
   return slides.length > 0 ? cloneSlides(slides) : null;
@@ -1163,6 +1171,7 @@ export const getReusableK12CompleteLessonPlanSeed = (
   if (isReusableForceMotionLesson(content)) return getForceMotionK12CompleteLessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12CompleteLessonPlanSeed();
   if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12CompleteLessonPlanSeed();
+  if (isReusableGeneralScienceMotionLesson(content)) return getGeneralScienceMotionK12CompleteLessonPlanSeed();
   if (!isReusableParticleModelLesson(content)) return null;
 
   const blueprint = cloneBlueprint();

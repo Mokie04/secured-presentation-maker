@@ -75,13 +75,14 @@ const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-science-week1-approved-v4';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-science-week1-approved-v5';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
   'science-particle-model': '/curated-images/science/particle-model',
   'science-digestive-system': '/curated-images/science/digestive-system',
   'science-force-motion': '/curated-images/science/force-motion',
   'science-chemistry-reactions': '/curated-images/science/chemistry-reactions',
+  'science-general-motion': '/curated-images/science/general-science-motion',
 };
 const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string, string>> = {
   'values-education': {
@@ -177,6 +178,24 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'g10-hd-reaction-overview.png',
     summary: 'g10-hd-reaction-card-exit.png',
     'success-criteria': 'g10-hd-micro-reaction-table.png',
+  },
+  'science-general-motion': {
+    activity: 'g11-hd-cart-wheel-evidence.png',
+    application: 'g11-hd-motion-explainer.png',
+    assignment: 'g11-hd-motion-explainer.png',
+    assessment: 'g11-hd-motion-explainer.png',
+    concept: 'g11-hd-motion-overview.png',
+    content: 'g11-hd-motion-overview.png',
+    discussion: 'g11-hd-quality-life-map.png',
+    generalization: 'g11-hd-circumference-model.png',
+    model: 'g11-hd-two-motion-diagram.png',
+    objectives: 'g11-hd-motion-overview.png',
+    overview: 'g11-hd-motion-overview.png',
+    practice: 'g11-hd-one-turn-trial.png',
+    review: 'g11-hd-linear-angular-board.png',
+    situation: 'g11-hd-motion-overview.png',
+    summary: 'g11-hd-motion-explainer.png',
+    'success-criteria': 'g11-hd-cart-wheel-evidence.png',
   },
 };
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
@@ -477,6 +496,39 @@ const isScienceChemistryReactionsSemanticSubject = (metadata: ImageSemanticMetad
   return hasScienceSubject && hasChemistryTopic;
 };
 
+const isScienceGeneralMotionSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasScienceSubject = subjectSlug === 'science'
+    || subjectSlug.includes('science')
+    || searchable.includes('science');
+  const hasGeneralMotionTopic = searchable.includes('physics-in-daily-life')
+    || searchable.includes('quality-of-life')
+    || searchable.includes('translational-motion')
+    || searchable.includes('rotational-motion')
+    || searchable.includes('linear-angular')
+    || searchable.includes('linear-distance')
+    || searchable.includes('angular-turn')
+    || searchable.includes('wheel-size')
+    || searchable.includes('distance-turn')
+    || searchable.includes('one-turn')
+    || searchable.includes('same-turn')
+    || searchable.includes('circumference')
+    || searchable.includes('radius')
+    || searchable.includes('diameter')
+    || searchable.includes('device-motion')
+    || searchable.includes('motion-explainer')
+    || searchable.includes('cart-wheel');
+
+  return hasScienceSubject && hasGeneralMotionTopic;
+};
+
 const LEGACY_SCIENCE_PARTICLE_MODEL_STATIC_FILES = new Set([
   'air-compression.png',
   'assessment.png',
@@ -544,6 +596,7 @@ const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undef
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
   if (isScienceChemistryReactionsSemanticSubject(metadata)) return 'science-chemistry-reactions';
+  if (isScienceGeneralMotionSemanticSubject(metadata)) return 'science-general-motion';
   if (isScienceForceMotionSemanticSubject(metadata)) return 'science-force-motion';
   if (isScienceParticleModelSemanticSubject(metadata)) return 'science-particle-model';
   if (isScienceDigestiveSemanticSubject(metadata)) return 'science-digestive-system';
@@ -780,6 +833,84 @@ const getScienceChemistryReactionsImageFileName = (
   return templateMap?.[template] || templateMap?.content;
 };
 
+const getScienceGeneralMotionImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['physics-in-daily-life-translational-motion-and-rotational-motion', 'g11-hd-motion-overview.png'],
+    ['learning-roadmap', 'g11-hd-motion-overview.png'],
+    ['how-we-will-work-like-physicists', 'g11-hd-linear-angular-board.png'],
+
+    ['how-can-one-device-move-in-two-ways', 'g11-hd-motion-overview.png'],
+    ['today-s-motion-evidence-path', 'g11-hd-cart-wheel-evidence.png'],
+    ['todays-motion-evidence-path', 'g11-hd-cart-wheel-evidence.png'],
+    ['evidence-goal-motion-in-daily-devices', 'g11-hd-motion-overview.png'],
+    ['motion-around-us-sort', 'g11-hd-quality-life-map.png'],
+    ['cart-and-wheel-evidence-demo', 'g11-hd-cart-wheel-evidence.png'],
+    ['output-check-path-turn-use-table', 'g11-hd-cart-wheel-evidence.png'],
+    ['team-roles-and-safety-cart-and-wheel', 'g11-hd-cart-wheel-evidence.png'],
+    ['quality-of-life-physics-map', 'g11-hd-quality-life-map.png'],
+    ['two-motion-diagram', 'g11-hd-two-motion-diagram.png'],
+    ['translation-and-rotation-mischeck', 'g11-hd-two-motion-diagram.png'],
+    ['exit-claim-with-evidence', 'g11-hd-motion-explainer.png'],
+
+    ['how-far-does-one-full-turn-move', 'g11-hd-one-turn-trial.png'],
+    ['today-s-distance-turn-evidence-path', 'g11-hd-one-turn-trial.png'],
+    ['todays-distance-turn-evidence-path', 'g11-hd-one-turn-trial.png'],
+    ['evidence-goal-distance-and-turns', 'g11-hd-one-turn-trial.png'],
+    ['distance-or-turn-prediction', 'g11-hd-one-turn-trial.png'],
+    ['one-turn-rolling-trial', 'g11-hd-one-turn-trial.png'],
+    ['output-check-distance-turn-table', 'g11-hd-one-turn-trial.png'],
+    ['team-roles-and-safety-rolling-trial', 'g11-hd-linear-angular-board.png'],
+    ['linear-angular-match-board', 'g11-hd-linear-angular-board.png'],
+    ['turn-to-distance-model', 'g11-hd-linear-angular-board.png'],
+    ['data-reliability-check', 'g11-hd-linear-angular-board.png'],
+    ['mini-case-interpretation', 'g11-hd-motion-explainer.png'],
+
+    ['what-happens-with-same-turns', 'g11-hd-wheel-size-comparison.png'],
+    ['today-s-wheel-size-evidence-path', 'g11-hd-wheel-size-comparison.png'],
+    ['todays-wheel-size-evidence-path', 'g11-hd-wheel-size-comparison.png'],
+    ['evidence-goal-wheel-size-and-distance', 'g11-hd-wheel-size-comparison.png'],
+    ['same-turns-different-wheels-prompt', 'g11-hd-wheel-size-comparison.png'],
+    ['wheel-size-comparison-trial', 'g11-hd-wheel-size-comparison.png'],
+    ['output-check-wheel-size-table', 'g11-hd-wheel-size-comparison.png'],
+    ['team-roles-and-safety-wheel-size-trial', 'g11-hd-wheel-size-comparison.png'],
+    ['circumference-relationship-talk', 'g11-hd-circumference-model.png'],
+    ['motion-relationship-diagram-2-0', 'g11-hd-circumference-model.png'],
+    ['slipping-and-measurement-limits', 'g11-hd-linear-angular-board.png'],
+    ['design-choice-justification', 'g11-hd-recommendation-conference.png'],
+
+    ['what-evidence-should-guide-a-device-recommendation', 'g11-hd-device-audit.png'],
+    ['today-s-device-explainer-path', 'g11-hd-device-audit.png'],
+    ['todays-device-explainer-path', 'g11-hd-device-audit.png'],
+    ['evidence-goal-motion-explainer', 'g11-hd-device-audit.png'],
+    ['best-evidence-selection', 'g11-hd-recommendation-conference.png'],
+    ['device-motion-audit', 'g11-hd-device-audit.png'],
+    ['output-check-device-audit-table', 'g11-hd-device-audit.png'],
+    ['team-roles-and-safety-device-audit', 'g11-hd-device-audit.png'],
+    ['evidence-to-recommendation-conference', 'g11-hd-recommendation-conference.png'],
+    ['motion-explainer-build', 'g11-hd-motion-explainer.png'],
+    ['rotation-and-forward-motion-are-related', 'g11-hd-linear-angular-board.png'],
+    ['gallery-defense-ticket', 'g11-hd-motion-explainer.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
+    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['science-general-motion'];
+  return templateMap?.[template] || templateMap?.content;
+};
+
 const getScienceParticleModelImageFileName = (
   metadata: ImageSemanticMetadata,
   exactOnly = false,
@@ -987,7 +1118,9 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
       ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
       : collection === 'science-chemistry-reactions'
         ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collectionMap?.[template] || collectionMap?.content;
+        : collection === 'science-general-motion'
+          ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1000,6 +1133,7 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
     && collection !== 'science-digestive-system'
     && collection !== 'science-force-motion'
     && collection !== 'science-chemistry-reactions'
+    && collection !== 'science-general-motion'
   ) return undefined;
 
   const fileName = collection === 'science-particle-model'
@@ -1008,7 +1142,9 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
       ? getScienceDigestiveImageFileName(metadata, true)
       : collection === 'science-force-motion'
         ? getScienceForceMotionImageFileName(metadata, true)
-        : getScienceChemistryReactionsImageFileName(metadata, true);
+        : collection === 'science-chemistry-reactions'
+          ? getScienceChemistryReactionsImageFileName(metadata, true)
+          : getScienceGeneralMotionImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
