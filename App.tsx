@@ -7,6 +7,7 @@ import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
 import mammoth from 'mammoth';
 import * as pdfjsLib from 'pdfjs-dist';
+import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import html2canvas from 'html2canvas';
 import { useTheme } from './contexts/ThemeContext';
 import Header from './components/Header';
@@ -2086,6 +2087,48 @@ const completeBlueprintStatus = (blueprint: LessonBlueprint): LessonBlueprint =>
   days: blueprint.days.map((day) => ({ ...day, generationStatus: 'done' as const })),
 });
 
+type PdfTextItem = {
+  str?: string;
+  transform?: number[];
+};
+
+const mergePdfTextRows = (rows: Array<{ y: number; parts: Array<{ x: number; text: string }> }>, y: number) => {
+  const yTolerance = 2;
+  const existingRow = rows.find((row) => Math.abs(row.y - y) <= yTolerance);
+  if (existingRow) return existingRow;
+
+  const row = { y, parts: [] as Array<{ x: number; text: string }> };
+  rows.push(row);
+  return row;
+};
+
+const extractStructuredPdfPageText = (items: unknown[]): string => {
+  const rows: Array<{ y: number; parts: Array<{ x: number; text: string }> }> = [];
+  const flatTextParts: string[] = [];
+
+  for (const item of items) {
+    const textItem = item as PdfTextItem;
+    const text = textItem.str?.replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+
+    flatTextParts.push(text);
+
+    const transform = textItem.transform;
+    if (!Array.isArray(transform) || transform.length < 6) continue;
+    const x = Number(transform[4]) || 0;
+    const y = Number(transform[5]) || 0;
+    mergePdfTextRows(rows, y).parts.push({ x, text });
+  }
+
+  const structuredText = rows
+    .sort((a, b) => b.y - a.y)
+    .map((row) => row.parts.sort((a, b) => a.x - b.x).map((part) => part.text).join(' '))
+    .filter(Boolean)
+    .join('\n');
+
+  return structuredText.trim() || flatTextParts.join(' ');
+};
+
 const shouldUseStandalonePlanUnitDeck = (blueprint: LessonBlueprint): boolean => (
   getPlanUnitLabel(blueprint).trim().toLowerCase() === 'session'
 );
@@ -2289,7 +2332,7 @@ const App: React.FC = () => {
   useEffect(() => {
     try {
       if (pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@4.4.168/build/pdf.worker.min.mjs`;
+          pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
       }
     } catch (e) {
       console.warn("Failed to set PDF worker source", e);
@@ -3210,8 +3253,8 @@ const App: React.FC = () => {
             for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i);
                 const content = await page.getTextContent();
-                const pageText = content.items.map(item => ('str' in item ? item.str : '')).join(' ');
-                text += pageText + '\n';
+                const pageText = extractStructuredPdfPageText(content.items);
+                text += `\n\n--- Page ${i} ---\n${pageText}`;
             }
             if (!text.trim()) {
                 text = getKnownScannedPdfFallbackText(file, pdf.numPages);
