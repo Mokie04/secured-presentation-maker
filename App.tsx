@@ -76,20 +76,12 @@ const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 // Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
-const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260601-week1-approved-v6';
+const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260531-science-week1-approved-v1';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
-  'english-literature-values': '/curated-images/english/philippine-literature-values',
-  'math-polygons': '/curated-images/math/polygons',
-  'math-statistics-expressions': '/curated-images/math/statistics-expressions',
-  'math-geometry-construction': '/curated-images/math/geometry-construction',
-  'math-law-of-sines': '/curated-images/math/law-of-sines',
-  'math-wages-income': '/curated-images/math/wages-income',
   'science-particle-model': '/curated-images/science/particle-model',
   'science-digestive-system': '/curated-images/science/digestive-system',
-  'science-force-motion': '/curated-images/science/force-motion',
-  'science-chemistry-reactions': '/curated-images/science/chemistry-reactions',
-  'science-general-motion': '/curated-images/science/general-science-motion',
+  'science-scientists-inventions': '/curated-images/science/scientists-inventions',
 };
 const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string, string>> = {
   'values-education': {
@@ -108,114 +100,6 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'situation.jpg',
     summary: 'generalization.jpg',
     'success-criteria': 'success-criteria.jpg',
-  },
-  'english-literature-values': {
-    activity: 'g7e-hd-claim-evidence-table.png',
-    application: 'g7e-hd-four-sentence-response.png',
-    assignment: 'g7e-hd-focused-response-draft.png',
-    assessment: 'g7e-hd-revision-reflection.png',
-    concept: 'g7e-hd-literature-values-overview.png',
-    content: 'g7e-hd-literature-values-overview.png',
-    discussion: 'g7e-hd-context-meaning.png',
-    generalization: 'g7e-hd-synthesis-sentence.png',
-    model: 'g7e-hd-first-reading-trail.png',
-    objectives: 'g7e-hd-literature-values-overview.png',
-    overview: 'g7e-hd-literature-values-overview.png',
-    practice: 'g7e-hd-four-sentence-response.png',
-    review: 'g7e-hd-response-target-check.png',
-    situation: 'g7e-hd-value-lens-warmup.png',
-    summary: 'g7e-hd-focused-response-draft.png',
-    'success-criteria': 'g7e-hd-response-target-check.png',
-  },
-  'math-polygons': {
-    activity: 'g7-hd-side-angle-lab.png',
-    application: 'g7-hd-measurement-audit.png',
-    assignment: 'g7-hd-measurement-audit.png',
-    assessment: 'g7-hd-measurement-audit.png',
-    concept: 'g7-hd-polygon-overview.png',
-    content: 'g7-hd-polygon-overview.png',
-    discussion: 'g7-hd-regularity-rule.png',
-    generalization: 'g7-hd-regularity-rule.png',
-    model: 'g7-hd-pentagon-trace.png',
-    objectives: 'g7-hd-polygon-overview.png',
-    overview: 'g7-hd-polygon-overview.png',
-    practice: 'g7-hd-polygon-studio.png',
-    review: 'g7-hd-polygon-sort.png',
-    situation: 'g7-hd-polygon-sort.png',
-    summary: 'g7-hd-measurement-audit.png',
-    'success-criteria': 'g7-hd-side-angle-lab.png',
-  },
-  'math-statistics-expressions': {
-    activity: 'g8-hd-evidence-conclusion-card.png',
-    application: 'g8-hd-data-expression-brief.png',
-    assignment: 'g8-hd-data-expression-brief.png',
-    assessment: 'g8-hd-three-measures-exit.png',
-    concept: 'g8-hd-stat-algebra-overview.png',
-    content: 'g8-hd-stat-algebra-overview.png',
-    discussion: 'g8-hd-outlier-measure-match.png',
-    generalization: 'g8-hd-evidence-conclusion-card.png',
-    model: 'g8-hd-notebook-cost-expression.png',
-    objectives: 'g8-hd-stat-algebra-overview.png',
-    overview: 'g8-hd-stat-algebra-overview.png',
-    practice: 'g8-hd-table-rule-expression.png',
-    review: 'g8-hd-statistics-algebra-sort.png',
-    situation: 'g8-hd-typical-score-prediction.png',
-    summary: 'g8-hd-data-expression-brief.png',
-    'success-criteria': 'g8-hd-data-expression-brief.png',
-  },
-  'math-geometry-construction': {
-    activity: 'g9m-hd-perpendicular-step-check.png',
-    application: 'g9m-hd-construction-report.png',
-    assignment: 'g9m-hd-peer-audit-transfer.png',
-    assessment: 'g9m-hd-notation-error-exit.png',
-    concept: 'g9m-hd-geometry-overview.png',
-    content: 'g9m-hd-geometry-overview.png',
-    discussion: 'g9m-hd-two-method-parallel-compare.png',
-    generalization: 'g9m-hd-construction-report.png',
-    model: 'g9m-hd-equal-arc-trace.png',
-    objectives: 'g9m-hd-geometry-overview.png',
-    overview: 'g9m-hd-geometry-overview.png',
-    practice: 'g9m-hd-notation-match-lab.png',
-    review: 'g9m-hd-symbol-sort.png',
-    situation: 'g9m-hd-symbol-sort.png',
-    summary: 'g9m-hd-construction-report.png',
-    'success-criteria': 'g9m-hd-report-walkthrough.png',
-  },
-  'math-law-of-sines': {
-    activity: 'g10m-hd-asa-aas-solution-table.png',
-    application: 'g10m-hd-law-sines-performance.png',
-    assignment: 'g10m-hd-law-sines-performance.png',
-    assessment: 'g10m-hd-ambiguity-peer-review.png',
-    concept: 'g10m-hd-law-sines-overview.png',
-    content: 'g10m-hd-law-sines-overview.png',
-    discussion: 'g10m-hd-two-branch-sketch.png',
-    generalization: 'g10m-hd-ssa-solution-tree.png',
-    model: 'g10m-hd-aas-ratio-walkthrough.png',
-    objectives: 'g10m-hd-law-sines-overview.png',
-    overview: 'g10m-hd-law-sines-overview.png',
-    practice: 'g10m-hd-ssa-solution-tree.png',
-    review: 'g10m-hd-case-type-sort.png',
-    situation: 'g10m-hd-opposite-pair-warmup.png',
-    summary: 'g10m-hd-law-sines-performance.png',
-    'success-criteria': 'g10m-hd-setup-checkpoint.png',
-  },
-  'math-wages-income': {
-    activity: 'g11m-hd-two-column-solution.png',
-    application: 'g11m-hd-portfolio-work.png',
-    assignment: 'g11m-hd-pay-brief-template.png',
-    assessment: 'g11m-hd-rubric-peer-review.png',
-    concept: 'g11m-hd-income-overview.png',
-    content: 'g11m-hd-income-overview.png',
-    discussion: 'g11m-hd-sample-answer-check.png',
-    generalization: 'g11m-hd-comparison-model.png',
-    model: 'g11m-hd-salary-hourly-worked.png',
-    objectives: 'g11m-hd-income-overview.png',
-    overview: 'g11m-hd-income-overview.png',
-    practice: 'g11m-hd-guided-payroll-pair.png',
-    review: 'g11m-hd-method-choice-check.png',
-    situation: 'g11m-hd-diagnostic-payroll-markup.png',
-    summary: 'g11m-hd-pay-brief-template.png',
-    'success-criteria': 'g11m-hd-pay-brief-template.png',
   },
   'science-particle-model': {
     activity: 'particle-evidence.png',
@@ -258,60 +142,6 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     summary: 'd8-hd-journey-output.png',
     'success-criteria': 'd8-hd-journey-output.png',
   },
-  'science-force-motion': {
-    activity: 'g9-hd-pull-trial.png',
-    application: 'g9-hd-force-diagram-model.png',
-    assignment: 'g9-hd-mastery-slip.png',
-    assessment: 'g9-hd-mastery-slip.png',
-    concept: 'g9-hd-balanced-unbalanced-board.png',
-    content: 'g9-hd-overview.png',
-    discussion: 'g9-hd-trend-board.png',
-    generalization: 'g9-hd-velocity-map.png',
-    model: 'g9-hd-force-diagram-model.png',
-    objectives: 'g9-hd-overview.png',
-    overview: 'g9-hd-overview.png',
-    practice: 'g9-hd-motion-change-table.png',
-    review: 'g9-hd-trend-board.png',
-    situation: 'g9-hd-seatbelt-sort.png',
-    summary: 'g9-hd-fma-model.png',
-    'success-criteria': 'g9-hd-output-table.png',
-  },
-  'science-chemistry-reactions': {
-    activity: 'g10-hd-micro-reaction-table.png',
-    application: 'g10-hd-reaction-card-exit.png',
-    assignment: 'g10-hd-reaction-card-exit.png',
-    assessment: 'g10-hd-reaction-card-exit.png',
-    concept: 'g10-hd-reaction-overview.png',
-    content: 'g10-hd-reaction-overview.png',
-    discussion: 'g10-hd-evidence-ladder.png',
-    generalization: 'g10-hd-evidence-ladder.png',
-    model: 'g10-hd-reaction-card-exit.png',
-    objectives: 'g10-hd-reaction-overview.png',
-    overview: 'g10-hd-reaction-overview.png',
-    practice: 'g10-hd-micro-reaction-table.png',
-    review: 'g10-hd-evidence-ladder.png',
-    situation: 'g10-hd-reaction-overview.png',
-    summary: 'g10-hd-reaction-card-exit.png',
-    'success-criteria': 'g10-hd-micro-reaction-table.png',
-  },
-  'science-general-motion': {
-    activity: 'g11-hd-cart-wheel-evidence.png',
-    application: 'g11-hd-motion-explainer.png',
-    assignment: 'g11-hd-motion-explainer.png',
-    assessment: 'g11-hd-motion-explainer.png',
-    concept: 'g11-hd-motion-overview.png',
-    content: 'g11-hd-motion-overview.png',
-    discussion: 'g11-hd-quality-life-map.png',
-    generalization: 'g11-hd-circumference-model.png',
-    model: 'g11-hd-two-motion-diagram.png',
-    objectives: 'g11-hd-motion-overview.png',
-    overview: 'g11-hd-motion-overview.png',
-    practice: 'g11-hd-one-turn-trial.png',
-    review: 'g11-hd-linear-angular-board.png',
-    situation: 'g11-hd-motion-overview.png',
-    summary: 'g11-hd-motion-explainer.png',
-    'success-criteria': 'g11-hd-cart-wheel-evidence.png',
-  },
 };
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
@@ -349,17 +179,6 @@ const PPTX_TEXT_ONLY_H = 3.65;
 const SAYUNA_WATERMARK_WIDTH_RATIO = 0.08;
 const SAYUNA_WATERMARK_MARGIN_RATIO = 0.025;
 const SAYUNA_WATERMARK_OPACITY = 0.26;
-const GRADE9_FORCE_MOTION_SCANNED_PDF_FALLBACK_TEXT = [
-  'Grade 9 Science: Inertia, Net Force, and Acceleration Foundations',
-  'Week 1 May 25-28 2026 Learning Sessions 1 2 3 4',
-  'Learning competency: identify inertia as tendency for an object to stay at rest or in motion unless acted on by an unbalanced net force.',
-  'Demonstrate and describe acceleration as change in speed and/or direction as a result of net force.',
-  'Investigate the relationship among force, acceleration, and mass.',
-  'Session 1 inertia, seatbelt prediction sort, coin-card-cup or paper-pull demo, signed net force, balanced force, unbalanced force, force diagram, inertia CER exit.',
-  'Session 2 acceleration triage, motion change evidence table, velocity change map, speeding up, slowing down, turning, unbalanced force direction, cause and effect strip.',
-  'Session 3 fair push question, pull strength data trial, constant mass, force acceleration data table, trend board, greater net force produces greater acceleration.',
-  'Session 4 F = ma, formula meaning slip, worked acceleration cases, force diagram, units, acceleration direction from net force, constant mass mastery slip.',
-].join('\\n');
 
 type CachedLessonPlan = {
   blueprint: LessonBlueprint;
@@ -452,16 +271,6 @@ const waitForReusableGenerationLoading = (setProgress?: LoadingProgressSetter): 
     : waitForDuration(REUSABLE_GENERATION_LOADING_DELAY_MS)
 );
 
-const getKnownScannedPdfFallbackText = (file: File, pageCount: number): string => {
-  const normalizedName = file.name.toLowerCase().replace(/\s+/g, ' ').trim();
-  const isGrade9ForceMotionPdf = normalizedName === 'lesson_plan (1).pdf'
-    && pageCount === 5
-    && file.size >= 43_000_000
-    && file.size <= 45_000_000;
-
-  return isGrade9ForceMotionPdf ? GRADE9_FORCE_MOTION_SCANNED_PDF_FALLBACK_TEXT : '';
-};
-
 const finishLoadingProgress = async (setProgress: LoadingProgressSetter): Promise<void> => {
   setProgress(100);
   await waitForDuration(250);
@@ -495,195 +304,6 @@ const isValuesEducationSemanticSubject = (value: string | undefined): boolean =>
     || subjectSlug.includes('values-education')
     || subjectSlug.includes('edukasyon-sa-pagpapakatao')
     || parts.includes('esp');
-};
-
-const isMathPolygonsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
-  const subjectSlug = slugifyImageSemanticText(metadata.subject);
-  const searchable = slugifyImageSemanticText([
-    metadata.subject,
-    metadata.topic,
-    metadata.learningCompetency,
-    metadata.semanticAnchor,
-  ].filter(Boolean).join(' '));
-
-  const hasMathSubject = subjectSlug === 'mathematics'
-    || subjectSlug === 'math'
-    || searchable.includes('mathematics')
-    || searchable.includes('math');
-  const hasPolygonTopic = searchable.includes('constructing-and-describing-polygons')
-    || searchable.includes('regular-polygon')
-    || searchable.includes('irregular-polygon')
-    || searchable.includes('polygon')
-    || searchable.includes('side-angle')
-    || searchable.includes('side-length')
-    || searchable.includes('angle-measure')
-    || searchable.includes('protractor')
-    || searchable.includes('ruler')
-    || searchable.includes('triangle')
-    || searchable.includes('quadrilateral')
-    || searchable.includes('pentagon')
-    || searchable.includes('hexagon')
-    || searchable.includes('octagon')
-    || searchable.includes('decagon');
-
-  return hasMathSubject && hasPolygonTopic;
-};
-
-const isEnglishLiteratureValuesSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
-  const subjectSlug = slugifyImageSemanticText(metadata.subject);
-  const searchable = slugifyImageSemanticText([
-    metadata.subject,
-    metadata.topic,
-    metadata.learningCompetency,
-    metadata.semanticAnchor,
-  ].filter(Boolean).join(' '));
-
-  const hasEnglishSubject = subjectSlug === 'english'
-    || searchable.includes('english');
-  const hasLiteratureValuesTopic = searchable.includes('philippine-literary-text')
-    || searchable.includes('literary-text')
-    || searchable.includes('communal-value')
-    || searchable.includes('individual-value')
-    || searchable.includes('characterization')
-    || searchable.includes('character-evidence')
-    || searchable.includes('claim-evidence')
-    || searchable.includes('conflict-type')
-    || searchable.includes('plot-pressure')
-    || searchable.includes('value-under-pressure')
-    || searchable.includes('literary-response')
-    || searchable.includes('context-meaning')
-    || searchable.includes('response-draft')
-    || searchable.includes('trait-precision');
-
-  return hasEnglishSubject && hasLiteratureValuesTopic;
-};
-
-const isMathStatisticsExpressionsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
-  const subjectSlug = slugifyImageSemanticText(metadata.subject);
-  const searchable = slugifyImageSemanticText([
-    metadata.subject,
-    metadata.topic,
-    metadata.learningCompetency,
-    metadata.semanticAnchor,
-  ].filter(Boolean).join(' '));
-
-  const hasMathSubject = subjectSlug === 'mathematics'
-    || subjectSlug === 'math'
-    || searchable.includes('mathematics')
-    || searchable.includes('math');
-  const hasStatisticsOrExpressionTopic = searchable.includes('measures-of-central-tendency')
-    || searchable.includes('mean')
-    || searchable.includes('median')
-    || searchable.includes('mode')
-    || searchable.includes('ungrouped-data')
-    || searchable.includes('statistical-data')
-    || searchable.includes('data-conclusion')
-    || searchable.includes('computed-evidence')
-    || searchable.includes('outlier')
-    || searchable.includes('algebraic-expression')
-    || searchable.includes('expression-model')
-    || searchable.includes('variable')
-    || searchable.includes('constant')
-    || searchable.includes('table-rule-expression');
-
-  return hasMathSubject && hasStatisticsOrExpressionTopic;
-};
-
-const isMathGeometryConstructionSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
-  const subjectSlug = slugifyImageSemanticText(metadata.subject);
-  const searchable = slugifyImageSemanticText([
-    metadata.subject,
-    metadata.topic,
-    metadata.learningCompetency,
-    metadata.semanticAnchor,
-  ].filter(Boolean).join(' '));
-
-  const hasMathSubject = subjectSlug === 'mathematics'
-    || subjectSlug === 'math'
-    || searchable.includes('mathematics')
-    || searchable.includes('math');
-  const hasGeometryConstructionTopic = searchable.includes('geometric-object')
-    || searchable.includes('geometric-notation')
-    || searchable.includes('line-construction')
-    || searchable.includes('construction-report')
-    || searchable.includes('perpendicular')
-    || searchable.includes('parallel')
-    || searchable.includes('compass')
-    || searchable.includes('straightedge')
-    || searchable.includes('equal-arc')
-    || searchable.includes('copied-angle')
-    || searchable.includes('notation-match')
-    || searchable.includes('line-segment')
-    || searchable.includes('ray')
-    || searchable.includes('plane');
-
-  return hasMathSubject && hasGeometryConstructionTopic;
-};
-
-const isMathLawOfSinesSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
-  const subjectSlug = slugifyImageSemanticText(metadata.subject);
-  const searchable = slugifyImageSemanticText([
-    metadata.subject,
-    metadata.topic,
-    metadata.learningCompetency,
-    metadata.semanticAnchor,
-  ].filter(Boolean).join(' '));
-
-  const hasMathSubject = subjectSlug === 'mathematics'
-    || subjectSlug === 'math'
-    || searchable.includes('mathematics')
-    || searchable.includes('math');
-  const hasLawOfSinesTopic = searchable.includes('law-of-sines')
-    || searchable.includes('oblique-triangle')
-    || searchable.includes('ambiguous-case')
-    || searchable.includes('opposite-angle-side')
-    || searchable.includes('opposite-pair')
-    || searchable.includes('ssa')
-    || searchable.includes('asa')
-    || searchable.includes('aas')
-    || searchable.includes('height-test')
-    || searchable.includes('arcsin')
-    || searchable.includes('supplement')
-    || searchable.includes('solution-tree')
-    || searchable.includes('solution-fork')
-    || searchable.includes('branch')
-    || searchable.includes('case-type')
-    || searchable.includes('shoreline');
-
-  return hasMathSubject && hasLawOfSinesTopic;
-};
-
-const isMathWagesIncomeSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
-  const subjectSlug = slugifyImageSemanticText(metadata.subject);
-  const searchable = slugifyImageSemanticText([
-    metadata.subject,
-    metadata.topic,
-    metadata.learningCompetency,
-    metadata.semanticAnchor,
-  ].filter(Boolean).join(' '));
-
-  const hasMathSubject = subjectSlug === 'mathematics'
-    || subjectSlug === 'math'
-    || subjectSlug === 'general-mathematics'
-    || searchable.includes('mathematics')
-    || searchable.includes('math');
-  const hasWagesIncomeTopic = searchable.includes('wage')
-    || searchable.includes('salary')
-    || searchable.includes('benefit')
-    || searchable.includes('deduction')
-    || searchable.includes('commission')
-    || searchable.includes('piecework')
-    || searchable.includes('gross-income')
-    || searchable.includes('net-income')
-    || searchable.includes('overtime')
-    || searchable.includes('allowance')
-    || searchable.includes('payroll')
-    || searchable.includes('first-job')
-    || searchable.includes('source-data')
-    || searchable.includes('pay-computation-brief')
-    || searchable.includes('portfolio');
-
-  return hasMathSubject && hasWagesIncomeTopic;
 };
 
 const isScienceParticleModelSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
@@ -737,7 +357,7 @@ const isScienceDigestiveSemanticSubject = (metadata: ImageSemanticMetadata): boo
   return hasScienceSubject && hasDigestiveTopic;
 };
 
-const isScienceForceMotionSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+const isScienceScientistsInventionsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
   const subjectSlug = slugifyImageSemanticText(metadata.subject);
   const searchable = slugifyImageSemanticText([
     metadata.subject,
@@ -749,88 +369,16 @@ const isScienceForceMotionSemanticSubject = (metadata: ImageSemanticMetadata): b
   const hasScienceSubject = subjectSlug === 'science'
     || subjectSlug.includes('science')
     || searchable.includes('science');
-  const hasForceMotionTopic = searchable.includes('inertia')
-    || searchable.includes('net-force')
-    || searchable.includes('balanced-force')
-    || searchable.includes('unbalanced-force')
-    || searchable.includes('force-diagram')
-    || searchable.includes('force-motion')
-    || searchable.includes('force-and-acceleration')
-    || searchable.includes('acceleration-foundation')
-    || searchable.includes('velocity-change')
-    || searchable.includes('motion-change')
-    || searchable.includes('constant-mass')
-    || searchable.includes('pull-strength')
-    || searchable.includes('f-ma')
-    || searchable.includes('formula-meaning')
-    || searchable.includes('seatbelt-prediction');
+  const hasScientistsInventionsTopic = searchable.includes('scientists-inventions')
+    || searchable.includes('scientist-and-invention')
+    || searchable.includes('source-evidence')
+    || searchable.includes('source-supported')
+    || searchable.includes('source-opinion')
+    || searchable.includes('secondary-sources')
+    || searchable.includes('profile-card')
+    || searchable.includes('famous-filipino-and-or-foreign-scientist');
 
-  return hasScienceSubject && hasForceMotionTopic;
-};
-
-const isScienceChemistryReactionsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
-  const subjectSlug = slugifyImageSemanticText(metadata.subject);
-  const searchable = slugifyImageSemanticText([
-    metadata.subject,
-    metadata.topic,
-    metadata.learningCompetency,
-    metadata.semanticAnchor,
-  ].filter(Boolean).join(' '));
-
-  const hasScienceSubject = subjectSlug === 'science'
-    || subjectSlug.includes('science')
-    || searchable.includes('science');
-  const hasChemistryTopic = searchable.includes('reaction-indicator')
-    || searchable.includes('chemical-reaction')
-    || searchable.includes('acid-base')
-    || searchable.includes('acid')
-    || searchable.includes('base')
-    || searchable.includes('salt')
-    || searchable.includes('indicator')
-    || searchable.includes('red-cabbage')
-    || searchable.includes('litmus')
-    || searchable.includes('ph-paper')
-    || searchable.includes('neutralization')
-    || searchable.includes('unknown-sample')
-    || searchable.includes('micro-reaction')
-    || searchable.includes('color-trail')
-    || searchable.includes('vinegar')
-    || searchable.includes('baking-soda');
-
-  return hasScienceSubject && hasChemistryTopic;
-};
-
-const isScienceGeneralMotionSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
-  const subjectSlug = slugifyImageSemanticText(metadata.subject);
-  const searchable = slugifyImageSemanticText([
-    metadata.subject,
-    metadata.topic,
-    metadata.learningCompetency,
-    metadata.semanticAnchor,
-  ].filter(Boolean).join(' '));
-
-  const hasScienceSubject = subjectSlug === 'science'
-    || subjectSlug.includes('science')
-    || searchable.includes('science');
-  const hasGeneralMotionTopic = searchable.includes('physics-in-daily-life')
-    || searchable.includes('quality-of-life')
-    || searchable.includes('translational-motion')
-    || searchable.includes('rotational-motion')
-    || searchable.includes('linear-angular')
-    || searchable.includes('linear-distance')
-    || searchable.includes('angular-turn')
-    || searchable.includes('wheel-size')
-    || searchable.includes('distance-turn')
-    || searchable.includes('one-turn')
-    || searchable.includes('same-turn')
-    || searchable.includes('circumference')
-    || searchable.includes('radius')
-    || searchable.includes('diameter')
-    || searchable.includes('device-motion')
-    || searchable.includes('motion-explainer')
-    || searchable.includes('cart-wheel');
-
-  return hasScienceSubject && hasGeneralMotionTopic;
+  return hasScienceSubject && hasScientistsInventionsTopic;
 };
 
 const LEGACY_SCIENCE_PARTICLE_MODEL_STATIC_FILES = new Set([
@@ -899,97 +447,10 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
-  if (isEnglishLiteratureValuesSemanticSubject(metadata)) return 'english-literature-values';
-  if (isMathWagesIncomeSemanticSubject(metadata)) return 'math-wages-income';
-  if (isMathLawOfSinesSemanticSubject(metadata)) return 'math-law-of-sines';
-  if (isMathGeometryConstructionSemanticSubject(metadata)) return 'math-geometry-construction';
-  if (isMathStatisticsExpressionsSemanticSubject(metadata)) return 'math-statistics-expressions';
-  if (isMathPolygonsSemanticSubject(metadata)) return 'math-polygons';
-  if (isScienceChemistryReactionsSemanticSubject(metadata)) return 'science-chemistry-reactions';
-  if (isScienceGeneralMotionSemanticSubject(metadata)) return 'science-general-motion';
-  if (isScienceForceMotionSemanticSubject(metadata)) return 'science-force-motion';
   if (isScienceParticleModelSemanticSubject(metadata)) return 'science-particle-model';
   if (isScienceDigestiveSemanticSubject(metadata)) return 'science-digestive-system';
+  if (isScienceScientistsInventionsSemanticSubject(metadata)) return 'science-scientists-inventions';
   return undefined;
-};
-
-const getScienceForceMotionImageFileName = (
-  metadata: ImageSemanticMetadata,
-  exactOnly = false,
-): string | undefined => {
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['inertia-net-force-and-acceleration-foundations', 'g9-hd-overview.png'],
-    ['what-will-make-motion-change', 'g9-hd-inertia-opener.png'],
-    ['todays-investigation-path', 'g9-hd-inertia-roles.png'],
-    ['evidence-goal-inertia-and-net-force', 'g9-hd-balanced-unbalanced-board.png'],
-    ['seatbelt-prediction-sort', 'g9-hd-seatbelt-sort.png'],
-    ['inertia-demo-and-net-force-line', 'g9-hd-inertia-demo.png'],
-    ['output-check-net-force-table', 'g9-hd-output-table.png'],
-    ['expected-output-observation-net-force-table', 'g9-hd-output-table.png'],
-    ['team-roles-and-safety', 'g9-hd-inertia-roles.png'],
-    ['roles-timing-and-safety-inertia-demo', 'g9-hd-inertia-roles.png'],
-    ['balanced-or-unbalanced-evidence-board', 'g9-hd-balanced-unbalanced-board.png'],
-    ['force-diagram-caption-clinic', 'g9-hd-force-diagram-model.png'],
-    ['inertia-is-not-a-pushing-force', 'g9-hd-inertia-misconception.png'],
-    ['cer-exit-inertia-and-net-force', 'g9-hd-inertia-exit.png'],
-    ['inertia-cer-exit', 'g9-hd-inertia-exit.png'],
-    ['how-can-motion-change-without-speeding-up', 'g9-hd-turning-acceleration.png'],
-    ['can-motion-change-without-speeding-up', 'g9-hd-turning-acceleration.png'],
-    ['todays-motion-evidence-path', 'g9-hd-acceleration-roles.png'],
-    ['evidence-goal-acceleration', 'g9-hd-force-diagram-model.png'],
-    ['acceleration-or-not-triage', 'g9-hd-acceleration-triage.png'],
-    ['motion-change-evidence-table', 'g9-hd-motion-change-table.png'],
-    ['output-check-motion-change-table', 'g9-hd-motion-output.png'],
-    ['expected-output-motion-change-table', 'g9-hd-motion-output.png'],
-    ['team-roles-and-safety-motion-evidence', 'g9-hd-acceleration-roles.png'],
-    ['roles-timing-and-safety-motion-evidence', 'g9-hd-acceleration-roles.png'],
-    ['velocity-change-map', 'g9-hd-velocity-map.png'],
-    ['acceleration-cause-and-effect-strip', 'g9-hd-acceleration-strip.png'],
-    ['turning-can-still-be-acceleration', 'g9-hd-turning-acceleration.png'],
-    ['direction-change-exit-case', 'g9-hd-direction-exit.png'],
-    ['how-do-we-test-force-fairly', 'g9-hd-overview.png'],
-    ['todays-fair-test-evidence-path', 'g9-hd-pull-roles.png'],
-    ['evidence-goal-force-and-acceleration', 'g9-hd-force-data-table.png'],
-    ['fair-test-setup-decision', 'g9-hd-fair-push-question.png'],
-    ['fair-push-question', 'g9-hd-fair-push-question.png'],
-    ['pull-strength-data-trial', 'g9-hd-pull-trial.png'],
-    ['output-check-force-acceleration-data-table', 'g9-hd-force-data-table.png'],
-    ['expected-output-force-acceleration-data-table', 'g9-hd-force-data-table.png'],
-    ['team-roles-and-safety-pull-trial', 'g9-hd-pull-roles.png'],
-    ['roles-timing-and-safety-pull-trial', 'g9-hd-pull-roles.png'],
-    ['trend-talk-board', 'g9-hd-trend-board.png'],
-    ['constant-mass-relationship-model', 'g9-hd-constant-mass-model.png'],
-    ['fair-test-mischeck', 'g9-hd-fair-test-mischeck.png'],
-    ['fair-test-transfer-exit', 'g9-hd-fair-test-exit.png'],
-    ['how-does-f-ma-keep-its-meaning', 'g9-hd-formula-meaning.png'],
-    ['todays-calculation-evidence-path', 'g9-hd-fma-roles.png'],
-    ['evidence-goal-f-ma-with-meaning', 'g9-hd-fma-model.png'],
-    ['formula-meaning-warm-up', 'g9-hd-formula-meaning.png'],
-    ['worked-acceleration-case-set', 'g9-hd-worked-case.png'],
-    ['output-check-two-worked-solutions', 'g9-hd-worked-output.png'],
-    ['expected-output-two-worked-solutions', 'g9-hd-worked-output.png'],
-    ['team-roles-and-accuracy-checks', 'g9-hd-fma-roles.png'],
-    ['roles-timing-and-accuracy-checks', 'g9-hd-fma-roles.png'],
-    ['answer-reasonableness-conference', 'g9-hd-answer-conference.png'],
-    ['force-to-acceleration-worked-model', 'g9-hd-fma-model.png'],
-    ['direction-before-the-number', 'g9-hd-direction-before-number.png'],
-    ['constant-mass-mastery-slip', 'g9-hd-mastery-slip.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['science-force-motion'];
-  return templateMap?.[template] || templateMap?.content;
 };
 
 const getScienceDigestiveImageFileName = (
@@ -1065,159 +526,6 @@ const getScienceDigestiveImageFileName = (
   }
 
   const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['science-digestive-system'];
-  return templateMap?.[template] || templateMap?.content;
-};
-
-const getScienceChemistryReactionsImageFileName = (
-  metadata: ImageSemanticMetadata,
-  exactOnly = false,
-): string | undefined => {
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['reaction-indicators-acids-bases-and-salts', 'g10-hd-reaction-overview.png'],
-    ['how-can-evidence-show-a-chemical-reaction', 'g10-hd-reaction-overview.png'],
-    ['today-s-reaction-evidence-path', 'g10-hd-micro-reaction-table.png'],
-    ['todays-reaction-evidence-path', 'g10-hd-micro-reaction-table.png'],
-    ['evidence-goal-reaction-indicators', 'g10-hd-reaction-overview.png'],
-    ['change-evidence-warm-up', 'g10-hd-reaction-overview.png'],
-    ['micro-reaction-evidence-table', 'g10-hd-micro-reaction-table.png'],
-    ['output-check-reaction-evidence-table', 'g10-hd-micro-reaction-table.png'],
-    ['team-roles-and-safety-micro-reactions', 'g10-hd-micro-reaction-table.png'],
-    ['evidence-ladder-discussion', 'g10-hd-evidence-ladder.png'],
-    ['reaction-evidence-card', 'g10-hd-reaction-card-exit.png'],
-    ['reaction-evidence-caution', 'g10-hd-evidence-ladder.png'],
-    ['evidence-exit-sort', 'g10-hd-reaction-card-exit.png'],
-
-    ['how-can-an-indicator-replace-guessing', 'g10-hd-indicator-color-trail.png'],
-    ['today-s-indicator-evidence-path', 'g10-hd-indicator-color-trail.png'],
-    ['todays-indicator-evidence-path', 'g10-hd-indicator-color-trail.png'],
-    ['evidence-goal-indicator-classification', 'g10-hd-indicator-color-trail.png'],
-    ['safe-indicator-prediction', 'g10-hd-indicator-color-trail.png'],
-    ['indicator-color-trail', 'g10-hd-indicator-color-trail.png'],
-    ['output-check-color-trail-table', 'g10-hd-indicator-color-trail.png'],
-    ['team-roles-and-safety-indicators', 'g10-hd-indicator-color-trail.png'],
-    ['color-evidence-conference', 'g10-hd-indicator-color-trail.png'],
-    ['unknown-sample-evidence-trail', 'g10-hd-unknown-evidence-trail.png'],
-    ['tasting-is-not-evidence', 'g10-hd-unknown-evidence-trail.png'],
-    ['indicator-safety-exit', 'g10-hd-unknown-evidence-trail.png'],
-
-    ['what-changes-drop-by-drop', 'g10-hd-neutralization-sequence.png'],
-    ['today-s-neutralization-evidence-path', 'g10-hd-neutralization-sequence.png'],
-    ['todays-neutralization-evidence-path', 'g10-hd-neutralization-sequence.png'],
-    ['evidence-goal-neutralization', 'g10-hd-neutralization-sequence.png'],
-    ['drop-by-drop-forecast', 'g10-hd-neutralization-sequence.png'],
-    ['neutralization-color-sequence', 'g10-hd-neutralization-sequence.png'],
-    ['output-check-drop-count-sequence-table', 'g10-hd-neutralization-sequence.png'],
-    ['team-roles-and-safety-neutralization', 'g10-hd-neutralization-model.png'],
-    ['what-changed-discussion', 'g10-hd-neutralization-model.png'],
-    ['before-during-after-neutralization-model', 'g10-hd-neutralization-model.png'],
-    ['near-neutral-does-not-mean-nothing', 'g10-hd-neutralization-model.png'],
-    ['neutralization-interpretation-slip', 'g10-hd-neutralization-model.png'],
-
-    ['how-do-scientists-classify-an-unknown-safely', 'g10-hd-unknown-investigation.png'],
-    ['today-s-unknown-evidence-path', 'g10-hd-unknown-investigation.png'],
-    ['todays-unknown-evidence-path', 'g10-hd-unknown-investigation.png'],
-    ['evidence-goal-unknown-classification', 'g10-hd-unknown-investigation.png'],
-    ['evidence-before-claim', 'g10-hd-unknown-investigation.png'],
-    ['unknown-sample-investigation', 'g10-hd-unknown-investigation.png'],
-    ['output-check-unknown-sample-table', 'g10-hd-unknown-investigation.png'],
-    ['team-roles-and-safety-unknowns', 'g10-hd-unknown-investigation.png'],
-    ['disagreement-clinic', 'g10-hd-unknown-cer-mastery.png'],
-    ['unknown-sample-cer-brief', 'g10-hd-unknown-cer-mastery.png'],
-    ['likely-or-unsure-is-scientific', 'g10-hd-unknown-cer-mastery.png'],
-    ['individual-mastery-case', 'g10-hd-unknown-cer-mastery.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['science-chemistry-reactions'];
-  return templateMap?.[template] || templateMap?.content;
-};
-
-const getScienceGeneralMotionImageFileName = (
-  metadata: ImageSemanticMetadata,
-  exactOnly = false,
-): string | undefined => {
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['physics-in-daily-life-translational-motion-and-rotational-motion', 'g11-hd-motion-overview.png'],
-    ['learning-roadmap', 'g11-hd-motion-overview.png'],
-    ['how-we-will-work-like-physicists', 'g11-hd-linear-angular-board.png'],
-
-    ['how-can-one-device-move-in-two-ways', 'g11-hd-motion-overview.png'],
-    ['today-s-motion-evidence-path', 'g11-hd-cart-wheel-evidence.png'],
-    ['todays-motion-evidence-path', 'g11-hd-cart-wheel-evidence.png'],
-    ['evidence-goal-motion-in-daily-devices', 'g11-hd-motion-overview.png'],
-    ['motion-around-us-sort', 'g11-hd-quality-life-map.png'],
-    ['cart-and-wheel-evidence-demo', 'g11-hd-cart-wheel-evidence.png'],
-    ['output-check-path-turn-use-table', 'g11-hd-cart-wheel-evidence.png'],
-    ['team-roles-and-safety-cart-and-wheel', 'g11-hd-cart-wheel-evidence.png'],
-    ['quality-of-life-physics-map', 'g11-hd-quality-life-map.png'],
-    ['two-motion-diagram', 'g11-hd-two-motion-diagram.png'],
-    ['translation-and-rotation-mischeck', 'g11-hd-two-motion-diagram.png'],
-    ['exit-claim-with-evidence', 'g11-hd-motion-explainer.png'],
-
-    ['how-far-does-one-full-turn-move', 'g11-hd-one-turn-trial.png'],
-    ['today-s-distance-turn-evidence-path', 'g11-hd-one-turn-trial.png'],
-    ['todays-distance-turn-evidence-path', 'g11-hd-one-turn-trial.png'],
-    ['evidence-goal-distance-and-turns', 'g11-hd-one-turn-trial.png'],
-    ['distance-or-turn-prediction', 'g11-hd-one-turn-trial.png'],
-    ['one-turn-rolling-trial', 'g11-hd-one-turn-trial.png'],
-    ['output-check-distance-turn-table', 'g11-hd-one-turn-trial.png'],
-    ['team-roles-and-safety-rolling-trial', 'g11-hd-linear-angular-board.png'],
-    ['linear-angular-match-board', 'g11-hd-linear-angular-board.png'],
-    ['turn-to-distance-model', 'g11-hd-linear-angular-board.png'],
-    ['data-reliability-check', 'g11-hd-linear-angular-board.png'],
-    ['mini-case-interpretation', 'g11-hd-motion-explainer.png'],
-
-    ['what-happens-with-same-turns', 'g11-hd-wheel-size-comparison.png'],
-    ['today-s-wheel-size-evidence-path', 'g11-hd-wheel-size-comparison.png'],
-    ['todays-wheel-size-evidence-path', 'g11-hd-wheel-size-comparison.png'],
-    ['evidence-goal-wheel-size-and-distance', 'g11-hd-wheel-size-comparison.png'],
-    ['same-turns-different-wheels-prompt', 'g11-hd-wheel-size-comparison.png'],
-    ['wheel-size-comparison-trial', 'g11-hd-wheel-size-comparison.png'],
-    ['output-check-wheel-size-table', 'g11-hd-wheel-size-comparison.png'],
-    ['team-roles-and-safety-wheel-size-trial', 'g11-hd-wheel-size-comparison.png'],
-    ['circumference-relationship-talk', 'g11-hd-circumference-model.png'],
-    ['motion-relationship-diagram-2-0', 'g11-hd-circumference-model.png'],
-    ['slipping-and-measurement-limits', 'g11-hd-linear-angular-board.png'],
-    ['design-choice-justification', 'g11-hd-recommendation-conference.png'],
-
-    ['what-evidence-should-guide-a-device-recommendation', 'g11-hd-device-audit.png'],
-    ['today-s-device-explainer-path', 'g11-hd-device-audit.png'],
-    ['todays-device-explainer-path', 'g11-hd-device-audit.png'],
-    ['evidence-goal-motion-explainer', 'g11-hd-device-audit.png'],
-    ['best-evidence-selection', 'g11-hd-recommendation-conference.png'],
-    ['device-motion-audit', 'g11-hd-device-audit.png'],
-    ['output-check-device-audit-table', 'g11-hd-device-audit.png'],
-    ['team-roles-and-safety-device-audit', 'g11-hd-device-audit.png'],
-    ['evidence-to-recommendation-conference', 'g11-hd-recommendation-conference.png'],
-    ['motion-explainer-build', 'g11-hd-motion-explainer.png'],
-    ['rotation-and-forward-motion-are-related', 'g11-hd-linear-angular-board.png'],
-    ['gallery-defense-ticket', 'g11-hd-motion-explainer.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['science-general-motion'];
   return templateMap?.[template] || templateMap?.content;
 };
 
@@ -1405,481 +713,59 @@ const getScienceParticleModelImageFileName = (
   return undefined;
 };
 
-const getEnglishLiteratureValuesImageFileName = (
+const SCIENCE_SCIENTISTS_INVENTIONS_STATIC_IMAGE_FILES = new Set([
+  'because_sentences_work_like_evidence_chains',
+  'best_source_exit',
+  'build_the_evidence_board',
+  'can_we_trust_this_detail',
+  'check_before_you_submit',
+  'compare_before_you_decide',
+  'complete_the_final_profile_card',
+  'cover_session_1',
+  'cover_session_2',
+  'cover_session_3',
+  'cover_session_4',
+  'final_evidence_reflection',
+  'from_source_detail_to_impact',
+  'how_did_the_repair_improve_trust',
+  'main_activity__final_source_profile_check',
+  'main_activity__scientist_invention_case_team',
+  'main_activity__source_or_opinion_sort',
+  'main_activity__two_source_profile_lab',
+  'peer_feedback_question',
+  'profile_evidence_table',
+  'profile_gallery_review',
+  'read_like_a_scientist',
+  'reliability_conference',
+  'reliable_source_transfer',
+  'self_check_the_final_card',
+  'source_claim_repair',
+  'source_detail_talk',
+  'source_evidence_exit',
+  'source_repair_exit',
+  'start_the_profile_card',
+  'strong__weak__or_unsupported',
+  'success_criteria',
+  'support_and_challenge',
+  'today_s_evidence_goal',
+  'what_each_source_adds',
+  'what_evidence_changed_your_answer',
+  'what_evidence_improved_your_claim',
+  'what_makes_a_profile_complete',
+  'which_detail_helps_the_profile',
+  'your_repair_slip',
+]);
+
+const getScienceScientistsInventionsImageFileName = (
   metadata: ImageSemanticMetadata,
-  exactOnly = false,
 ): string | undefined => {
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['philippine-literary-texts-as-windows-to-values-and-contexts', 'g7e-hd-literature-values-overview.png'],
-    ['learning-roadmap', 'g7e-hd-literature-values-overview.png'],
-    ['how-we-will-work-like-literary-readers', 'g7e-hd-literature-values-overview.png'],
-
-    ['what-value-does-the-text-show', 'g7e-hd-value-lens-warmup.png'],
-    ['today-s-value-evidence-path', 'g7e-hd-claim-evidence-table.png'],
-    ['todays-value-evidence-path', 'g7e-hd-claim-evidence-table.png'],
-    ['evidence-goal-detail-value-context', 'g7e-hd-literature-values-overview.png'],
-    ['value-lens-warm-up', 'g7e-hd-value-lens-warmup.png'],
-    ['first-reading-trail', 'g7e-hd-first-reading-trail.png'],
-    ['claim-and-evidence-pair-check', 'g7e-hd-claim-evidence-table.png'],
-    ['output-check-claim-evidence-table', 'g7e-hd-claim-evidence-table.png'],
-    ['context-makes-meaning', 'g7e-hd-context-meaning.png'],
-    ['four-sentence-value-response', 'g7e-hd-four-sentence-response.png'],
-    ['retelling-is-not-explaining', 'g7e-hd-four-sentence-response.png'],
-    ['value-response-exit', 'g7e-hd-four-sentence-response.png'],
-
-    ['what-does-this-line-reveal-about-the-character', 'g7e-hd-character-clue-recall.png'],
-    ['today-s-character-evidence-path', 'g7e-hd-character-claim-builder.png'],
-    ['todays-character-evidence-path', 'g7e-hd-character-claim-builder.png'],
-    ['evidence-goal-character-evidence', 'g7e-hd-four-way-evidence-hunt.png'],
-    ['character-clue-recall', 'g7e-hd-character-clue-recall.png'],
-    ['four-way-evidence-hunt', 'g7e-hd-four-way-evidence-hunt.png'],
-    ['setting-pressure-talk', 'g7e-hd-setting-pressure-talk.png'],
-    ['character-claim-builder', 'g7e-hd-character-claim-builder.png'],
-    ['output-check-character-claim', 'g7e-hd-character-claim-builder.png'],
-    ['trait-precision-exit', 'g7e-hd-trait-precision-exit.png'],
-    ['character-evidence-conference', 'g7e-hd-four-way-evidence-hunt.png'],
-    ['good-or-bad-is-not-analysis', 'g7e-hd-trait-precision-exit.png'],
-
-    ['what-force-opposes-the-character', 'g7e-hd-conflict-type-sort.png'],
-    ['today-s-conflict-evidence-path', 'g7e-hd-value-under-pressure.png'],
-    ['todays-conflict-evidence-path', 'g7e-hd-value-under-pressure.png'],
-    ['evidence-goal-conflict-choice-value', 'g7e-hd-plot-pressure-map.png'],
-    ['conflict-type-quick-sort', 'g7e-hd-conflict-type-sort.png'],
-    ['plot-pressure-map', 'g7e-hd-plot-pressure-map.png'],
-    ['value-under-pressure', 'g7e-hd-value-under-pressure.png'],
-    ['output-check-evidence-card', 'g7e-hd-value-under-pressure.png'],
-    ['synthesis-sentence-workshop', 'g7e-hd-synthesis-sentence.png'],
-    ['conflict-to-value-exit-slip', 'g7e-hd-conflict-value-exit.png'],
-    ['event-is-not-always-conflict', 'g7e-hd-conflict-type-sort.png'],
-    ['conflict-discussion', 'g7e-hd-conflict-value-exit.png'],
-
-    ['what-makes-a-literary-response-clear', 'g7e-hd-response-target-check.png'],
-    ['today-s-response-writing-path', 'g7e-hd-focused-response-draft.png'],
-    ['todays-response-writing-path', 'g7e-hd-focused-response-draft.png'],
-    ['evidence-goal-focused-literary-response', 'g7e-hd-response-target-check.png'],
-    ['response-target-check', 'g7e-hd-response-target-check.png'],
-    ['evidence-selection-board', 'g7e-hd-evidence-selection-board.png'],
-    ['focused-literary-response-draft', 'g7e-hd-focused-response-draft.png'],
-    ['output-check-literary-response', 'g7e-hd-response-target-check.png'],
-    ['partner-clarity-review', 'g7e-hd-partner-clarity-review.png'],
-    ['revision-and-reflection-close', 'g7e-hd-revision-reflection.png'],
-    ['listing-evidence-is-not-enough', 'g7e-hd-focused-response-draft.png'],
-    ['response-reflection-exit', 'g7e-hd-revision-reflection.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['english-literature-values'];
-  return templateMap?.[template] || templateMap?.content;
-};
-
-const getMathPolygonsImageFileName = (
-  metadata: ImageSemanticMetadata,
-  exactOnly = false,
-): string | undefined => {
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['constructing-and-describing-polygons', 'g7-hd-polygon-overview.png'],
-    ['learning-roadmap', 'g7-hd-polygon-overview.png'],
-    ['how-we-will-work-like-mathematicians', 'g7-hd-regularity-rule.png'],
+  const anchor = semanticAnchor || template;
 
-    ['what-evidence-makes-a-shape-a-polygon', 'g7-hd-polygon-sort.png'],
-    ['today-s-polygon-evidence-path', 'g7-hd-side-angle-lab.png'],
-    ['todays-polygon-evidence-path', 'g7-hd-side-angle-lab.png'],
-    ['evidence-goal-polygon-and-regularity', 'g7-hd-polygon-overview.png'],
-    ['polygon-or-not', 'g7-hd-polygon-sort.png'],
-    ['side-and-angle-evidence-lab', 'g7-hd-side-angle-lab.png'],
-    ['output-check-measurement-table', 'g7-hd-side-angle-lab.png'],
-    ['team-roles-and-tool-safety', 'g7-hd-side-angle-lab.png'],
-    ['regularity-rule-board', 'g7-hd-regularity-rule.png'],
-    ['worked-example-pentagon-trace', 'g7-hd-pentagon-trace.png'],
-    ['looks-equal-is-not-proof', 'g7-hd-regularity-rule.png'],
-    ['two-polygon-exit-defense', 'g7-hd-measurement-audit.png'],
-
-    ['how-can-angle-data-build-a-figure', 'g7-hd-protractor-readiness.png'],
-    ['today-s-angle-construction-path', 'g7-hd-angle-routine.png'],
-    ['todays-angle-construction-path', 'g7-hd-angle-routine.png'],
-    ['evidence-goal-construct-from-angles', 'g7-hd-protractor-readiness.png'],
-    ['angle-data-readiness', 'g7-hd-protractor-readiness.png'],
-    ['build-from-two-angles', 'g7-hd-angle-routine.png'],
-    ['output-check-routine-notes', 'g7-hd-angle-routine.png'],
-    ['triangle-quadrilateral-builder', 'g7-hd-triangle-quadrilateral-builder.png'],
-    ['wrong-scale-repair-shop', 'g7-hd-wrong-scale-repair.png'],
-    ['construction-accuracy-conference', 'g7-hd-angle-routine.png'],
-    ['protractor-habits-that-prevent-errors', 'g7-hd-protractor-readiness.png'],
-    ['solo-quadrilateral-check', 'g7-hd-measurement-audit.png'],
-
-    ['what-makes-a-polygon-regular', 'g7-hd-regularity-rule.png'],
-    ['today-s-regular-polygon-path', 'g7-hd-regular-polygon-planning.png'],
-    ['todays-regular-polygon-path', 'g7-hd-regular-polygon-planning.png'],
-    ['evidence-goal-regular-polygons', 'g7-hd-regularity-rule.png'],
-    ['almost-regular-challenge', 'g7-hd-regularity-rule.png'],
-    ['regular-polygon-planning-grid', 'g7-hd-regular-polygon-planning.png'],
-    ['output-check-planning-grid', 'g7-hd-regular-polygon-planning.png'],
-    ['worked-example-hexagon-build', 'g7-hd-hexagon-build.png'],
-    ['polygon-studio', 'g7-hd-polygon-studio.png'],
-    ['regularity-evidence-talk', 'g7-hd-regularity-rule.png'],
-    ['equal-looking-sides-are-not-enough', 'g7-hd-regularity-rule.png'],
-    ['regularity-proof-slip', 'g7-hd-measurement-audit.png'],
-
-    ['how-can-measurements-defend-a-classification', 'g7-hd-polygon-set-blueprint.png'],
-    ['how-can-a-drawing-prove-its-classification', 'g7-hd-polygon-set-blueprint.png'],
-    ['today-s-polygon-set-defense-path', 'g7-hd-polygon-set-blueprint.png'],
-    ['todays-polygon-set-defense-path', 'g7-hd-polygon-set-blueprint.png'],
-    ['evidence-goal-polygon-set-defense', 'g7-hd-polygon-set-blueprint.png'],
-    ['checklist-calibration', 'g7-hd-regularity-rule.png'],
-    ['polygon-set-blueprint', 'g7-hd-polygon-set-blueprint.png'],
-    ['output-check-approved-blueprint', 'g7-hd-polygon-set-blueprint.png'],
-    ['evidence-drawing-studio', 'g7-hd-evidence-drawing-studio.png'],
-    ['measurement-audit-exchange', 'g7-hd-measurement-audit.png'],
-    ['defense-sentence-builder', 'g7-hd-measurement-audit.png'],
-    ['decorative-drawing-is-not-evidence', 'g7-hd-measurement-audit.png'],
-    ['evidence-defense-exit', 'g7-hd-measurement-audit.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-polygons'];
-  return templateMap?.[template] || templateMap?.content;
-};
-
-const getMathStatisticsExpressionsImageFileName = (
-  metadata: ImageSemanticMetadata,
-  exactOnly = false,
-): string | undefined => {
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['measures-of-central-tendency-conclusions-and-algebraic-expressions', 'g8-hd-stat-algebra-overview.png'],
-    ['learning-roadmap', 'g8-hd-stat-algebra-overview.png'],
-    ['how-we-will-work-like-data-thinkers', 'g8-hd-stat-algebra-overview.png'],
-
-    ['what-makes-a-score-typical', 'g8-hd-typical-score-prediction.png'],
-    ['today-s-three-measure-evidence-path', 'g8-hd-mean-median-mode-worked.png'],
-    ['todays-three-measure-evidence-path', 'g8-hd-mean-median-mode-worked.png'],
-    ['evidence-goal-mean-median-mode', 'g8-hd-mean-median-mode-worked.png'],
-    ['typical-score-prediction', 'g8-hd-typical-score-prediction.png'],
-    ['ordered-data-strip', 'g8-hd-ordered-data-strip.png'],
-    ['mean-median-mode-worked-set', 'g8-hd-mean-median-mode-worked.png'],
-    ['output-check-computation-table', 'g8-hd-mean-median-mode-worked.png'],
-    ['team-roles-and-calculation-checks', 'g8-hd-mean-median-mode-worked.png'],
-    ['outlier-measure-match', 'g8-hd-outlier-measure-match.png'],
-    ['what-each-measure-really-says', 'g8-hd-mean-median-mode-worked.png'],
-    ['three-measures-exit', 'g8-hd-three-measures-exit.png'],
-
-    ['can-a-correct-average-mislead', 'g8-hd-average-trust-test.png'],
-    ['today-s-supported-conclusion-path', 'g8-hd-evidence-conclusion-card.png'],
-    ['todays-supported-conclusion-path', 'g8-hd-evidence-conclusion-card.png'],
-    ['evidence-goal-supported-conclusions', 'g8-hd-evidence-conclusion-card.png'],
-    ['average-trust-test', 'g8-hd-average-trust-test.png'],
-    ['question-before-measure', 'g8-hd-question-before-measure.png'],
-    ['evidence-based-conclusion-set', 'g8-hd-evidence-conclusion-card.png'],
-    ['output-check-conclusion-evidence-card', 'g8-hd-evidence-conclusion-card.png'],
-    ['team-roles-and-evidence-checks', 'g8-hd-evidence-conclusion-card.png'],
-    ['misleading-average-clinic', 'g8-hd-misleading-average-clinic.png'],
-    ['honest-data-conclusion-conference', 'g8-hd-evidence-conclusion-card.png'],
-    ['supported-conclusion-exit', 'g8-hd-evidence-conclusion-card.png'],
-
-    ['what-should-the-letter-represent', 'g8-hd-quantity-hunt.png'],
-    ['today-s-expression-modeling-path', 'g8-hd-table-rule-expression.png'],
-    ['todays-expression-modeling-path', 'g8-hd-table-rule-expression.png'],
-    ['evidence-goal-context-to-expression', 'g8-hd-notebook-cost-expression.png'],
-    ['quantity-hunt', 'g8-hd-quantity-hunt.png'],
-    ['notebook-cost-expression', 'g8-hd-notebook-cost-expression.png'],
-    ['table-rule-expression-match', 'g8-hd-table-rule-expression.png'],
-    ['output-check-representation-table', 'g8-hd-table-rule-expression.png'],
-    ['team-roles-and-meaning-checks', 'g8-hd-table-rule-expression.png'],
-    ['expression-match-repair', 'g8-hd-expression-repair.png'],
-    ['variable-definition-conference', 'g8-hd-notebook-cost-expression.png'],
-    ['context-to-expression-exit', 'g8-hd-notebook-cost-expression.png'],
-
-    ['what-tool-fits-the-situation', 'g8-hd-statistics-algebra-sort.png'],
-    ['which-tool-fits-the-situation', 'g8-hd-statistics-algebra-sort.png'],
-    ['today-s-mixed-tool-evidence-path', 'g8-hd-data-expression-brief.png'],
-    ['todays-mixed-tool-evidence-path', 'g8-hd-data-expression-brief.png'],
-    ['evidence-goal-statistics-and-algebra-together', 'g8-hd-stat-algebra-overview.png'],
-    ['statistics-or-algebra-sort', 'g8-hd-statistics-algebra-sort.png'],
-    ['study-minutes-data-investigation', 'g8-hd-study-minutes-investigation.png'],
-    ['daily-target-model', 'g8-hd-daily-target-model.png'],
-    ['data-and-expression-brief', 'g8-hd-data-expression-brief.png'],
-    ['output-check-mini-report', 'g8-hd-data-expression-brief.png'],
-    ['peer-review-and-revision', 'g8-hd-data-expression-brief.png'],
-    ['average-warning-discussion', 'g8-hd-misleading-average-clinic.png'],
-    ['mixed-tool-exit', 'g8-hd-data-expression-brief.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-statistics-expressions'];
-  return templateMap?.[template] || templateMap?.content;
-};
-
-const getMathGeometryConstructionImageFileName = (
-  metadata: ImageSemanticMetadata,
-  exactOnly = false,
-): string | undefined => {
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['geometric-objects-notation-and-line-construction', 'g9m-hd-geometry-overview.png'],
-    ['learning-roadmap', 'g9m-hd-geometry-overview.png'],
-    ['how-we-will-work-like-geometers', 'g9m-hd-geometry-overview.png'],
-
-    ['what-does-each-geometry-symbol-tell-us', 'g9m-hd-symbol-sort.png'],
-    ['today-s-notation-evidence-path', 'g9m-hd-notation-match-lab.png'],
-    ['todays-notation-evidence-path', 'g9m-hd-notation-match-lab.png'],
-    ['evidence-goal-object-symbol-meaning', 'g9m-hd-geometry-overview.png'],
-    ['geometry-symbol-sort', 'g9m-hd-symbol-sort.png'],
-    ['diagram-evidence-mark-up', 'g9m-hd-diagram-markup.png'],
-    ['notation-match-lab', 'g9m-hd-notation-match-lab.png'],
-    ['output-check-notation-match-sheet', 'g9m-hd-notation-match-lab.png'],
-    ['team-roles-and-diagram-checks', 'g9m-hd-diagram-markup.png'],
-    ['geometry-dictionary-build', 'g9m-hd-geometry-dictionary.png'],
-    ['ray-segment-and-line-are-not-interchangeable', 'g9m-hd-geometry-dictionary.png'],
-    ['notation-error-exit', 'g9m-hd-notation-error-exit.png'],
-
-    ['what-evidence-proves-perpendicular', 'g9m-hd-perpendicular-evidence-check.png'],
-    ['today-s-perpendicular-evidence-path', 'g9m-hd-perpendicular-step-check.png'],
-    ['todays-perpendicular-evidence-path', 'g9m-hd-perpendicular-step-check.png'],
-    ['evidence-goal-perpendicular-construction', 'g9m-hd-equal-arc-trace.png'],
-    ['perpendicular-evidence-check', 'g9m-hd-perpendicular-evidence-check.png'],
-    ['equal-arc-construction-trace', 'g9m-hd-equal-arc-trace.png'],
-    ['perpendicular-step-check', 'g9m-hd-perpendicular-step-check.png'],
-    ['output-check-guided-construction-sheet', 'g9m-hd-perpendicular-step-check.png'],
-    ['team-roles-and-compass-safety', 'g9m-hd-perpendicular-step-check.png'],
-    ['off-line-point-construction', 'g9m-hd-offline-point-construction.png'],
-    ['not-drawn-by-sight', 'g9m-hd-construction-repair.png'],
-    ['construction-repair-exit', 'g9m-hd-construction-repair.png'],
-
-    ['what-proves-lines-are-parallel', 'g9m-hd-parallel-evidence-sort.png'],
-    ['today-s-parallel-evidence-path', 'g9m-hd-parallel-step-check.png'],
-    ['todays-parallel-evidence-path', 'g9m-hd-parallel-step-check.png'],
-    ['evidence-goal-parallel-construction', 'g9m-hd-copied-angle-trace.png'],
-    ['parallel-evidence-sort', 'g9m-hd-parallel-evidence-sort.png'],
-    ['copied-angle-construction-trace', 'g9m-hd-copied-angle-trace.png'],
-    ['parallel-step-check', 'g9m-hd-parallel-step-check.png'],
-    ['output-check-guided-parallel-construction', 'g9m-hd-parallel-step-check.png'],
-    ['team-roles-and-arc-transfer-checks', 'g9m-hd-copied-angle-trace.png'],
-    ['two-method-parallel-compare', 'g9m-hd-two-method-parallel-compare.png'],
-    ['same-direction-is-not-enough', 'g9m-hd-parallel-evidence-sort.png'],
-    ['parallel-repair-exit', 'g9m-hd-parallel-repair.png'],
-
-    ['what-evidence-makes-a-construction-convincing', 'g9m-hd-readiness-grid.png'],
-    ['today-s-construction-report-path', 'g9m-hd-construction-report.png'],
-    ['todays-construction-report-path', 'g9m-hd-construction-report.png'],
-    ['evidence-goal-construction-report', 'g9m-hd-report-walkthrough.png'],
-    ['construction-readiness-grid', 'g9m-hd-readiness-grid.png'],
-    ['construction-report-walkthrough', 'g9m-hd-report-walkthrough.png'],
-    ['report-planning-conference', 'g9m-hd-report-planning.png'],
-    ['geometry-construction-report', 'g9m-hd-construction-report.png'],
-    ['output-check-construction-report', 'g9m-hd-construction-report.png'],
-    ['team-roles-and-report-checks', 'g9m-hd-report-planning.png'],
-    ['peer-audit-and-transfer-exit', 'g9m-hd-peer-audit-transfer.png'],
-    ['neat-is-not-the-same-as-proven', 'g9m-hd-peer-audit-transfer.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-geometry-construction'];
-  return templateMap?.[template] || templateMap?.content;
-};
-
-const getMathLawOfSinesImageFileName = (
-  metadata: ImageSemanticMetadata,
-  exactOnly = false,
-): string | undefined => {
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['law-of-sines-and-ambiguous-cases', 'g10m-hd-law-sines-overview.png'],
-    ['learning-roadmap', 'g10m-hd-law-sines-overview.png'],
-    ['how-we-will-work-like-trigonometry-problem-solvers', 'g10m-hd-law-sines-overview.png'],
-
-    ['why-does-soh-cah-toa-fail-here', 'g10m-hd-opposite-pair-warmup.png'],
-    ['today-s-law-of-sines-evidence-path', 'g10m-hd-asa-aas-solution-table.png'],
-    ['todays-law-of-sines-evidence-path', 'g10m-hd-asa-aas-solution-table.png'],
-    ['evidence-goal-opposite-pairs-and-ratios', 'g10m-hd-law-sines-overview.png'],
-    ['opposite-pair-warm-up', 'g10m-hd-opposite-pair-warmup.png'],
-    ['aas-ratio-walkthrough', 'g10m-hd-aas-ratio-walkthrough.png'],
-    ['asa-aas-solution-table', 'g10m-hd-asa-aas-solution-table.png'],
-    ['output-check-solution-table', 'g10m-hd-asa-aas-solution-table.png'],
-    ['team-roles-and-calculator-checks', 'g10m-hd-asa-aas-solution-table.png'],
-    ['oblique-triangle-card-exchange', 'g10m-hd-oblique-card-exchange.png'],
-    ['ratio-setup-conference', 'g10m-hd-aas-ratio-walkthrough.png'],
-    ['wrong-pair-repair', 'g10m-hd-wrong-pair-repair.png'],
-    ['aas-exit-triangle', 'g10m-hd-wrong-pair-repair.png'],
-
-    ['how-can-the-same-ssa-data-make-two-triangles', 'g10m-hd-swinging-side-sketch.png'],
-    ['today-s-ssa-decision-path', 'g10m-hd-ssa-height-test.png'],
-    ['todays-ssa-decision-path', 'g10m-hd-ssa-height-test.png'],
-    ['evidence-goal-ssa-triangle-counts', 'g10m-hd-ssa-height-test.png'],
-    ['swinging-side-sketch', 'g10m-hd-swinging-side-sketch.png'],
-    ['ssa-height-test-model', 'g10m-hd-ssa-height-test.png'],
-    ['ambiguous-case-decision-table', 'g10m-hd-ambiguous-decision-table.png'],
-    ['output-check-decision-table', 'g10m-hd-ambiguous-decision-table.png'],
-    ['team-roles-and-height-checks', 'g10m-hd-ssa-height-test.png'],
-    ['two-branch-sketch-check', 'g10m-hd-two-branch-sketch.png'],
-    ['triangle-count-discussion', 'g10m-hd-two-branch-sketch.png'],
-    ['missed-supplement-repair', 'g10m-hd-missed-supplement-repair.png'],
-    ['ssa-classification-exit', 'g10m-hd-ambiguous-decision-table.png'],
-
-    ['how-do-we-know-which-branch-remains-valid', 'g10m-hd-solution-fork-preview.png'],
-    ['which-branch-remains-a-valid-triangle', 'g10m-hd-solution-fork-preview.png'],
-    ['today-s-branch-validation-path', 'g10m-hd-ssa-solution-tree.png'],
-    ['todays-branch-validation-path', 'g10m-hd-ssa-solution-tree.png'],
-    ['evidence-goal-branching-valid-solutions', 'g10m-hd-ssa-solution-tree.png'],
-    ['solution-fork-preview', 'g10m-hd-solution-fork-preview.png'],
-    ['two-branch-solution-model', 'g10m-hd-two-branch-model.png'],
-    ['ssa-solution-tree-set', 'g10m-hd-ssa-solution-tree.png'],
-    ['output-check-solution-trees', 'g10m-hd-ssa-solution-tree.png'],
-    ['team-roles-and-branch-checks', 'g10m-hd-ssa-solution-tree.png'],
-    ['shoreline-position-problem', 'g10m-hd-shoreline-position.png'],
-    ['branch-validity-conference', 'g10m-hd-ssa-solution-tree.png'],
-    ['invalid-branch-audit', 'g10m-hd-invalid-branch-audit.png'],
-    ['ssa-solution-exit', 'g10m-hd-invalid-branch-audit.png'],
-
-    ['why-identify-the-case-before-solving', 'g10m-hd-case-type-sort.png'],
-    ['today-s-performance-defense-path', 'g10m-hd-performance-response.png'],
-    ['todays-performance-defense-path', 'g10m-hd-performance-response.png'],
-    ['evidence-goal-case-type-and-defense', 'g10m-hd-performance-response.png'],
-    ['case-type-sort', 'g10m-hd-case-type-sort.png'],
-    ['performance-response-review', 'g10m-hd-performance-response.png'],
-    ['setup-checkpoint-pair', 'g10m-hd-setup-checkpoint.png'],
-    ['law-of-sines-performance-task', 'g10m-hd-law-sines-performance.png'],
-    ['output-check-performance-task', 'g10m-hd-law-sines-performance.png'],
-    ['team-roles-and-peer-checks', 'g10m-hd-ambiguity-peer-review.png'],
-    ['ambiguity-peer-review', 'g10m-hd-ambiguity-peer-review.png'],
-    ['ssa-is-different-from-asa-and-aas', 'g10m-hd-case-type-sort.png'],
-    ['transfer-defense-exit', 'g10m-hd-ambiguity-peer-review.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-law-of-sines'];
-  return templateMap?.[template] || templateMap?.content;
-};
-
-const getMathWagesIncomeImageFileName = (
-  metadata: ImageSemanticMetadata,
-  exactOnly = false,
-): string | undefined => {
-  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
-  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
-  const slideSpecificImageByToken: Array<[string, string]> = [
-    ['wages-benefits-deductions-and-net-income', 'g11m-hd-income-overview.png'],
-    ['learning-roadmap', 'g11m-hd-income-overview.png'],
-    ['how-we-will-work-like-financial-problem-solvers', 'g11m-hd-income-overview.png'],
-
-    ['what-does-this-paycheck-number-mean', 'g11m-hd-diagnostic-payroll-markup.png'],
-    ['today-s-payroll-meaning-path', 'g11m-hd-two-column-solution.png'],
-    ['todays-payroll-meaning-path', 'g11m-hd-two-column-solution.png'],
-    ['evidence-goal-quantities-units-and-meaning', 'g11m-hd-income-overview.png'],
-    ['diagnostic-payroll-mark-up', 'g11m-hd-diagnostic-payroll-markup.png'],
-    ['salary-and-hourly-offer-worked-example', 'g11m-hd-salary-hourly-worked.png'],
-    ['guided-payroll-pair-practice', 'g11m-hd-guided-payroll-pair.png'],
-    ['two-column-solution', 'g11m-hd-two-column-solution.png'],
-    ['output-check-two-column-solution', 'g11m-hd-two-column-solution.png'],
-    ['gross-and-net-income-error-repair', 'g11m-hd-gross-net-error.png'],
-    ['reasonableness-conference', 'g11m-hd-two-column-solution.png'],
-    ['payroll-meaning-exit', 'g11m-hd-gross-net-error.png'],
-
-    ['what-method-fits-this-payroll-problem', 'g11m-hd-method-choice-check.png'],
-    ['which-method-fits-this-payroll-problem', 'g11m-hd-method-choice-check.png'],
-    ['today-s-multi-step-method-path', 'g11m-hd-math-decision-board.png'],
-    ['todays-multi-step-method-path', 'g11m-hd-math-decision-board.png'],
-    ['evidence-goal-method-choice-and-verification', 'g11m-hd-method-choice-check.png'],
-    ['method-choice-check', 'g11m-hd-method-choice-check.png'],
-    ['gross-to-net-sequence-model', 'g11m-hd-gross-net-sequence.png'],
-    ['math-decision-board', 'g11m-hd-math-decision-board.png'],
-    ['output-check-decision-board', 'g11m-hd-math-decision-board.png'],
-    ['spreadsheet-verification', 'g11m-hd-spreadsheet-verification.png'],
-    ['sample-answer-check', 'g11m-hd-sample-answer-check.png'],
-    ['technology-is-not-a-black-box', 'g11m-hd-spreadsheet-verification.png'],
-    ['net-weekly-income-exit', 'g11m-hd-sample-answer-check.png'],
-
-    ['what-pay-option-should-we-recommend', 'g11m-hd-decision-prompt.png'],
-    ['which-pay-option-should-we-recommend', 'g11m-hd-decision-prompt.png'],
-    ['today-s-recommendation-evidence-path', 'g11m-hd-criteria-matrix.png'],
-    ['todays-recommendation-evidence-path', 'g11m-hd-criteria-matrix.png'],
-    ['evidence-goal-compare-evaluate-defend', 'g11m-hd-comparison-model.png'],
-    ['decision-prompt', 'g11m-hd-decision-prompt.png'],
-    ['comparison-model', 'g11m-hd-comparison-model.png'],
-    ['criteria-matrix', 'g11m-hd-criteria-matrix.png'],
-    ['output-check-criteria-matrix', 'g11m-hd-criteria-matrix.png'],
-    ['recommendation-draft', 'g11m-hd-recommendation-draft.png'],
-    ['peer-feedback-and-revision', 'g11m-hd-peer-feedback-revision.png'],
-    ['recommendation-conference', 'g11m-hd-comparison-model.png'],
-    ['evidence-highlight-exit', 'g11m-hd-peer-feedback-revision.png'],
-
-    ['what-makes-a-pay-brief-portfolio-ready', 'g11m-hd-portfolio-readiness.png'],
-    ['today-s-portfolio-brief-path', 'g11m-hd-pay-brief-template.png'],
-    ['todays-portfolio-brief-path', 'g11m-hd-pay-brief-template.png'],
-    ['evidence-goal-accurate-clear-ethical-brief', 'g11m-hd-portfolio-readiness.png'],
-    ['portfolio-readiness-check', 'g11m-hd-portfolio-readiness.png'],
-    ['weak-and-strong-output-review', 'g11m-hd-strong-weak-output.png'],
-    ['pay-computation-brief', 'g11m-hd-pay-brief-template.png'],
-    ['output-check-pay-computation-brief', 'g11m-hd-pay-brief-template.png'],
-    ['independent-portfolio-work', 'g11m-hd-portfolio-work.png'],
-    ['rubric-peer-review', 'g11m-hd-rubric-peer-review.png'],
-    ['privacy-and-source-check', 'g11m-hd-portfolio-readiness.png'],
-    ['portfolio-reflection-exit', 'g11m-hd-rubric-peer-review.png'],
-  ];
-  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
-    semanticAnchor === token || semanticAnchor.startsWith(`${token}-`)
-    || semanticAnchor.includes(`-${token}-`) || semanticAnchor.endsWith(`-${token}`)
-  ));
-  if (slideSpecificImage) {
-    return slideSpecificImage[1];
-  }
-  if (exactOnly) {
-    return undefined;
-  }
-
-  const templateMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE['math-wages-income'];
-  return templateMap?.[template] || templateMap?.content;
+  return SCIENCE_SCIENTISTS_INVENTIONS_STATIC_IMAGE_FILES.has(anchor)
+    ? `${anchor}.png`
+    : undefined;
 };
 
 const buildCuratedStaticImageUrl = (basePath: string, fileName: string): string => (
@@ -1899,27 +785,11 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'english-literature-values'
-    ? getEnglishLiteratureValuesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'math-wages-income'
-      ? getMathWagesIncomeImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collection === 'math-law-of-sines'
-        ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collection === 'math-geometry-construction'
-          ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-          : collection === 'math-statistics-expressions'
-            ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-            : collection === 'math-polygons'
-              ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-              : collection === 'science-digestive-system'
-                ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                : collection === 'science-force-motion'
-                  ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                  : collection === 'science-chemistry-reactions'
-                    ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                    : collection === 'science-general-motion'
-                      ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                      : collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'science-digestive-system'
+      ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collection === 'science-scientists-inventions'
+        ? getScienceScientistsInventionsImageFileName(metadata)
+        : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -1928,40 +798,16 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (
-    collection !== 'english-literature-values'
-    && collection !== 'math-wages-income'
-    && collection !== 'math-law-of-sines'
-    && collection !== 'math-geometry-construction'
-    && collection !== 'math-statistics-expressions'
-    && collection !== 'math-polygons'
-    && collection !== 'science-particle-model'
+    collection !== 'science-particle-model'
     && collection !== 'science-digestive-system'
-    && collection !== 'science-force-motion'
-    && collection !== 'science-chemistry-reactions'
-    && collection !== 'science-general-motion'
+    && collection !== 'science-scientists-inventions'
   ) return undefined;
 
-  const fileName = collection === 'english-literature-values'
-    ? getEnglishLiteratureValuesImageFileName(metadata, true)
-    : collection === 'math-wages-income'
-      ? getMathWagesIncomeImageFileName(metadata, true)
-      : collection === 'math-law-of-sines'
-        ? getMathLawOfSinesImageFileName(metadata, true)
-        : collection === 'math-geometry-construction'
-          ? getMathGeometryConstructionImageFileName(metadata, true)
-          : collection === 'math-statistics-expressions'
-            ? getMathStatisticsExpressionsImageFileName(metadata, true)
-            : collection === 'math-polygons'
-              ? getMathPolygonsImageFileName(metadata, true)
-              : collection === 'science-particle-model'
-                ? getScienceParticleModelImageFileName(metadata, true)
-                : collection === 'science-digestive-system'
-                  ? getScienceDigestiveImageFileName(metadata, true)
-                  : collection === 'science-force-motion'
-                    ? getScienceForceMotionImageFileName(metadata, true)
-                    : collection === 'science-chemistry-reactions'
-                      ? getScienceChemistryReactionsImageFileName(metadata, true)
-                      : getScienceGeneralMotionImageFileName(metadata, true);
+  const fileName = collection === 'science-particle-model'
+    ? getScienceParticleModelImageFileName(metadata, true)
+    : collection === 'science-digestive-system'
+      ? getScienceDigestiveImageFileName(metadata, true)
+      : getScienceScientistsInventionsImageFileName(metadata);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -3256,9 +2102,6 @@ const App: React.FC = () => {
                 const pageText = extractStructuredPdfPageText(content.items);
                 text += `\n\n--- Page ${i} ---\n${pageText}`;
             }
-            if (!text.trim()) {
-                text = getKnownScannedPdfFallbackText(file, pdf.numPages);
-            }
         } else if (fileExtension === '.docx') {
             const arrayBuffer = await file.arrayBuffer();
             const result = await mammoth.convertToHtml(
@@ -3601,7 +2444,7 @@ const App: React.FC = () => {
                     const bulletCount = slideData.content.filter((point) => point.trim()).length;
                     const isEvidenceLayout = slideData.visualLayout === 'evidence';
                     const contentFontSize = isEvidenceLayout
-                        ? (bulletCount > 5 ? 20 : bulletCount > 4 ? 22 : 24)
+                        ? (bulletCount > 5 ? 15 : bulletCount > 3 ? 16 : 17)
                         : (bulletCount > 5 ? 18 : bulletCount > 3 ? 20 : 22);
                     slide.addText(contentForPptx, {
                         x: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_X : PPTX_CONTENT_X,
@@ -3610,7 +2453,7 @@ const App: React.FC = () => {
                         h: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_H : PPTX_CONTENT_H,
                         color: textColor, valign: 'top', fontSize: contentFontSize,
                         lineSpacing: isEvidenceLayout
-                            ? (contentFontSize >= 24 ? 31 : contentFontSize >= 22 ? 29 : 27)
+                            ? (contentFontSize >= 17 ? 22 : 20)
                             : (contentFontSize >= 22 ? 30 : contentFontSize === 20 ? 27 : 25),
                         fit: 'shrink',
                         breakLine: false,

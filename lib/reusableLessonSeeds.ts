@@ -6,59 +6,11 @@ import {
   isReusableDigestiveLesson,
 } from './digestiveLessonSeed';
 import {
-  getChemistryReactionsK12CompleteLessonPlanSeed,
-  getChemistryReactionsK12LessonPlanSeed,
-  getChemistryReactionsK12PlanUnitSlidesSeed,
-  isReusableChemistryReactionsLesson,
-} from './chemistryReactionsLessonSeed';
-import {
-  getGeneralScienceMotionK12CompleteLessonPlanSeed,
-  getGeneralScienceMotionK12LessonPlanSeed,
-  getGeneralScienceMotionK12PlanUnitSlidesSeed,
-  isReusableGeneralScienceMotionLesson,
-} from './generalScienceMotionLessonSeed';
-import {
-  getForceMotionK12CompleteLessonPlanSeed,
-  getForceMotionK12LessonPlanSeed,
-  getForceMotionK12PlanUnitSlidesSeed,
-  isReusableForceMotionLesson,
-} from './forceMotionLessonSeed';
-import {
-  getMathPolygonsK12CompleteLessonPlanSeed,
-  getMathPolygonsK12LessonPlanSeed,
-  getMathPolygonsK12PlanUnitSlidesSeed,
-  isReusableMathPolygonsLesson,
-} from './mathPolygonsLessonSeed';
-import {
-  getMathStatisticsExpressionsK12CompleteLessonPlanSeed,
-  getMathStatisticsExpressionsK12LessonPlanSeed,
-  getMathStatisticsExpressionsK12PlanUnitSlidesSeed,
-  isReusableMathStatisticsExpressionsLesson,
-} from './mathStatisticsExpressionsLessonSeed';
-import {
-  getMathGeometryConstructionK12CompleteLessonPlanSeed,
-  getMathGeometryConstructionK12LessonPlanSeed,
-  getMathGeometryConstructionK12PlanUnitSlidesSeed,
-  isReusableMathGeometryConstructionLesson,
-} from './mathGeometryConstructionLessonSeed';
-import {
-  getMathLawOfSinesK12CompleteLessonPlanSeed,
-  getMathLawOfSinesK12LessonPlanSeed,
-  getMathLawOfSinesK12PlanUnitSlidesSeed,
-  isReusableMathLawOfSinesLesson,
-} from './mathLawOfSinesLessonSeed';
-import {
-  getMathWagesIncomeK12CompleteLessonPlanSeed,
-  getMathWagesIncomeK12LessonPlanSeed,
-  getMathWagesIncomeK12PlanUnitSlidesSeed,
-  isReusableMathWagesIncomeLesson,
-} from './mathWagesIncomeLessonSeed';
-import {
-  getEnglishLiteratureValuesK12CompleteLessonPlanSeed,
-  getEnglishLiteratureValuesK12LessonPlanSeed,
-  getEnglishLiteratureValuesK12PlanUnitSlidesSeed,
-  isReusableEnglishLiteratureValuesLesson,
-} from './englishLiteratureValuesLessonSeed';
+  getScientistsInventionsK12CompleteLessonPlanSeed,
+  getScientistsInventionsK12LessonPlanSeed,
+  getScientistsInventionsK12PlanUnitSlidesSeed,
+  isReusableScientistsInventionsLesson,
+} from './scientistsInventionsLessonSeed';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -1168,16 +1120,8 @@ export const getReusableK12LessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
-  if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12LessonPlanSeed();
-  if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12LessonPlanSeed();
-  if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12LessonPlanSeed();
-  if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12LessonPlanSeed();
-  if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12LessonPlanSeed();
-  if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12LessonPlanSeed();
-  if (isReusableForceMotionLesson(content)) return getForceMotionK12LessonPlanSeed();
+  if (isReusableScientistsInventionsLesson(content)) return getScientistsInventionsK12LessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12LessonPlanSeed();
-  if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12LessonPlanSeed();
-  if (isReusableGeneralScienceMotionLesson(content)) return getGeneralScienceMotionK12LessonPlanSeed();
   if (!isReusableParticleModelLesson(content)) return null;
 
   const blueprint = cloneBlueprint();
@@ -1196,16 +1140,8 @@ export const getReusableK12PlanUnitSlidesSeed = (
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
   if (language !== 'EN') return null;
-  if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12PlanUnitSlidesSeed(dayNumber);
-  if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12PlanUnitSlidesSeed(dayNumber);
-  if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12PlanUnitSlidesSeed(dayNumber);
-  if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12PlanUnitSlidesSeed(dayNumber);
-  if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12PlanUnitSlidesSeed(dayNumber);
-  if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12PlanUnitSlidesSeed(dayNumber);
-  if (isReusableForceMotionLesson(content)) return getForceMotionK12PlanUnitSlidesSeed(dayNumber);
+  if (isReusableScientistsInventionsLesson(content)) return getScientistsInventionsK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableDigestiveLesson(content)) return getDigestiveK12PlanUnitSlidesSeed(dayNumber);
-  if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12PlanUnitSlidesSeed(dayNumber);
-  if (isReusableGeneralScienceMotionLesson(content)) return getGeneralScienceMotionK12PlanUnitSlidesSeed(dayNumber);
   if (!isReusableParticleModelLesson(content)) return null;
   const slides = getSessionSlides(dayNumber);
   return slides.length > 0 ? cloneSlides(slides) : null;
@@ -1216,16 +1152,8 @@ export const getReusableK12CompleteLessonPlanSeed = (
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
   if (language !== 'EN') return null;
-  if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12CompleteLessonPlanSeed();
-  if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12CompleteLessonPlanSeed();
-  if (isReusableMathLawOfSinesLesson(content)) return getMathLawOfSinesK12CompleteLessonPlanSeed();
-  if (isReusableMathGeometryConstructionLesson(content)) return getMathGeometryConstructionK12CompleteLessonPlanSeed();
-  if (isReusableMathStatisticsExpressionsLesson(content)) return getMathStatisticsExpressionsK12CompleteLessonPlanSeed();
-  if (isReusableMathPolygonsLesson(content)) return getMathPolygonsK12CompleteLessonPlanSeed();
-  if (isReusableForceMotionLesson(content)) return getForceMotionK12CompleteLessonPlanSeed();
+  if (isReusableScientistsInventionsLesson(content)) return getScientistsInventionsK12CompleteLessonPlanSeed();
   if (isReusableDigestiveLesson(content)) return getDigestiveK12CompleteLessonPlanSeed();
-  if (isReusableChemistryReactionsLesson(content)) return getChemistryReactionsK12CompleteLessonPlanSeed();
-  if (isReusableGeneralScienceMotionLesson(content)) return getGeneralScienceMotionK12CompleteLessonPlanSeed();
   if (!isReusableParticleModelLesson(content)) return null;
 
   const blueprint = cloneBlueprint();
