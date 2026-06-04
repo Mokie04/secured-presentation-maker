@@ -750,16 +750,18 @@ const isScienceScientistsInventionsSemanticSubject = (metadata: ImageSemanticMet
   const hasScienceSubject = subjectSlug === 'science'
     || subjectSlug.includes('science')
     || searchable.includes('science');
-  const hasScientistsInventionsTopic = searchable.includes('scientists-inventions')
+  const hasScientistInventionSignal = searchable.includes('scientists-inventions')
     || searchable.includes('scientist-and-invention')
-    || searchable.includes('source-evidence')
+    || searchable.includes('scientist-invention')
+    || searchable.includes('scientist-and-their-invention')
+    || searchable.includes('famous-filipino-and-or-foreign-scientist');
+  const hasSourceEvidenceSignal = searchable.includes('source-evidence')
     || searchable.includes('source-supported')
     || searchable.includes('source-opinion')
     || searchable.includes('secondary-sources')
-    || searchable.includes('profile-card')
-    || searchable.includes('famous-filipino-and-or-foreign-scientist');
+    || searchable.includes('profile-card');
 
-  return hasScienceSubject && hasScientistsInventionsTopic;
+  return hasScienceSubject && hasScientistInventionSignal && hasSourceEvidenceSignal;
 };
 
 const isScienceForceMotionSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
