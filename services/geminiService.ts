@@ -353,12 +353,18 @@ const normalizeLessonBlueprintUnits = (
             };
         })
         .sort((a, b) => a.dayNumber - b.dayNumber);
+    const fallbackDay = {
+        dayNumber: 1,
+        title: `${planUnitLabel} 1`,
+        focus: `${planUnitLabel} 1 from the uploaded lesson plan`,
+        generationStatus: 'pending' as const,
+    };
 
     if (!inferred.count) {
         return {
             ...blueprint,
             planUnitLabel,
-            days: normalizedDays,
+            days: normalizedDays.length > 0 ? normalizedDays : [fallbackDay],
         };
     }
 

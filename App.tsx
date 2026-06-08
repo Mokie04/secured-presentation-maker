@@ -410,6 +410,141 @@ const htmlToStructuredText = (html: string): string => {
   return blocks.join('\n\n').trim();
 };
 
+const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
+const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
+const ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE = 0x06054b50;
+
+const inflateRawZipEntry = async (compressed: Uint8Array): Promise<Uint8Array | null> => {
+  const decompressionStream = (globalThis as typeof globalThis & {
+    DecompressionStream?: typeof DecompressionStream;
+  }).DecompressionStream;
+
+  if (!decompressionStream) return null;
+
+  const compressedBuffer = compressed.buffer.slice(
+    compressed.byteOffset,
+    compressed.byteOffset + compressed.byteLength,
+  );
+  const stream = new Blob([compressedBuffer]).stream().pipeThrough(
+    new decompressionStream('deflate-raw' as CompressionFormat),
+  );
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+};
+
+const readDocxZipEntry = async (
+  arrayBuffer: ArrayBuffer,
+  matchesFileName: (fileName: string) => boolean,
+): Promise<Uint8Array | null> => {
+  const bytes = new Uint8Array(arrayBuffer);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const decoder = new TextDecoder('utf-8');
+  const eocdSearchStart = Math.max(0, bytes.length - 0xffff - 22);
+  let eocdOffset = -1;
+
+  for (let offset = bytes.length - 22; offset >= eocdSearchStart; offset -= 1) {
+    if (view.getUint32(offset, true) === ZIP_END_OF_CENTRAL_DIRECTORY_SIGNATURE) {
+      eocdOffset = offset;
+      break;
+    }
+  }
+
+  if (eocdOffset < 0) return null;
+
+  const centralDirectoryEntryCount = view.getUint16(eocdOffset + 10, true);
+  let centralDirectoryOffset = view.getUint32(eocdOffset + 16, true);
+
+  for (let entryIndex = 0; entryIndex < centralDirectoryEntryCount; entryIndex += 1) {
+    if (view.getUint32(centralDirectoryOffset, true) !== ZIP_CENTRAL_DIRECTORY_SIGNATURE) {
+      return null;
+    }
+
+    const compressionMethod = view.getUint16(centralDirectoryOffset + 10, true);
+    const compressedSize = view.getUint32(centralDirectoryOffset + 20, true);
+    const fileNameLength = view.getUint16(centralDirectoryOffset + 28, true);
+    const extraFieldLength = view.getUint16(centralDirectoryOffset + 30, true);
+    const fileCommentLength = view.getUint16(centralDirectoryOffset + 32, true);
+    const localHeaderOffset = view.getUint32(centralDirectoryOffset + 42, true);
+    const fileNameStart = centralDirectoryOffset + 46;
+    const fileName = decoder.decode(bytes.slice(fileNameStart, fileNameStart + fileNameLength));
+
+    if (matchesFileName(fileName)) {
+      if (view.getUint32(localHeaderOffset, true) !== ZIP_LOCAL_FILE_HEADER_SIGNATURE) {
+        return null;
+      }
+
+      const localFileNameLength = view.getUint16(localHeaderOffset + 26, true);
+      const localExtraFieldLength = view.getUint16(localHeaderOffset + 28, true);
+      const dataStart = localHeaderOffset + 30 + localFileNameLength + localExtraFieldLength;
+      const compressed = bytes.slice(dataStart, dataStart + compressedSize);
+
+      if (compressionMethod === 0) return compressed;
+      if (compressionMethod === 8) return inflateRawZipEntry(compressed);
+      return null;
+    }
+
+    centralDirectoryOffset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+  }
+
+  return null;
+};
+
+const decodeQuotedPrintable = (value: string): string => {
+  const output: number[] = [];
+
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === '=') {
+      const next = value[index + 1];
+      const following = value[index + 2];
+      if (next === '\r' && following === '\n') {
+        index += 2;
+        continue;
+      }
+      if (next === '\n') {
+        index += 1;
+        continue;
+      }
+      const hex = value.slice(index + 1, index + 3);
+      if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+        output.push(Number.parseInt(hex, 16));
+        index += 2;
+        continue;
+      }
+    }
+
+    const code = value.charCodeAt(index);
+    output.push(code <= 0xff ? code : 0x20);
+  }
+
+  return new TextDecoder('utf-8').decode(new Uint8Array(output));
+};
+
+const extractHtmlFromMht = (mhtText: string): string => {
+  const decoded = decodeQuotedPrintable(mhtText);
+  const htmlStart = decoded.search(/<!doctype\s+html|<html[\s>]/i);
+  if (htmlStart < 0) return '';
+
+  const htmlEndMatch = decoded.slice(htmlStart).match(/<\/html>/i);
+  const htmlEnd = htmlEndMatch?.index === undefined
+    ? decoded.length
+    : htmlStart + htmlEndMatch.index + htmlEndMatch[0].length;
+
+  return decoded.slice(htmlStart, htmlEnd);
+};
+
+const extractAltChunkDocxText = async (arrayBuffer: ArrayBuffer): Promise<string> => {
+  const altChunkBytes = await readDocxZipEntry(
+    arrayBuffer,
+    (fileName) => /^word\/afchunk.*\.(?:mht|html?)$/i.test(fileName),
+  );
+
+  if (!altChunkBytes) return '';
+
+  const rawText = new TextDecoder('utf-8').decode(altChunkBytes);
+  const html = extractHtmlFromMht(rawText) || rawText;
+  return htmlToStructuredText(html);
+};
+
 const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
   blueprint?.planUnitLabel?.trim() || DEFAULT_PLAN_UNIT_LABEL
 );
@@ -417,6 +552,14 @@ const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
 const waitForDuration = (durationMs: number): Promise<void> => (
   new Promise((resolve) => setTimeout(resolve, durationMs))
 );
+
+const assertSlidesGenerated = (slides: Slide[] | undefined | null, label: string): Slide[] => {
+  if (!slides || slides.length === 0) {
+    throw new Error(`${label} did not return any slides.`);
+  }
+
+  return slides;
+};
 
 const waitWithLoadingProgress = (
   setProgress: LoadingProgressSetter,
@@ -2912,8 +3055,11 @@ const App: React.FC = () => {
             shouldRollbackGeneration = !adminGenerationLimitBypassed;
             const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, language, (msg) => setLoadingMessage(msg));
             setLoadingMessage(t.presentation.loadingTables);
-            const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
-            const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey, imageSemanticScope });
+            const slidesWithTables = await processSlidesForTables(assertSlidesGenerated(fullPresentation.slides, 'College presentation'));
+            const finalSlides = assertSlidesGenerated(
+              await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey, imageSemanticScope }),
+              'College presentation'
+            );
             const finalPresentation = { ...fullPresentation, slides: finalSlides };
 
             setPresentation(finalPresentation);
@@ -2955,8 +3101,11 @@ const App: React.FC = () => {
                 shouldRollbackGeneration = !adminGenerationLimitBypassed;
                 const fullPresentation = await generateK12SingleLessonSlides(content, DEFAULT_LESSON_FORMAT, language, (msg) => setLoadingMessage(msg));
                 setLoadingMessage(t.presentation.loadingTables);
-                const slidesWithTables = await processSlidesForTables(fullPresentation.slides);
-                const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey, imageSemanticScope });
+                const slidesWithTables = await processSlidesForTables(assertSlidesGenerated(fullPresentation.slides, 'Single lesson presentation'));
+                const finalSlides = assertSlidesGenerated(
+                  await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey, imageSemanticScope }),
+                  'Single lesson presentation'
+                );
                 const finalPresentation = { ...fullPresentation, slides: finalSlides };
 
                 setPresentation(finalPresentation);
@@ -3131,7 +3280,7 @@ const App: React.FC = () => {
         const cachedSlides = await getCachedGeneration<Slide[]>(cacheKey);
         const slideIndexOfNewDay = isStandalonePlanUnitDeck ? 0 : (presentation?.slides.length ?? 0);
 
-        if (cachedSlides) {
+        if (cachedSlides && cachedSlides.length > 0) {
             await waitForCacheHitLoading(setLoadingProgress);
             const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, language, imageCacheScope, imageSemanticScope);
             setGeneratedPlanUnitSlidesByDay(prev => ({
@@ -3158,11 +3307,14 @@ const App: React.FC = () => {
         }
 
         const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, language);
-        if (reusableSlides) {
+        if (reusableSlides && reusableSlides.length > 0) {
             await waitForReusableGenerationLoading(setLoadingProgress);
             setLoadingMessage(t.presentation.loadingTables);
             const slidesWithTables = await processSlidesForTables(reusableSlides);
-            const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope });
+            const finalSlides = assertSlidesGenerated(
+                await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope }),
+                `${unitLabel} ${dayToGenerate.dayNumber}`
+            );
 
             setGeneratedPlanUnitSlidesByDay(prev => ({
                 ...prev,
@@ -3188,12 +3340,18 @@ const App: React.FC = () => {
             return;
         }
 
-        const dailySlides = await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, language);
+        const dailySlides = assertSlidesGenerated(
+            await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, language),
+            `${unitLabel} ${dayToGenerate.dayNumber}`
+        );
         
         setLoadingMessage(t.presentation.loadingTables);
         const slidesWithTables = await processSlidesForTables(dailySlides);
         
-        const finalSlides = await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope });
+        const finalSlides = assertSlidesGenerated(
+            await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope }),
+            `${unitLabel} ${dayToGenerate.dayNumber}`
+        );
 
         setGeneratedPlanUnitSlidesByDay(prev => ({
             ...prev,
@@ -3369,6 +3527,10 @@ const App: React.FC = () => {
             if (!text.trim()) {
                 const fallback = await mammoth.extractRawText({ arrayBuffer });
                 text = fallback.value;
+            }
+
+            if (!text.trim()) {
+                text = await extractAltChunkDocxText(arrayBuffer);
             }
         } else {
             text = await file.text();
