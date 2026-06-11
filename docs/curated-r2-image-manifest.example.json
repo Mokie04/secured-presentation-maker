@@ -1,0 +1,24 @@
+{
+  "defaults": {
+    "collection": "english-poetry-imagery",
+    "subject": "english",
+    "topic": "poetry-descriptions-imagery",
+    "gradeLevel": "grade-7",
+    "gradeBand": "7-10",
+    "learningCompetency": "EN7LIT-I-1"
+  },
+  "images": [
+    {
+      "file": "./approved-images/core-memory-sharing.png",
+      "slideTemplate": "activity",
+      "visualRole": "activity",
+      "semanticAnchor": "core-memory-sharing"
+    },
+    {
+      "file": "./approved-images/think-and-pick-word-puzzle.png",
+      "slideTemplate": "vocabulary",
+      "visualRole": "vocabulary",
+      "semanticAnchor": "think-and-pick-word-puzzle"
+    }
+  ]
+}

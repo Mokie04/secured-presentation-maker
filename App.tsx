@@ -2983,13 +2983,6 @@ const App: React.FC = () => {
                 newSlide.imagePrompt = promptForGeneration;
             }
 
-            const curatedStaticImageUrl = getCuratedStaticImageUrl(newSlide.imageSemanticMetadata);
-            if (curatedStaticImageUrl) {
-                newSlide.imageUrl = curatedStaticImageUrl;
-                slidesWithImages.push(newSlide);
-                continue;
-            }
-
             try {
                 const cachedImageUrl = await getCachedImageForPrompt(
                   promptForGeneration,
@@ -3009,6 +3002,13 @@ const App: React.FC = () => {
                 }
             } catch {
                 console.warn('Failed to check saved slide image before generation.');
+            }
+
+            const curatedStaticImageUrl = getCuratedStaticImageUrl(newSlide.imageSemanticMetadata);
+            if (curatedStaticImageUrl) {
+                newSlide.imageUrl = curatedStaticImageUrl;
+                slidesWithImages.push(newSlide);
+                continue;
             }
 
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
@@ -3126,12 +3126,6 @@ const App: React.FC = () => {
             continue;
         }
 
-        const curatedStaticImageUrl = getCuratedStaticImageUrl(slide.imageSemanticMetadata);
-        if (curatedStaticImageUrl) {
-            refreshedSlides.push({ ...slide, imageUrl: curatedStaticImageUrl });
-            continue;
-        }
-
         try {
             const cachedImageUrl = await getCachedImageForPrompt(
               prompt,
@@ -3150,7 +3144,8 @@ const App: React.FC = () => {
             refreshedSlides.push(fallbackImageUrl ? { ...slide, imageUrl: fallbackImageUrl } : slide);
         } catch {
             console.warn('Failed to refresh a saved slide image.');
-            refreshedSlides.push(slide);
+            const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
+            refreshedSlides.push(fallbackImageUrl ? { ...slide, imageUrl: fallbackImageUrl } : slide);
         }
     }
 

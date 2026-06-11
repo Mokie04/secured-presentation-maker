@@ -393,12 +393,26 @@ function curatedObjectKeysForSemanticMetadata(input: ImageCacheInput): string[] 
   const metadata = normalizeSemanticMetadata(input.semanticMetadata);
   const subject = semanticSubjectSlug(metadata);
   const template = slugify(metadata.slideTemplate || metadata.visualRole, 'content');
-  const gradeBand = slugify(metadata.gradeBand, 'all-grades');
+  const anchor = slugify(metadata.semanticAnchor, '');
+  const competency = slugify(metadata.learningCompetency, '');
+  const gradeScopes = Array.from(new Set([
+    slugify(metadata.gradeLevel, ''),
+    slugify(metadata.gradeBand, ''),
+    'all-grades',
+  ].filter(Boolean)));
 
-  return SEMANTIC_IMAGE_EXTENSIONS.flatMap((extension) => [
-    `${SEMANTIC_IMAGE_CACHE_PREFIX}/_curated/${subject}/${template}/${gradeBand}/image.${extension}`,
-    `${SEMANTIC_IMAGE_CACHE_PREFIX}/_curated/${subject}/${template}/all-grades/image.${extension}`,
-  ]);
+  const keyBases = anchor
+    ? gradeScopes.map((gradeScope) => `${SEMANTIC_IMAGE_CACHE_PREFIX}/_curated/${subject}/${template}/${gradeScope}/anchors/${anchor}/image`)
+    : [
+        ...(competency
+          ? gradeScopes.map((gradeScope) => `${SEMANTIC_IMAGE_CACHE_PREFIX}/_curated/${subject}/${template}/${gradeScope}/competencies/${competency}/image`)
+          : []),
+        ...gradeScopes.map((gradeScope) => `${SEMANTIC_IMAGE_CACHE_PREFIX}/_curated/${subject}/${template}/${gradeScope}/image`),
+      ];
+
+  return keyBases.flatMap((keyBase) => (
+    SEMANTIC_IMAGE_EXTENSIONS.map((extension) => `${keyBase}.${extension}`)
+  ));
 }
 
 function semanticLookupLogMetadata(input: ImageCacheInput, config: R2ImageCacheConfig): Record<string, string> {
@@ -615,6 +629,9 @@ async function getCachedSemanticR2Image(
     return getCachedCuratedSemanticR2Image(input, config, createPromptHash(input, config.cacheSecret));
   }
 
+  const curatedImage = await getCachedCuratedSemanticR2Image(input, config, semanticCacheKey);
+  if (curatedImage) return curatedImage;
+
   const indexObjectKey = semanticIndexObjectKey(input);
   if (indexObjectKey) {
     const record = await getR2JsonRecord<SemanticImageCacheRecord>(indexObjectKey, config);
@@ -632,9 +649,6 @@ async function getCachedSemanticR2Image(
       if (indexedImage) return indexedImage;
     }
   }
-
-  const curatedImage = await getCachedCuratedSemanticR2Image(input, config, semanticCacheKey);
-  if (curatedImage) return curatedImage;
 
   for (const extension of SEMANTIC_IMAGE_EXTENSIONS) {
     const objectKey = objectKeyForSemanticCacheKey(input, semanticCacheKey, `image/${extension === 'jpg' ? 'jpeg' : extension}`);

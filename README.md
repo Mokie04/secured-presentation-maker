@@ -93,6 +93,15 @@ Create a private R2 bucket and an R2 API token with object read/write access to 
 
 The app also writes a semantic image index and stores reusable images under organized R2 paths such as `generated-images/v2/<subject>/<visual-role>/<grade-band>/<hmac>/image.png`. If `R2_IMAGE_CACHE_KV_NAMESPACE_ID` and a Cloudflare API token are configured, KV is used as the primary semantic index. The app also keeps an R2 index fallback at `generated-images/v2/_index/<hash>.json`, so deployments with only R2 credentials can still reuse cached images. This lets images for similar concepts in the same subject, such as Values Education decision-making visuals, be reused across different lesson plans and compatible grade bands.
 
+Approved curated classroom images should be stored in R2 instead of committed under `public/curated-images`. Curated R2 images are checked before older generated semantic-cache records and before local static fallback files, so a newer approved HD image can replace an older generated or static asset without changing the app bundle. Upload approved images with:
+
+```bash
+npm run upload:curated-images -- ./curated-image-batches/english-grade-7-q1-week-1.json --dry-run
+npm run upload:curated-images -- ./curated-image-batches/english-grade-7-q1-week-1.json
+```
+
+The upload manifest should include one row per approved visual with `collection`, `subject`, `topic`, `gradeLevel`, `gradeBand`, `learningCompetency`, `slideTemplate`, `visualRole`, and `semanticAnchor`. The API first looks for anchor-specific keys such as `generated-images/v2/_curated/english-poetry-imagery/activity/grade-7/anchors/core-memory-sharing/image.png`, then broader fallbacks only when an image has no anchor.
+
 The app also stores successful text generation responses at `generated-text/v1/<hmac>.json`; the HMAC key is derived from the normalized request contents, selected text provider/model, request config, and `R2_GENERATION_CACHE_SECRET` or `R2_IMAGE_CACHE_SECRET`. If any required R2 variable is missing, the app skips shared caching and falls back to direct generation.
 
 ## Text Provider

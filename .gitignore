@@ -13,6 +13,14 @@ dist-ssr
 outputs
 *.local
 
+# Curated HD image binaries should be uploaded to R2, not expanded in Git.
+curated-image-batches/
+public/curated-images/**/*.png
+public/curated-images/**/*.jpg
+public/curated-images/**/*.jpeg
+public/curated-images/**/*.webp
+!public/curated-images/**/MANIFEST.md
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
