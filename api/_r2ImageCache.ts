@@ -45,6 +45,7 @@ type SemanticImageCacheRecord = {
 const IMAGE_CACHE_PREFIX = 'generated-images/v1';
 const SEMANTIC_IMAGE_CACHE_PREFIX = 'generated-images/v2';
 const SEMANTIC_IMAGE_INDEX_PREFIX = 'image-semantic:v2';
+const SEMANTIC_IMAGE_ALIAS_VERSION = 'image-semantic-alias-v1';
 const SEMANTIC_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 
 let s3Client: S3Client | null = null;
@@ -212,6 +213,50 @@ function semanticSubjectSlug(metadata: Record<string, string>): string {
   return subjectSlug;
 }
 
+function semanticGradeScopeSlug(metadata: Record<string, string>): string {
+  return slugify(metadata.gradeLevel || metadata.gradeBand, 'all-grades');
+}
+
+function semanticTopicSlug(metadata: Record<string, string>, subject: string): string {
+  const subjectSlug = slugify(metadata.subject || metadata.topic, 'general');
+  if (subject !== subjectSlug && subject !== 'values-education') {
+    return subject;
+  }
+
+  return slugify(
+    [
+      metadata.learningCompetency,
+      metadata.topic,
+    ].filter(Boolean).join(' '),
+    subject,
+  );
+}
+
+function isSpecificSemanticAnchor(anchor: string): boolean {
+  if (!anchor || anchor.length < 10) return false;
+
+  const genericAnchors = new Set([
+    'activity',
+    'application',
+    'assessment',
+    'concept',
+    'content',
+    'discussion',
+    'generalization',
+    'learning-roadmap',
+    'model',
+    'objectives',
+    'overview',
+    'practice',
+    'review',
+    'situation',
+    'summary',
+    'success-criteria',
+  ]);
+
+  return !genericAnchors.has(anchor);
+}
+
 function extensionFromContentType(contentType: string): string {
   const normalized = contentType.toLowerCase();
   if (normalized.includes('jpeg') || normalized.includes('jpg')) return 'jpg';
@@ -267,9 +312,38 @@ function getStableCacheIds(input: ImageCacheInput): string[] {
   return Array.from(new Set([
     input.cacheId,
     input.semanticCacheId,
+    ...getSemanticAliasCacheIds(input),
   ]
     .map((cacheId) => (typeof cacheId === 'string' ? normalizeCacheId(cacheId) : ''))
     .filter(Boolean)));
+}
+
+function getSemanticAliasCacheIds(input: ImageCacheInput): string[] {
+  const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  if (Object.keys(metadata).length === 0) return [];
+
+  const subject = semanticSubjectSlug(metadata);
+  const gradeScope = semanticGradeScopeSlug(metadata);
+  const topic = semanticTopicSlug(metadata, subject);
+  const role = slugify(metadata.slideTemplate || metadata.visualRole, 'content');
+  const style = slugify(metadata.style, 'illustration');
+  const anchor = slugify(metadata.semanticAnchor, '');
+  const competency = slugify(metadata.learningCompetency, '');
+  const aliasBase = `${SEMANTIC_IMAGE_ALIAS_VERSION}:subject=${subject}:grade=${gradeScope}:role=${role}:style=${style}`;
+  const anchorPart = anchor || role;
+  const aliases = [
+    `${aliasBase}:topic=${topic}:anchor=${anchorPart}`,
+  ];
+
+  if (competency) {
+    aliases.push(`${aliasBase}:competency=${competency}:anchor=${anchorPart}`);
+  }
+
+  if (isSpecificSemanticAnchor(anchor)) {
+    aliases.push(`${aliasBase}:anchor=${anchor}`);
+  }
+
+  return aliases;
 }
 
 function objectKeyForCacheKey(cacheKey: string): string {
@@ -693,14 +767,13 @@ export async function setCachedR2Image(input: ImageCacheInput, imageBytes: strin
   if (!config) return null;
 
   const semanticStoredImage = await setCachedSemanticR2Image(input, imageBytes, contentType, config);
-  if (semanticStoredImage) return semanticStoredImage;
-
   const stableCacheIds = getStableCacheIds(input);
   if (stableCacheIds.length === 0) {
-    return setCachedR2ImageForKey(input, imageBytes, contentType, config);
+    const storedImage = await setCachedR2ImageForKey(input, imageBytes, contentType, config);
+    return semanticStoredImage || storedImage;
   }
 
-  let firstStoredImage: CachedImage | null = null;
+  let firstStoredImage: CachedImage | null = semanticStoredImage;
   for (const cacheId of stableCacheIds) {
     const storedImage = await setCachedR2ImageForKey(input, imageBytes, contentType, config, cacheId);
     if (!firstStoredImage && storedImage) {
