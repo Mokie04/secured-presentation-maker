@@ -210,6 +210,31 @@ function semanticSubjectSlug(metadata: Record<string, string>): string {
     return 'science-digestive-system';
   }
 
+  const hasEnglishSubject = subjectSlug === 'english'
+    || subjectSlug.includes('english')
+    || searchable.includes('english');
+  const hasPoetryImageryTopic = searchable.includes('poetry-descriptions-imagery')
+    || searchable.includes('descriptions-and-imagery')
+    || searchable.includes('poetry')
+    || searchable.includes('imagery')
+    || searchable.includes('descriptive-words')
+    || searchable.includes('literary-text')
+    || searchable.includes('en7lit-i-1')
+    || searchable.includes('context-clues')
+    || searchable.includes('figurative-language')
+    || searchable.includes('personification')
+    || searchable.includes('rhyme')
+    || searchable.includes('stanza')
+    || searchable.includes('tone')
+    || searchable.includes('diction')
+    || searchable.includes('biographical-context')
+    || searchable.includes('historical-context')
+    || searchable.includes('sociocultural-context')
+    || searchable.includes('for-the-young-yearning-a-song-of-green');
+  if (hasEnglishSubject && hasPoetryImageryTopic) {
+    return 'english-poetry-imagery';
+  }
+
   return subjectSlug;
 }
 

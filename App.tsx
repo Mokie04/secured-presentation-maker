@@ -79,6 +79,7 @@ const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
 const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260604-week1-approved-v7';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
+  'english-poetry-imagery': '/curated-images/english/poetry-descriptions-imagery',
   'english-literature-values': '/curated-images/english/philippine-literature-values',
   'math-polygons': '/curated-images/math/polygons',
   'math-statistics-expressions': '/curated-images/math/statistics-expressions',
@@ -127,6 +128,25 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     situation: 'g7e-hd-value-lens-warmup.png',
     summary: 'g7e-hd-focused-response-draft.png',
     'success-criteria': 'g7e-hd-response-target-check.png',
+  },
+  'english-poetry-imagery': {
+    activity: 'classroom-activity-cards.png',
+    application: 'tree-imagery-figurative-language.png',
+    assignment: 'tree-imagery-figurative-language.png',
+    assessment: 'evidence-table-card-sort.png',
+    concept: 'describing-imagery-scene.png',
+    content: 'describing-imagery-scene.png',
+    discussion: 'describing-imagery-scene.png',
+    generalization: 'evidence-table-card-sort.png',
+    model: 'describing-imagery-scene.png',
+    objectives: 'core-memory-sharing.png',
+    overview: 'core-memory-sharing.png',
+    practice: 'think-and-pick-word-puzzle.png',
+    review: 'core-memory-sharing.png',
+    situation: 'describing-imagery-scene.png',
+    summary: 'evidence-table-card-sort.png',
+    'success-criteria': 'expected-output-poem-annotation.png',
+    vocabulary: 'think-and-pick-word-puzzle.png',
   },
   'math-polygons': {
     activity: 'g7-hd-side-angle-lab.png',
@@ -702,6 +722,40 @@ const isEnglishLiteratureValuesSemanticSubject = (metadata: ImageSemanticMetadat
   return hasEnglishSubject && hasLiteratureValuesTopic;
 };
 
+const isEnglishPoetryImagerySemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
+  const subjectSlug = slugifyImageSemanticText(metadata.subject);
+  const searchable = slugifyImageSemanticText([
+    metadata.subject,
+    metadata.topic,
+    metadata.learningCompetency,
+    metadata.semanticAnchor,
+  ].filter(Boolean).join(' '));
+
+  const hasEnglishSubject = subjectSlug === 'english'
+    || subjectSlug.includes('english')
+    || searchable.includes('english');
+  const hasPoetryImageryTopic = searchable.includes('poetry-descriptions-imagery')
+    || searchable.includes('descriptions-and-imagery')
+    || searchable.includes('poetry')
+    || searchable.includes('imagery')
+    || searchable.includes('descriptive-words')
+    || searchable.includes('literary-text')
+    || searchable.includes('en7lit-i-1')
+    || searchable.includes('context-clues')
+    || searchable.includes('figurative-language')
+    || searchable.includes('personification')
+    || searchable.includes('rhyme')
+    || searchable.includes('stanza')
+    || searchable.includes('tone')
+    || searchable.includes('diction')
+    || searchable.includes('biographical-context')
+    || searchable.includes('historical-context')
+    || searchable.includes('sociocultural-context')
+    || searchable.includes('for-the-young-yearning-a-song-of-green');
+
+  return hasEnglishSubject && hasPoetryImageryTopic;
+};
+
 const isMathStatisticsExpressionsSemanticSubject = (metadata: ImageSemanticMetadata): boolean => {
   const subjectSlug = slugifyImageSemanticText(metadata.subject);
   const searchable = slugifyImageSemanticText([
@@ -1069,6 +1123,7 @@ const isRejectedScienceParticleModelImageUrl = (
 const getCuratedStaticImageCollection = (metadata: ImageSemanticMetadata | undefined): string | undefined => {
   if (!metadata) return undefined;
   if (isValuesEducationSemanticSubject(metadata.subject || metadata.topic)) return 'values-education';
+  if (isEnglishPoetryImagerySemanticSubject(metadata)) return 'english-poetry-imagery';
   if (isEnglishLiteratureValuesSemanticSubject(metadata)) return 'english-literature-values';
   if (isMathWagesIncomeSemanticSubject(metadata)) return 'math-wages-income';
   if (isMathLawOfSinesSemanticSubject(metadata)) return 'math-law-of-sines';
@@ -1654,6 +1709,96 @@ const getEnglishLiteratureValuesImageFileName = (
   return templateMap?.[template] || templateMap?.content;
 };
 
+const getEnglishPoetryImageryImageFileName = (
+  metadata: ImageSemanticMetadata,
+  exactOnly = false,
+): string | undefined => {
+  const semanticAnchor = slugifyImageSemanticText(metadata.semanticAnchor);
+  const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
+  const searchable = slugifyImageSemanticText([
+    metadata.slideTemplate,
+    metadata.visualRole,
+    metadata.semanticAnchor,
+    metadata.topic,
+  ].filter(Boolean).join(' '));
+  const anchor = semanticAnchor || template;
+
+  const slideSpecificImageByToken: Array<[string, string]> = [
+    ['agree-or-disagree', 'classroom-activity-cards.png'],
+    ['activity-card', 'classroom-activity-cards.png'],
+    ['poetry-elements-check', 'classroom-activity-cards.png'],
+    ['prior-knowledge-check', 'classroom-activity-cards.png'],
+    ['core-memory-sharing', 'core-memory-sharing.png'],
+    ['core-memory', 'core-memory-sharing.png'],
+    ['strengths-and-weaknesses', 'core-memory-sharing.png'],
+    ['feelings-through-music', 'feelings-through-music.png'],
+    ['knowing-your-feelings-through-music', 'feelings-through-music.png'],
+    ['emotional-response', 'feelings-through-music.png'],
+    ['creative-expression', 'feelings-through-music.png'],
+    ['think-and-pick-word-puzzle', 'think-and-pick-word-puzzle.png'],
+    ['word-puzzle', 'think-and-pick-word-puzzle.png'],
+    ['vocabulary', 'think-and-pick-word-puzzle.png'],
+    ['power-of-words', 'context-clues-card-sort.png'],
+    ['context-clues', 'context-clues-card-sort.png'],
+    ['deduce-meaning', 'context-clues-card-sort.png'],
+    ['word-meaning', 'context-clues-card-sort.png'],
+    ['jumbled-letters', 'context-clues-card-sort.png'],
+    ['describing-and-reading', 'describing-imagery-scene.png'],
+    ['describing-imagery-from-a-scene', 'describing-imagery-scene.png'],
+    ['beach-description', 'describing-imagery-scene.png'],
+    ['imagery-scene', 'describing-imagery-scene.png'],
+    ['fulfill-me-point-it-out-find-my-form-color-me', 'main-activity-poem-annotation.png'],
+    ['fulfill-me', 'main-activity-poem-annotation.png'],
+    ['point-it-out', 'main-activity-poem-annotation.png'],
+    ['main-activity', 'main-activity-poem-annotation.png'],
+    ['poem-annotation', 'main-activity-poem-annotation.png'],
+    ['annotate-poem', 'main-activity-poem-annotation.png'],
+    ['reading-by-stanza', 'main-activity-poem-annotation.png'],
+    ['expected-output', 'expected-output-poem-annotation.png'],
+    ['annotated-poem-evidence', 'expected-output-poem-annotation.png'],
+    ['evidence-output', 'expected-output-poem-annotation.png'],
+    ['success-criteria', 'expected-output-poem-annotation.png'],
+    ['find-my-form', 'expected-output-poem-annotation.png'],
+    ['color-me', 'expected-output-poem-annotation.png'],
+    ['context-lens', 'context-lens-group-board.png'],
+    ['structural-context', 'context-lens-group-board.png'],
+    ['biographical-context', 'context-lens-group-board.png'],
+    ['historical-context', 'context-lens-group-board.png'],
+    ['sociocultural-context', 'context-lens-group-board.png'],
+    ['poem-structure-elements', 'context-lens-group-board.png'],
+    ['structure-elements', 'context-lens-group-board.png'],
+    ['character-conflict-plot', 'context-lens-group-board.png'],
+    ['evidence-table', 'evidence-table-card-sort.png'],
+    ['formative-assessment', 'evidence-table-card-sort.png'],
+    ['exit-slip', 'evidence-table-card-sort.png'],
+    ['3-2-1', 'evidence-table-card-sort.png'],
+    ['reflection', 'evidence-table-card-sort.png'],
+    ['tree-imagery-and-figurative-language', 'tree-imagery-figurative-language.png'],
+    ['for-the-young-yearning-a-song-of-green', 'tree-imagery-figurative-language.png'],
+    ['figurative-language', 'tree-imagery-figurative-language.png'],
+    ['personification', 'tree-imagery-figurative-language.png'],
+    ['environmental-awareness', 'tree-imagery-figurative-language.png'],
+  ];
+  const slideSpecificImage = slideSpecificImageByToken.find(([token]) => (
+    anchor === token || anchor.startsWith(`${token}-`)
+    || anchor.includes(`-${token}-`) || anchor.endsWith(`-${token}`)
+    || searchable.includes(token)
+  ));
+  if (slideSpecificImage) {
+    return slideSpecificImage[1];
+  }
+  if (exactOnly) {
+    return undefined;
+  }
+
+  if (template === 'vocabulary') return 'think-and-pick-word-puzzle.png';
+  if (template === 'review' || template === 'overview' || template === 'objectives') return 'core-memory-sharing.png';
+  if (template === 'activity' || template === 'practice') return 'classroom-activity-cards.png';
+  if (template === 'generalization' || template === 'summary' || template === 'assessment') return 'evidence-table-card-sort.png';
+
+  return undefined;
+};
+
 const getMathPolygonsImageFileName = (
   metadata: ImageSemanticMetadata,
   exactOnly = false,
@@ -2136,29 +2281,31 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
-  const fileName = collection === 'english-literature-values'
-    ? getEnglishLiteratureValuesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-    : collection === 'math-wages-income'
-      ? getMathWagesIncomeImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-      : collection === 'math-law-of-sines'
-        ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-        : collection === 'math-geometry-construction'
-          ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-          : collection === 'math-statistics-expressions'
-            ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-            : collection === 'math-polygons'
-              ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-              : collection === 'science-digestive-system'
-                ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                : collection === 'science-force-motion'
-                  ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                  : collection === 'science-scientists-inventions'
-                    ? getScienceScientistsInventionsImageFileName(metadata)
-                    : collection === 'science-chemistry-reactions'
-                      ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                      : collection === 'science-general-motion'
-                        ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                        : collectionMap?.[template] || collectionMap?.content;
+  const fileName = collection === 'english-poetry-imagery'
+    ? getEnglishPoetryImageryImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    : collection === 'english-literature-values'
+      ? getEnglishLiteratureValuesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      : collection === 'math-wages-income'
+        ? getMathWagesIncomeImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        : collection === 'math-law-of-sines'
+          ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          : collection === 'math-geometry-construction'
+            ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+            : collection === 'math-statistics-expressions'
+              ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+              : collection === 'math-polygons'
+                ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                : collection === 'science-digestive-system'
+                  ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                  : collection === 'science-force-motion'
+                    ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                    : collection === 'science-scientists-inventions'
+                      ? getScienceScientistsInventionsImageFileName(metadata)
+                      : collection === 'science-chemistry-reactions'
+                        ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                        : collection === 'science-general-motion'
+                          ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                          : collectionMap?.[template] || collectionMap?.content;
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
@@ -2167,7 +2314,8 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
   if (!metadata) return undefined;
   const collection = getCuratedStaticImageCollection(metadata);
   if (
-    collection !== 'english-literature-values'
+    collection !== 'english-poetry-imagery'
+    && collection !== 'english-literature-values'
     && collection !== 'math-wages-income'
     && collection !== 'math-law-of-sines'
     && collection !== 'math-geometry-construction'
@@ -2181,29 +2329,31 @@ const getProviderLimitFallbackImageUrl = (metadata: ImageSemanticMetadata | unde
     && collection !== 'science-general-motion'
   ) return undefined;
 
-  const fileName = collection === 'english-literature-values'
-    ? getEnglishLiteratureValuesImageFileName(metadata, true)
-    : collection === 'math-wages-income'
-      ? getMathWagesIncomeImageFileName(metadata, true)
-      : collection === 'math-law-of-sines'
-        ? getMathLawOfSinesImageFileName(metadata, true)
-        : collection === 'math-geometry-construction'
-          ? getMathGeometryConstructionImageFileName(metadata, true)
-          : collection === 'math-statistics-expressions'
-            ? getMathStatisticsExpressionsImageFileName(metadata, true)
-            : collection === 'math-polygons'
-              ? getMathPolygonsImageFileName(metadata, true)
-              : collection === 'science-particle-model'
-                ? getScienceParticleModelImageFileName(metadata, true)
-                : collection === 'science-digestive-system'
-                  ? getScienceDigestiveImageFileName(metadata, true)
-                  : collection === 'science-force-motion'
-                    ? getScienceForceMotionImageFileName(metadata, true)
-                    : collection === 'science-scientists-inventions'
-                      ? getScienceScientistsInventionsImageFileName(metadata)
-                      : collection === 'science-chemistry-reactions'
-                        ? getScienceChemistryReactionsImageFileName(metadata, true)
-                        : getScienceGeneralMotionImageFileName(metadata, true);
+  const fileName = collection === 'english-poetry-imagery'
+    ? getEnglishPoetryImageryImageFileName(metadata, true)
+    : collection === 'english-literature-values'
+      ? getEnglishLiteratureValuesImageFileName(metadata, true)
+      : collection === 'math-wages-income'
+        ? getMathWagesIncomeImageFileName(metadata, true)
+        : collection === 'math-law-of-sines'
+          ? getMathLawOfSinesImageFileName(metadata, true)
+          : collection === 'math-geometry-construction'
+            ? getMathGeometryConstructionImageFileName(metadata, true)
+            : collection === 'math-statistics-expressions'
+              ? getMathStatisticsExpressionsImageFileName(metadata, true)
+              : collection === 'math-polygons'
+                ? getMathPolygonsImageFileName(metadata, true)
+                : collection === 'science-particle-model'
+                  ? getScienceParticleModelImageFileName(metadata, true)
+                  : collection === 'science-digestive-system'
+                    ? getScienceDigestiveImageFileName(metadata, true)
+                    : collection === 'science-force-motion'
+                      ? getScienceForceMotionImageFileName(metadata, true)
+                      : collection === 'science-scientists-inventions'
+                        ? getScienceScientistsInventionsImageFileName(metadata)
+                        : collection === 'science-chemistry-reactions'
+                          ? getScienceChemistryReactionsImageFileName(metadata, true)
+                          : getScienceGeneralMotionImageFileName(metadata, true);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
