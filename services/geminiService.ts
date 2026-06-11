@@ -10,7 +10,7 @@ type ClientEnv = {
     VITE_DISABLE_IMAGES?: string;
 };
 
-const ENV = (import.meta as ImportMeta & { env?: ClientEnv }).env ?? {};
+const ENV = ((import.meta as unknown as { env?: ClientEnv }).env ?? {}) as ClientEnv;
 const PROXY_FALLBACK_URL = '';
 
 function uniqueNonEmpty(values: Array<string | undefined>): string[] {

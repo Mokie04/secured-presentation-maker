@@ -47,6 +47,7 @@ const SEMANTIC_IMAGE_CACHE_PREFIX = 'generated-images/v2';
 const SEMANTIC_IMAGE_INDEX_PREFIX = 'image-semantic:v2';
 const SEMANTIC_IMAGE_ALIAS_VERSION = 'image-semantic-alias-v1';
 const SEMANTIC_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
+const SUPPORTED_IMAGE_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 
 let s3Client: S3Client | null = null;
 let s3ClientAccountId: string | null = null;
@@ -283,10 +284,17 @@ function isSpecificSemanticAnchor(anchor: string): boolean {
 }
 
 function extensionFromContentType(contentType: string): string {
-  const normalized = contentType.toLowerCase();
-  if (normalized.includes('jpeg') || normalized.includes('jpg')) return 'jpg';
-  if (normalized.includes('webp')) return 'webp';
+  const normalized = normalizeImageContentType(contentType);
+  if (normalized === 'image/jpeg') return 'jpg';
+  if (normalized === 'image/webp') return 'webp';
   return 'png';
+}
+
+function normalizeImageContentType(contentType: string | undefined): string | null {
+  if (!contentType) return 'image/png';
+  const normalized = contentType.split(';')[0].trim().toLowerCase();
+  if (normalized === 'image/jpg') return 'image/jpeg';
+  return SUPPORTED_IMAGE_CONTENT_TYPES.has(normalized) ? normalized : null;
 }
 
 function createPromptHash(input: ImageCacheInput, cacheSecret: string): string {
@@ -391,6 +399,15 @@ function objectKeyForSemanticCacheKey(
 
 function curatedObjectKeysForSemanticMetadata(input: ImageCacheInput): string[] {
   const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  const hasCuratedScope = Boolean(
+    metadata.collection
+    || metadata.subject
+    || metadata.topic
+    || metadata.learningCompetency
+    || metadata.semanticAnchor
+  );
+  if (!hasCuratedScope) return [];
+
   const subject = semanticSubjectSlug(metadata);
   const template = slugify(metadata.slideTemplate || metadata.visualRole, 'content');
   const anchor = slugify(metadata.semanticAnchor, '');
@@ -588,8 +605,9 @@ async function streamToBuffer(body: unknown): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function dataUrlFromBuffer(buffer: Buffer, contentType: string | undefined): string {
-  const mime = contentType || 'image/png';
+function dataUrlFromBuffer(buffer: Buffer, contentType: string | undefined): string | null {
+  const mime = normalizeImageContentType(contentType);
+  if (!mime) return null;
   return `data:${mime};base64,${buffer.toString('base64')}`;
 }
 
@@ -605,9 +623,17 @@ async function getCachedR2ImageObject(
     }));
     const buffer = await streamToBuffer(response.Body);
     if (buffer.length === 0) return null;
+    const dataUrl = dataUrlFromBuffer(buffer, response.ContentType);
+    if (!dataUrl) {
+      console.warn('Ignored saved image data with unsupported content type.', {
+        objectKey,
+        contentType: response.ContentType,
+      });
+      return null;
+    }
 
     return {
-      dataUrl: dataUrlFromBuffer(buffer, response.ContentType),
+      dataUrl,
       cacheKey,
       objectKey,
     };
@@ -674,9 +700,17 @@ async function getCachedR2ImageForKey(
     }));
     const buffer = await streamToBuffer(response.Body);
     if (buffer.length === 0) return null;
+    const dataUrl = dataUrlFromBuffer(buffer, response.ContentType);
+    if (!dataUrl) {
+      console.warn('Ignored saved image data with unsupported content type.', {
+        objectKey,
+        contentType: response.ContentType,
+      });
+      return null;
+    }
 
     return {
-      dataUrl: dataUrlFromBuffer(buffer, response.ContentType),
+      dataUrl,
       cacheKey,
       objectKey,
     };
@@ -712,6 +746,12 @@ async function setCachedR2ImageForKey(
   config: R2ImageCacheConfig,
   cacheId?: string,
 ): Promise<CachedImage | null> {
+  const safeContentType = normalizeImageContentType(contentType);
+  if (!safeContentType) {
+    console.warn('Refused to cache image with unsupported content type.', { contentType });
+    return null;
+  }
+
   const cacheKey = createCacheKey(input, config.cacheSecret, cacheId);
   const objectKey = objectKeyForCacheKey(cacheKey);
   const buffer = Buffer.from(imageBytes, 'base64');
@@ -723,15 +763,18 @@ async function setCachedR2ImageForKey(
       Bucket: config.bucketName,
       Key: objectKey,
       Body: buffer,
-      ContentType: contentType,
+      ContentType: safeContentType,
       CacheControl: 'public, max-age=31536000, immutable',
       Metadata: {
         cacheKey,
       },
     }));
 
+    const dataUrl = dataUrlFromBuffer(buffer, safeContentType);
+    if (!dataUrl) return null;
+
     return {
-      dataUrl: dataUrlFromBuffer(buffer, contentType),
+      dataUrl,
       cacheKey,
       objectKey,
     };
@@ -748,6 +791,12 @@ async function setCachedSemanticR2Image(
   contentType: string,
   config: R2ImageCacheConfig,
 ): Promise<CachedImage | null> {
+  const safeContentType = normalizeImageContentType(contentType);
+  if (!safeContentType) {
+    console.warn('Refused to cache semantic image with unsupported content type.', { contentType });
+    return null;
+  }
+
   const cacheKey = createSemanticCacheKey(input, config.cacheSecret);
   const indexKey = semanticIndexKey(input);
   if (!cacheKey || !indexKey) return null;
@@ -755,14 +804,14 @@ async function setCachedSemanticR2Image(
   const buffer = Buffer.from(imageBytes, 'base64');
   if (buffer.length === 0) return null;
 
-  const objectKey = objectKeyForSemanticCacheKey(input, cacheKey, contentType);
+  const objectKey = objectKeyForSemanticCacheKey(input, cacheKey, safeContentType);
   const metadata = normalizeSemanticMetadata(input.semanticMetadata);
   const promptHash = createPromptHash(input, config.cacheSecret);
   const record: SemanticImageCacheRecord = {
     version: SEMANTIC_IMAGE_CACHE_PREFIX,
     cacheKey,
     objectKey,
-    contentType,
+    contentType: safeContentType,
     createdAt: new Date().toISOString(),
     promptHash,
     metadata,
@@ -773,7 +822,7 @@ async function setCachedSemanticR2Image(
       Bucket: config.bucketName,
       Key: objectKey,
       Body: buffer,
-      ContentType: contentType,
+      ContentType: safeContentType,
       CacheControl: 'public, max-age=31536000, immutable',
       Metadata: {
         cacheKey,
@@ -789,8 +838,11 @@ async function setCachedSemanticR2Image(
     }
     await setKvRecord<SemanticImageCacheRecord>(indexKey, record);
 
+    const dataUrl = dataUrlFromBuffer(buffer, safeContentType);
+    if (!dataUrl) return null;
+
     return {
-      dataUrl: dataUrlFromBuffer(buffer, contentType),
+      dataUrl,
       cacheKey,
       objectKey,
     };

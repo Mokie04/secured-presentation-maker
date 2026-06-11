@@ -10,6 +10,7 @@ const CONTENT_TYPE_BY_EXTENSION = {
   '.png': 'image/png',
   '.webp': 'image/webp',
 };
+const SUPPORTED_CONTENT_TYPES = new Set(Object.values(CONTENT_TYPE_BY_EXTENSION));
 
 function usage() {
   console.log(`Usage: node scripts/upload-curated-r2-images.mjs <manifest.json> [--dry-run] [--include-grade-band-alias] [--include-all-grades-alias]
@@ -88,18 +89,32 @@ function semanticSubjectSlug(metadata) {
 }
 
 function contentTypeForFile(filePath, override) {
-  if (override) return override;
   const contentType = CONTENT_TYPE_BY_EXTENSION[path.extname(filePath).toLowerCase()];
+  if (override) {
+    const normalizedOverride = String(override).split(';')[0].trim().toLowerCase();
+    const normalizedContentType = normalizedOverride === 'image/jpg' ? 'image/jpeg' : normalizedOverride;
+    if (!SUPPORTED_CONTENT_TYPES.has(normalizedContentType)) {
+      throw new Error(`Unsupported contentType "${override}" for ${filePath}. Use image/png, image/jpeg, or image/webp.`);
+    }
+    if (contentType && normalizedContentType !== contentType) {
+      throw new Error(`contentType "${override}" does not match file extension for ${filePath}.`);
+    }
+    return normalizedContentType;
+  }
   if (!contentType) {
     throw new Error(`Unsupported image extension for ${filePath}. Use PNG, JPEG, or WebP.`);
   }
   return contentType;
 }
 
+function extensionFromContentType(contentType) {
+  if (contentType === 'image/jpeg') return 'jpg';
+  if (contentType === 'image/webp') return 'webp';
+  return 'png';
+}
+
 function buildObjectKeys(metadata, options, contentType) {
-  const extension = contentType === 'image/jpeg'
-    ? 'jpg'
-    : contentType.split('/')[1];
+  const extension = extensionFromContentType(contentType);
   const subject = semanticSubjectSlug(metadata);
   const template = slugify(metadata.slideTemplate || metadata.visualRole, 'content');
   const anchor = slugify(metadata.semanticAnchor, '');
@@ -166,6 +181,10 @@ async function main() {
     : null;
 
   for (const image of images) {
+    if (!image || typeof image !== 'object' || typeof image.file !== 'string' || !image.file.trim()) {
+      throw new Error('Each manifest image must include a non-empty file path.');
+    }
+
     const metadata = {
       ...(manifest.defaults || {}),
       ...image,
