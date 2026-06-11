@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { requireSession } from "./_sessionAuth.js";
 import { getCachedR2Image, setCachedR2Image } from "./_r2ImageCache.js";
 import { getCachedR2TextGeneration, setCachedR2TextGeneration } from "./_r2TextGenerationCache.js";
+import { getPexelsImageForPrompt } from "./_pexelsImageSearch.js";
 
 type GeminiProxyRequest = {
   task?: 'text' | 'image' | 'cacheImage' | 'cachedImage';
@@ -132,6 +133,43 @@ async function getCachedImageWithPromptFallback(input: {
     model: input.model,
     aspectRatio: input.aspectRatio,
   });
+}
+
+async function getPexelsImageWithCache(input: {
+  prompt: string;
+  model: string;
+  aspectRatio: string;
+  cacheId?: string;
+  semanticCacheId?: string;
+  semanticMetadata?: ImageSemanticMetadata;
+}) {
+  const pexelsImage = await getPexelsImageForPrompt({
+    prompt: input.prompt,
+    semanticMetadata: input.semanticMetadata,
+  });
+  if (!pexelsImage) return null;
+
+  const storedImage = await setCachedR2Image({
+    prompt: input.prompt,
+    model: input.model,
+    aspectRatio: input.aspectRatio,
+    cacheId: input.cacheId,
+    semanticCacheId: input.semanticCacheId,
+    semanticMetadata: input.semanticMetadata,
+    imageAttribution: pexelsImage.attribution,
+  }, pexelsImage.base64, pexelsImage.mime);
+
+  console.info('Pexels image fallback hit', {
+    query: pexelsImage.query,
+    photoId: pexelsImage.attribution.sourceId,
+    cacheProvider: storedImage ? 'r2' : 'none',
+  });
+
+  return {
+    dataUrl: storedImage?.dataUrl || pexelsImage.dataUrl,
+    attribution: storedImage?.attribution || pexelsImage.attribution,
+    cacheProvider: storedImage ? 'r2' : 'pexels',
+  };
 }
 
 function buildTextCacheInput(
@@ -805,6 +843,7 @@ export default async function handler(req: any, res: any) {
           if (cachedImage) {
             return res.status(200).json({
               dataUrl: cachedImage.dataUrl,
+              attribution: cachedImage.attribution,
               ok: true,
               modelUsed: candidateModel,
               provider,
@@ -814,6 +853,28 @@ export default async function handler(req: any, res: any) {
               },
             });
           }
+        }
+
+        const pexelsImage = await getPexelsImageWithCache({
+          prompt: imageRequest.prompt,
+          model: cacheModel,
+          aspectRatio: imageRequest.aspectRatio,
+          cacheId: imageRequest.cacheId,
+          semanticCacheId: imageRequest.semanticCacheId,
+          semanticMetadata: imageRequest.semanticMetadata,
+        });
+        if (pexelsImage) {
+          return res.status(200).json({
+            dataUrl: pexelsImage.dataUrl,
+            attribution: pexelsImage.attribution,
+            ok: true,
+            modelUsed: cacheModel,
+            provider: 'pexels',
+            cache: {
+              hit: false,
+              provider: pexelsImage.cacheProvider,
+            },
+          });
         }
 
         return res.status(200).json({
@@ -918,11 +979,33 @@ export default async function handler(req: any, res: any) {
 
               return res.status(200).json({
                 dataUrl: cachedImage.dataUrl,
+                attribution: cachedImage.attribution,
                 modelUsed: candidateModel,
                 provider: 'xai',
                 cache: {
                   hit: true,
                   provider: 'r2',
+                },
+              });
+            }
+
+            const pexelsImage = await getPexelsImageWithCache({
+              prompt: imageRequest.prompt,
+              model: candidateModel,
+              aspectRatio: imageRequest.aspectRatio,
+              cacheId: imageRequest.cacheId,
+              semanticCacheId: imageRequest.semanticCacheId,
+              semanticMetadata: imageRequest.semanticMetadata,
+            });
+            if (pexelsImage) {
+              return res.status(200).json({
+                dataUrl: pexelsImage.dataUrl,
+                attribution: pexelsImage.attribution,
+                modelUsed: candidateModel,
+                provider: 'pexels',
+                cache: {
+                  hit: false,
+                  provider: pexelsImage.cacheProvider,
                 },
               });
             }
@@ -971,6 +1054,60 @@ export default async function handler(req: any, res: any) {
       throw lastError || new Error('All image generation candidates failed.');
     }
 
+    if (task === 'image') {
+      const imageRequest = getImageRequestDetails(contents, requestConfig);
+      for (const candidateModel of modelCandidates) {
+        const cachedImage = await getCachedImageWithPromptFallback({
+          prompt: imageRequest.prompt,
+          model: candidateModel,
+          aspectRatio: imageRequest.aspectRatio,
+          cacheId: imageRequest.cacheId,
+          semanticCacheId: imageRequest.semanticCacheId,
+          semanticMetadata: imageRequest.semanticMetadata,
+        });
+
+        if (cachedImage) {
+          console.info('Generated image cache hit', {
+            imageProvider: 'gemini',
+            cacheProvider: 'r2',
+            model: candidateModel,
+          });
+
+          return res.status(200).json({
+            dataUrl: cachedImage.dataUrl,
+            attribution: cachedImage.attribution,
+            modelUsed: candidateModel,
+            provider: 'gemini',
+            cache: {
+              hit: true,
+              provider: 'r2',
+            },
+          });
+        }
+      }
+
+      const pexelsImage = await getPexelsImageWithCache({
+        prompt: imageRequest.prompt,
+        model: modelCandidates[0],
+        aspectRatio: imageRequest.aspectRatio,
+        cacheId: imageRequest.cacheId,
+        semanticCacheId: imageRequest.semanticCacheId,
+        semanticMetadata: imageRequest.semanticMetadata,
+      });
+      if (pexelsImage) {
+        return res.status(200).json({
+          dataUrl: pexelsImage.dataUrl,
+          attribution: pexelsImage.attribution,
+          modelUsed: modelCandidates[0],
+          provider: 'pexels',
+          cache: {
+            hit: false,
+            provider: pexelsImage.cacheProvider,
+          },
+        });
+      }
+    }
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: SERVER_CONFIG_ERROR });
@@ -1008,7 +1145,9 @@ export default async function handler(req: any, res: any) {
 
               return res.status(200).json({
                 dataUrl: cachedImage.dataUrl,
+                attribution: cachedImage.attribution,
                 modelUsed: candidateModel,
+                provider: 'gemini',
                 cache: {
                   hit: true,
                   provider: 'r2',
@@ -1084,6 +1223,7 @@ export default async function handler(req: any, res: any) {
         return res.status(200).json({
           dataUrl: `data:${mime};base64,${inline}`,
           modelUsed,
+          provider: 'gemini',
           cache: {
             hit: false,
             provider: cachedImage ? 'r2' : 'none',

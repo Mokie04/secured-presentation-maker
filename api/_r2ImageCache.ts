@@ -19,6 +19,16 @@ type CachedImage = {
   dataUrl: string;
   cacheKey: string;
   objectKey: string;
+  attribution?: ImageAttribution;
+};
+
+type ImageAttribution = {
+  provider?: string;
+  label?: string;
+  photographer?: string;
+  photographerUrl?: string;
+  sourceUrl?: string;
+  sourceId?: string;
 };
 
 type ImageSemanticMetadata = Record<string, string | undefined>;
@@ -30,6 +40,7 @@ type ImageCacheInput = {
   cacheId?: string;
   semanticCacheId?: string;
   semanticMetadata?: ImageSemanticMetadata;
+  imageAttribution?: ImageAttribution;
 };
 
 type SemanticImageCacheRecord = {
@@ -295,6 +306,45 @@ function normalizeImageContentType(contentType: string | undefined): string | nu
   const normalized = contentType.split(';')[0].trim().toLowerCase();
   if (normalized === 'image/jpg') return 'image/jpeg';
   return SUPPORTED_IMAGE_CONTENT_TYPES.has(normalized) ? normalized : null;
+}
+
+function normalizeMetadataValue(value: string | undefined, maxLength: number): string {
+  return (value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+}
+
+function attributionMetadata(attribution: ImageAttribution | undefined): Record<string, string> {
+  if (!attribution?.provider) return {};
+  const metadata = {
+    attributionProvider: normalizeMetadataValue(attribution.provider, 32),
+    attributionLabel: normalizeMetadataValue(attribution.label, 256),
+    attributionPhotographer: normalizeMetadataValue(attribution.photographer, 128),
+    attributionPhotographerUrl: normalizeMetadataValue(attribution.photographerUrl, 256),
+    attributionSourceUrl: normalizeMetadataValue(attribution.sourceUrl, 256),
+    attributionSourceId: normalizeMetadataValue(attribution.sourceId, 64),
+  };
+
+  return Object.fromEntries(
+    Object.entries(metadata).filter(([, value]) => Boolean(value))
+  );
+}
+
+function attributionFromMetadata(metadata: Record<string, string> | undefined): ImageAttribution | undefined {
+  if (!metadata?.attributionprovider && !metadata?.attributionProvider) return undefined;
+  const provider = metadata.attributionprovider || metadata.attributionProvider;
+  const label = metadata.attributionlabel || metadata.attributionLabel;
+  const photographer = metadata.attributionphotographer || metadata.attributionPhotographer;
+  const photographerUrl = metadata.attributionphotographerurl || metadata.attributionPhotographerUrl;
+  const sourceUrl = metadata.attributionsourceurl || metadata.attributionSourceUrl;
+  const sourceId = metadata.attributionsourceid || metadata.attributionSourceId;
+
+  return {
+    provider,
+    ...(label ? { label } : {}),
+    ...(photographer ? { photographer } : {}),
+    ...(photographerUrl ? { photographerUrl } : {}),
+    ...(sourceUrl ? { sourceUrl } : {}),
+    ...(sourceId ? { sourceId } : {}),
+  };
 }
 
 function createPromptHash(input: ImageCacheInput, cacheSecret: string): string {
@@ -636,6 +686,7 @@ async function getCachedR2ImageObject(
       dataUrl,
       cacheKey,
       objectKey,
+      attribution: attributionFromMetadata(response.Metadata),
     };
   } catch (error) {
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
@@ -713,6 +764,7 @@ async function getCachedR2ImageForKey(
       dataUrl,
       cacheKey,
       objectKey,
+      attribution: attributionFromMetadata(response.Metadata),
     };
   } catch (error) {
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
@@ -767,6 +819,7 @@ async function setCachedR2ImageForKey(
       CacheControl: 'public, max-age=31536000, immutable',
       Metadata: {
         cacheKey,
+        ...attributionMetadata(input.imageAttribution),
       },
     }));
 
@@ -777,6 +830,7 @@ async function setCachedR2ImageForKey(
       dataUrl,
       cacheKey,
       objectKey,
+      attribution: input.imageAttribution,
     };
   } catch (error) {
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
@@ -829,6 +883,7 @@ async function setCachedSemanticR2Image(
         semanticCacheId: normalizeCacheId(input.semanticCacheId || '').slice(0, 256),
         subject: (metadata.subject || metadata.topic || 'general').slice(0, 128),
         visualRole: (metadata.visualRole || 'content').slice(0, 64),
+        ...attributionMetadata(input.imageAttribution),
       },
     }));
 
@@ -845,6 +900,7 @@ async function setCachedSemanticR2Image(
       dataUrl,
       cacheKey,
       objectKey,
+      attribution: input.imageAttribution,
     };
   } catch (error) {
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;

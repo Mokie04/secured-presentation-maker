@@ -82,10 +82,20 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 ## Image Strategy (Cost + Relevance)
 
 - The app can generate images with xAI Grok Imagine or Google Gemini / Imagen.
+- If `PEXELS_API_KEY` is configured, the server can use Pexels as a free stock-photo fallback before paid AI image generation. The key must stay server-side in Vercel env and must not use a `VITE_` prefix.
 - Only high-confidence matches are used to keep images tightly related to the slide.
 - If Cloudflare R2 env vars are configured, generated images are cached in R2 and reused across devices before calling the image provider again.
 - AI-generated images are instructed to contain no text/labels.
 - Intentional labels should be added with the manual image overlay editor in the slide view.
+
+Image lookup order is:
+
+1. Curated approved R2 images.
+2. Previously cached R2 semantic/generated images.
+3. Pexels landscape photo search, when enabled and the slide is not a diagram/infographic.
+4. Paid AI image generation.
+
+Pexels results are downloaded server-side, converted to the same data URL shape used by generated images, cached back into R2 when R2 is configured, and returned with photographer/source attribution. Pexels credits are rendered on the slide image and included in PPTX speaker notes/export output.
 
 ### Cloudflare R2 Shared Cache
 

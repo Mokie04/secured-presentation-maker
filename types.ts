@@ -26,12 +26,22 @@ export interface ImageSemanticMetadata {
   style?: ImageStyle;
 }
 
+export interface ImageAttribution {
+  provider: 'pexels' | string;
+  label?: string;
+  photographer?: string;
+  photographerUrl?: string;
+  sourceUrl?: string;
+  sourceId?: string;
+}
+
 export interface Slide {
   title: string;
   content: string[]; // An array of strings, where each string is a bullet point or paragraph.
   imagePrompt?: string; // A descriptive prompt for generating a relevant image.
   imageStyle?: ImageStyle; // The artistic style for the image
   imageUrl?: string; // The data URL of the generated image.
+  imageAttribution?: ImageAttribution; // Optional source credit for externally sourced images.
   imageCacheId?: string; // Stable cache key for reusing the same image across matching generations.
   imageSemanticCacheId?: string; // Concept-level cache key for reusing images across similar slide contexts.
   imageSemanticMetadata?: ImageSemanticMetadata; // Structured semantic cache metadata for cross-lesson reuse.

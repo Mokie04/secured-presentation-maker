@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel, ImageSemanticMetadata } from './types';
-import { IMAGES_DISABLED, cacheUploadedImageForPrompt, createK12LessonBlueprint, generateK12SlidesForDay, generateImageFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, getCachedImageForPrompt } from './services/geminiService';
+import { IMAGES_DISABLED, cacheUploadedImageForPrompt, createK12LessonBlueprint, generateK12SlidesForDay, generateImageResultFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, getCachedImageResultForPrompt } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
@@ -2984,7 +2984,7 @@ const App: React.FC = () => {
             }
 
             try {
-                const cachedImageUrl = await getCachedImageForPrompt(
+                const cachedImage = await getCachedImageResultForPrompt(
                   promptForGeneration,
                   newSlide.imageStyle,
                   language,
@@ -2992,12 +2992,13 @@ const App: React.FC = () => {
                   newSlide.imageSemanticCacheId,
                   newSlide.imageSemanticMetadata
                 );
-                if (cachedImageUrl && !isRejectedScienceParticleModelImageUrl(cachedImageUrl, newSlide.imageSemanticMetadata)) {
-                    newSlide.imageUrl = cachedImageUrl;
+                if (cachedImage?.dataUrl && !isRejectedScienceParticleModelImageUrl(cachedImage.dataUrl, newSlide.imageSemanticMetadata)) {
+                    newSlide.imageUrl = cachedImage.dataUrl;
+                    newSlide.imageAttribution = cachedImage.attribution;
                     slidesWithImages.push(newSlide);
                     continue;
                 }
-                if (cachedImageUrl) {
+                if (cachedImage?.dataUrl) {
                     console.warn('Ignored a cached particle-model image because it was an old SVG/static visual.');
                 }
             } catch {
@@ -3007,6 +3008,7 @@ const App: React.FC = () => {
             const curatedStaticImageUrl = getCuratedStaticImageUrl(newSlide.imageSemanticMetadata);
             if (curatedStaticImageUrl) {
                 newSlide.imageUrl = curatedStaticImageUrl;
+                newSlide.imageAttribution = undefined;
                 slidesWithImages.push(newSlide);
                 continue;
             }
@@ -3017,14 +3019,17 @@ const App: React.FC = () => {
                   ? getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata)
                   : undefined;
                 newSlide.imageUrl = fallbackImageUrl || (adminImageLimitBypassed ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER);
+                newSlide.imageAttribution = undefined;
                 slidesWithImages.push(newSlide);
                 continue;
             }
 
             if (!adminImageLimitBypassed && !canGenerateImage) {
                 newSlide.imageUrl = USER_IMAGE_LIMIT_PLACEHOLDER;
+                newSlide.imageAttribution = undefined;
             } else if (rateLimitWasHit) {
                 newSlide.imageUrl = getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata) || PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
+                newSlide.imageAttribution = undefined;
             } else {
                 imagesAttemptedCounter++;
                 imageAttemptsUsed++;
@@ -3038,7 +3043,7 @@ const App: React.FC = () => {
                 }
                 
                 try {
-                    const imageUrl = await generateImageFromPrompt(
+                    const imageResult = await generateImageResultFromPrompt(
                       promptForGeneration,
                       newSlide.imageStyle,
                       language,
@@ -3046,11 +3051,12 @@ const App: React.FC = () => {
                       newSlide.imageSemanticCacheId,
                       newSlide.imageSemanticMetadata
                     );
-                    if (isRejectedScienceParticleModelImageUrl(imageUrl, newSlide.imageSemanticMetadata)) {
+                    if (isRejectedScienceParticleModelImageUrl(imageResult.dataUrl, newSlide.imageSemanticMetadata)) {
                         throw new Error('Generated image resolved to an old SVG/static particle-model visual.');
                     }
-                    newSlide.imageUrl = imageUrl;
-                    if (!adminImageLimitBypassed) {
+                    newSlide.imageUrl = imageResult.dataUrl;
+                    newSlide.imageAttribution = imageResult.attribution;
+                    if (!adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
                         incrementCount('images');
                     }
                 } catch (imgError) {
@@ -3064,9 +3070,11 @@ const App: React.FC = () => {
                             setError(IMAGE_LIMIT_BATCH_ERROR);
                             newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
                         }
+                        newSlide.imageAttribution = undefined;
                     } else {
                         handleApiError(imgError);
                         newSlide.imageUrl = 'error';
+                        newSlide.imageAttribution = undefined;
                     }
                 }
             }
@@ -3115,7 +3123,7 @@ const App: React.FC = () => {
         if (slide.imageUrl && NON_EXPORTABLE_IMAGE_STATES.has(slide.imageUrl)) {
             const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
             if (fallbackImageUrl) {
-                refreshedSlides.push({ ...slide, imageUrl: fallbackImageUrl });
+                refreshedSlides.push({ ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined });
                 continue;
             }
         }
@@ -3127,7 +3135,7 @@ const App: React.FC = () => {
         }
 
         try {
-            const cachedImageUrl = await getCachedImageForPrompt(
+            const cachedImage = await getCachedImageResultForPrompt(
               prompt,
               slide.imageStyle,
               refreshLanguage,
@@ -3135,17 +3143,17 @@ const App: React.FC = () => {
               slide.imageSemanticCacheId,
               slide.imageSemanticMetadata
             );
-            if (cachedImageUrl && !isRejectedScienceParticleModelImageUrl(cachedImageUrl, slide.imageSemanticMetadata)) {
-              refreshedSlides.push({ ...slide, imageUrl: cachedImageUrl });
+            if (cachedImage?.dataUrl && !isRejectedScienceParticleModelImageUrl(cachedImage.dataUrl, slide.imageSemanticMetadata)) {
+              refreshedSlides.push({ ...slide, imageUrl: cachedImage.dataUrl, imageAttribution: cachedImage.attribution });
               continue;
             }
 
             const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
-            refreshedSlides.push(fallbackImageUrl ? { ...slide, imageUrl: fallbackImageUrl } : slide);
+            refreshedSlides.push(fallbackImageUrl ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined } : slide);
         } catch {
             console.warn('Failed to refresh a saved slide image.');
             const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
-            refreshedSlides.push(fallbackImageUrl ? { ...slide, imageUrl: fallbackImageUrl } : slide);
+            refreshedSlides.push(fallbackImageUrl ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined } : slide);
         }
     }
 
@@ -3948,6 +3956,24 @@ const App: React.FC = () => {
                     }
                     slide.addImage({ data: exportImageData, x: imageX, y: imageY, w: imageW, h: imageH });
                     imageAdded = true;
+                    if (slideData.imageAttribution?.provider === 'pexels') {
+                        const attributionText = slideData.imageAttribution.label || 'Photo provided by Pexels';
+                        slide.addText(attributionText, {
+                            x: imageX + 0.08,
+                            y: imageY + imageH - 0.24,
+                            w: Math.min(imageW - 0.16, 3.8),
+                            h: 0.16,
+                            fontSize: 5.5,
+                            color: 'FFFFFF',
+                            fontFace: 'Poppins',
+                            fit: 'shrink',
+                            fill: { color: '111827', transparency: 25 },
+                            margin: 0.03,
+                            ...(slideData.imageAttribution.sourceUrl
+                                ? { hyperlink: { url: slideData.imageAttribution.sourceUrl } }
+                                : {}),
+                        } as any);
+                    }
                 } catch (e) {
                     console.error("Failed to add image to PPTX slide:", e);
                     slide.addText('Image could not be loaded.', { x: imageX, y: imageY, w: imageW, h: imageH, color: 'FF0000', align: 'center', valign: 'middle' });
@@ -4048,8 +4074,16 @@ const App: React.FC = () => {
                 }
             }
 
-            if (slideData.speakerNotes) {
-                slide.addNotes(slideData.speakerNotes);
+            const imageCreditNote = slideData.imageAttribution?.provider === 'pexels'
+                ? [
+                    'Image credit:',
+                    slideData.imageAttribution.label || 'Photo provided by Pexels',
+                    slideData.imageAttribution.sourceUrl || '',
+                  ].filter(Boolean).join(' ')
+                : '';
+            const slideNotes = [slideData.speakerNotes, imageCreditNote].filter(Boolean).join('\n\n');
+            if (slideNotes) {
+                slide.addNotes(slideNotes);
             }
         }
         const safeTitle = presentation.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
@@ -4076,7 +4110,7 @@ const App: React.FC = () => {
         const updatedSlides = [...prev.slides];
         const currentSlide = updatedSlides[slideIndex];
         if (!currentSlide) return prev;
-        updatedSlides[slideIndex] = { ...currentSlide, imagePrompt: trimmedPrompt, imageUrl: 'loading' };
+        updatedSlides[slideIndex] = { ...currentSlide, imagePrompt: trimmedPrompt, imageUrl: 'loading', imageAttribution: undefined };
         return { ...prev, slides: updatedSlides };
     });
 
@@ -4087,10 +4121,42 @@ const App: React.FC = () => {
                 const finalSlides = [...prev.slides];
                 const currentSlide = finalSlides[slideIndex];
                 if (!currentSlide) return prev;
-                finalSlides[slideIndex] = { ...currentSlide, imageUrl: IMAGE_SKIPPED_PLACEHOLDER, imagePrompt: trimmedPrompt };
+                finalSlides[slideIndex] = { ...currentSlide, imageUrl: IMAGE_SKIPPED_PLACEHOLDER, imagePrompt: trimmedPrompt, imageAttribution: undefined };
                 return { ...prev, slides: finalSlides };
             });
             return;
+        }
+
+        try {
+            const cachedImage = await getCachedImageResultForPrompt(
+                trimmedPrompt,
+                originalSlideStyle,
+                language,
+                originalSlide.imageCacheId,
+                originalSlide.imageSemanticCacheId,
+                originalSlide.imageSemanticMetadata
+            );
+            if (cachedImage?.dataUrl && !isRejectedScienceParticleModelImageUrl(cachedImage.dataUrl, originalSlide.imageSemanticMetadata)) {
+                setPresentation(prev => {
+                    if (!prev) return null;
+                    const finalSlides = [...prev.slides];
+                    const currentSlide = finalSlides[slideIndex];
+                    if (!currentSlide) return prev;
+                    finalSlides[slideIndex] = {
+                        ...currentSlide,
+                        imageUrl: cachedImage.dataUrl,
+                        imagePrompt: trimmedPrompt,
+                        imageAttribution: cachedImage.attribution,
+                    };
+                    return { ...prev, slides: finalSlides };
+                });
+                return;
+            }
+            if (cachedImage?.dataUrl) {
+                console.warn('Ignored a cached particle-model image because it was an old SVG/static visual.');
+            }
+        } catch {
+            console.warn('Failed to check saved slide image before regeneration.');
         }
 
         if (!adminImageLimitBypassed && !canGenerateImage) {
@@ -4100,13 +4166,13 @@ const App: React.FC = () => {
                 const finalSlides = [...prev.slides];
                 const currentSlide = finalSlides[slideIndex];
                 if (!currentSlide) return prev;
-                finalSlides[slideIndex] = { ...currentSlide, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: trimmedPrompt };
+                finalSlides[slideIndex] = { ...currentSlide, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: trimmedPrompt, imageAttribution: undefined };
                 return { ...prev, slides: finalSlides };
             });
             return;
         }
 
-        const imageUrl = await generateImageFromPrompt(
+        const imageResult = await generateImageResultFromPrompt(
             trimmedPrompt,
             originalSlideStyle,
             language,
@@ -4114,7 +4180,7 @@ const App: React.FC = () => {
             originalSlide.imageSemanticCacheId,
             originalSlide.imageSemanticMetadata
         );
-        if (!adminImageLimitBypassed) {
+        if (!adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
             incrementCount('images');
         }
         setPresentation(prev => {
@@ -4122,7 +4188,12 @@ const App: React.FC = () => {
             const finalSlides = [...prev.slides];
             const currentSlide = finalSlides[slideIndex];
             if (!currentSlide) return prev;
-            finalSlides[slideIndex] = { ...currentSlide, imageUrl: imageUrl || IMAGE_SKIPPED_PLACEHOLDER, imagePrompt: trimmedPrompt };
+            finalSlides[slideIndex] = {
+                ...currentSlide,
+                imageUrl: imageResult.dataUrl || IMAGE_SKIPPED_PLACEHOLDER,
+                imagePrompt: trimmedPrompt,
+                imageAttribution: imageResult.attribution,
+            };
             return { ...prev, slides: finalSlides };
         });
     } catch (err) {
@@ -4140,7 +4211,8 @@ const App: React.FC = () => {
             finalSlides[slideIndex] = {
                 ...currentSlide,
                 imageUrl: isImageProviderLimitError(err) ? PROVIDER_IMAGE_LIMIT_PLACEHOLDER : 'error',
-                imagePrompt: trimmedPrompt
+                imagePrompt: trimmedPrompt,
+                imageAttribution: undefined,
             };
             return { ...prev, slides: finalSlides };
         });
@@ -4167,7 +4239,7 @@ const App: React.FC = () => {
             const currentSlide = updatedSlides[slideIndex];
             if (!currentSlide) return prev;
             const retainedPrompt = promptForCache || currentSlide.imagePrompt || buildFallbackImagePrompt(currentSlide);
-            updatedSlides[slideIndex] = { ...currentSlide, imageUrl, imagePrompt: retainedPrompt };
+            updatedSlides[slideIndex] = { ...currentSlide, imageUrl, imagePrompt: retainedPrompt, imageAttribution: undefined };
             return { ...prev, slides: updatedSlides };
         });
 

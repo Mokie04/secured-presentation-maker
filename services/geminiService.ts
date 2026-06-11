@@ -1,5 +1,5 @@
 
-import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata } from '../types';
+import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata, ImageAttribution } from '../types';
 import { K12_SCIENCE_APPROVED_PRESENTATION_STANDARD } from '../lib/presentationStandards';
 
 type ClientEnv = {
@@ -73,11 +73,23 @@ type GeminiImageResponse = {
     error?: string;
     blockReason?: string;
     explanation?: string;
+    provider?: string;
+    attribution?: ImageAttribution;
     cache?: {
         hit: boolean;
         provider: string;
     };
     ok?: boolean;
+};
+
+export type ImagePromptResult = {
+    dataUrl: string;
+    provider?: string;
+    attribution?: ImageAttribution;
+    cache?: {
+        hit: boolean;
+        provider: string;
+    };
 };
 
 type GeminiProxyRequest = {
@@ -817,7 +829,7 @@ export function buildFinalImagePrompt(prompt: string, style: ImageStyle = 'illus
     return `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
 }
 
-export async function getCachedImageForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<string | null> {
+export async function getCachedImageResultForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<ImagePromptResult | null> {
     if (!prompt || style === 'none' || IMAGES_DISABLED) {
         return null;
     }
@@ -840,7 +852,19 @@ export async function getCachedImageForPrompt(prompt: string, style: ImageStyle 
         },
     });
 
-    return response.dataUrl || null;
+    return response.dataUrl
+        ? {
+            dataUrl: response.dataUrl,
+            provider: response.provider,
+            attribution: response.attribution,
+            cache: response.cache,
+        }
+        : null;
+}
+
+export async function getCachedImageForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<string | null> {
+    const result = await getCachedImageResultForPrompt(prompt, style, language, cacheId, semanticCacheId, semanticMetadata);
+    return result?.dataUrl || null;
 }
 
 export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<boolean> {
@@ -870,9 +894,9 @@ export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: strin
     return response.ok === true;
 }
 
-export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<string> {
+export async function generateImageResultFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<ImagePromptResult> {
     if (!prompt || style === 'none') {
-        return Promise.resolve('');
+        return Promise.resolve({ dataUrl: '' });
     }
 
     const finalPrompt = buildFinalImagePrompt(prompt, style, language);
@@ -895,7 +919,12 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
         });
 
         if (response.dataUrl) {
-            return response.dataUrl;
+            return {
+                dataUrl: response.dataUrl,
+                provider: response.provider,
+                attribution: response.attribution,
+                cache: response.cache,
+            };
         }
 
         if (response.blockReason) {
@@ -912,4 +941,9 @@ export async function generateImageFromPrompt(prompt: string, style: ImageStyle 
         console.error('Image generation failed.');
         throw error;
     }
+}
+
+export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<string> {
+    const result = await generateImageResultFromPrompt(prompt, style, language, cacheId, semanticCacheId, semanticMetadata);
+    return result.dataUrl;
 }
