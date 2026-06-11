@@ -307,6 +307,18 @@ type InferredPlanUnitInfo = {
     count?: number;
 };
 
+type PlanUnitSourceBlock = {
+    text: string;
+    found: boolean;
+    strategy: 'marker' | 'focus' | 'full-plan';
+    keyTerms: string[];
+};
+
+type SessionAlignmentIssue = {
+    code: string;
+    message: string;
+};
+
 const clampPlanUnitCount = (count: number): number | undefined => {
     if (!Number.isFinite(count) || count < 1 || count > 20) return undefined;
     return count;
@@ -398,6 +410,232 @@ const normalizeLessonBlueprintUnits = (
     };
 };
 
+const SOURCE_EXTRACT_MAX_CHARS = 12_000;
+const SOURCE_CONTEXT_MAX_CHARS = 18_000;
+const MAX_ALIGNMENT_REPAIR_ATTEMPTS = 1;
+
+const PLAN_UNIT_TERMS: Record<PlanUnitLabel, string[]> = {
+    Session: ['learning session', 'session', 'sesyon', 'sesion'],
+    Day: ['day', 'araw'],
+};
+
+const SOURCE_KEYWORD_STOPWORDS = new Set([
+    'about', 'above', 'after', 'again', 'along', 'also', 'and', 'answer', 'answers', 'activity',
+    'aralin', 'araw', 'before', 'class', 'content', 'day', 'during', 'each', 'every', 'following',
+    'grade', 'group', 'groups', 'guro', 'lesson', 'learning', 'learners', 'lesson', 'materials',
+    'mga', 'need', 'objective', 'objectives', 'output', 'page', 'plan', 'question', 'questions',
+    'review', 'rubric', 'session', 'shall', 'should', 'student', 'students', 'teacher', 'through',
+    'today', 'using', 'will', 'with',
+]);
+
+function truncateSourceText(value: string, maxLength = SOURCE_EXTRACT_MAX_CHARS): string {
+    const normalized = value.replace(/\n{3,}/g, '\n\n').trim();
+    if (normalized.length <= maxLength) return normalized;
+    return `${normalized.slice(0, maxLength).trim()}\n\n[Source extract truncated for length.]`;
+}
+
+function normalizeSourceText(value: string | undefined): string {
+    return (value || '').replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+function planUnitMarkerRegex(unitLabel: PlanUnitLabel, dayNumber?: number, flags = 'i'): RegExp {
+    const terms = PLAN_UNIT_TERMS[unitLabel]
+        .map((term) => term.replace(/\s+/g, '\\s+'))
+        .join('|');
+    const numberPattern = dayNumber === undefined ? '(\\d{1,2})' : String(dayNumber);
+    return new RegExp(
+        `\\b(?:${terms})\\s*(?:(?:no\\.?|number|#)\\s*)?(?::|-)?\\s*${numberPattern}\\b`,
+        flags
+    );
+}
+
+function findPlanUnitMarkers(lines: string[], unitLabel: PlanUnitLabel): Array<{ index: number; dayNumber: number }> {
+    const regex = planUnitMarkerRegex(unitLabel, undefined, 'gi');
+    const markers: Array<{ index: number; dayNumber: number }> = [];
+
+    lines.forEach((line, index) => {
+        regex.lastIndex = 0;
+        for (const match of line.matchAll(regex)) {
+            const matchedNumber = Number.parseInt(match[1], 10);
+            if (Number.isFinite(matchedNumber)) {
+                markers.push({ index, dayNumber: matchedNumber });
+            }
+        }
+    });
+
+    return markers;
+}
+
+function extractImportantTerms(value: string, maxTerms = 14): string[] {
+    const counts = new Map<string, number>();
+    const normalized = normalizeSourceText(value)
+        .normalize('NFKD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9\s-]+/g, ' ');
+
+    normalized.split(/\s+/).forEach((rawToken) => {
+        const token = rawToken.replace(/^-+|-+$/g, '');
+        if (token.length < 5 || /^\d+$/.test(token) || SOURCE_KEYWORD_STOPWORDS.has(token)) return;
+        counts.set(token, (counts.get(token) || 0) + 1);
+    });
+
+    return [...counts.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, maxTerms)
+        .map(([term]) => term);
+}
+
+function scoreLineAgainstTerms(line: string, terms: string[]): number {
+    const normalizedLine = normalizeSourceText(line);
+    return terms.reduce((score, term) => score + (normalizedLine.includes(term) ? 1 : 0), 0);
+}
+
+function sliceSourceLines(lines: string[], start: number, end: number): string {
+    return lines.slice(Math.max(0, start), Math.min(lines.length, end)).join('\n').trim();
+}
+
+function extractPlanUnitSourceBlock(
+    content: string,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+): PlanUnitSourceBlock {
+    const normalizedContent = content.trim();
+    if (!normalizedContent) {
+        return { text: '', found: false, strategy: 'full-plan', keyTerms: [] };
+    }
+
+    const lines = normalizedContent.split(/\r?\n/);
+    const labelsToTry = Array.from(new Set<PlanUnitLabel>([
+        unitLabel,
+        unitLabel === 'Session' ? 'Day' : 'Session',
+    ]));
+
+    for (const label of labelsToTry) {
+        const markers = findPlanUnitMarkers(lines, label);
+        const targetMarker = markers.find((marker) => marker.dayNumber === day.dayNumber);
+        if (!targetMarker) continue;
+
+        const nextMarker = markers.find((marker) => marker.index > targetMarker.index && marker.dayNumber !== day.dayNumber);
+        const start = Math.max(0, targetMarker.index - 1);
+        const end = nextMarker ? nextMarker.index : lines.length;
+        const block = sliceSourceLines(lines, start, end);
+        if (block.length >= 80) {
+            const text = truncateSourceText(block);
+            return {
+                text,
+                found: true,
+                strategy: 'marker',
+                keyTerms: extractImportantTerms(`${day.title} ${day.focus} ${text}`),
+            };
+        }
+    }
+
+    const focusTerms = extractImportantTerms(`${day.title} ${day.focus}`, 10);
+    if (focusTerms.length > 0) {
+        let bestIndex = -1;
+        let bestScore = 0;
+        lines.forEach((line, index) => {
+            const score = scoreLineAgainstTerms(line, focusTerms);
+            if (score > bestScore) {
+                bestScore = score;
+                bestIndex = index;
+            }
+        });
+
+        if (bestIndex >= 0 && bestScore >= Math.min(2, focusTerms.length)) {
+            const block = sliceSourceLines(lines, bestIndex - 10, bestIndex + 28);
+            if (block.length >= 80) {
+                const text = truncateSourceText(block);
+                return {
+                    text,
+                    found: true,
+                    strategy: 'focus',
+                    keyTerms: extractImportantTerms(`${day.title} ${day.focus} ${text}`),
+                };
+            }
+        }
+    }
+
+    const text = truncateSourceText(normalizedContent, SOURCE_CONTEXT_MAX_CHARS);
+    return {
+        text,
+        found: false,
+        strategy: 'full-plan',
+        keyTerms: extractImportantTerms(`${day.title} ${day.focus} ${text}`),
+    };
+}
+
+function findWrongUnitTitleReferences(slides: Slide[], unitLabel: PlanUnitLabel, dayNumber: number): number[] {
+    const titleText = slides.map((slide) => slide.title || '').join('\n');
+    const regex = planUnitMarkerRegex(unitLabel, undefined, 'gi');
+    const wrongNumbers = new Set<number>();
+
+    for (const match of titleText.matchAll(regex)) {
+        const matchedNumber = Number.parseInt(match[1], 10);
+        if (Number.isFinite(matchedNumber) && matchedNumber !== dayNumber) {
+            wrongNumbers.add(matchedNumber);
+        }
+    }
+
+    return [...wrongNumbers].sort((a, b) => a - b);
+}
+
+function validateGeneratedSessionAlignment(
+    slides: Slide[],
+    sourceBlock: PlanUnitSourceBlock,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+): SessionAlignmentIssue[] {
+    const issues: SessionAlignmentIssue[] = [];
+    const slideText = normalizeSourceText(slides.map((slide) => [
+        slide.title,
+        ...(Array.isArray(slide.content) ? slide.content : []),
+        slide.speakerNotes,
+    ].filter(Boolean).join(' ')).join(' '));
+
+    const wrongTitleUnits = findWrongUnitTitleReferences(slides, unitLabel, day.dayNumber);
+    if (wrongTitleUnits.length > 0) {
+        issues.push({
+            code: 'wrong_unit_title',
+            message: `Slide titles reference ${unitLabel} ${wrongTitleUnits.join(', ')} while generating ${unitLabel} ${day.dayNumber}.`,
+        });
+    }
+
+    const focusTerms = extractImportantTerms(`${day.title} ${day.focus}`, 8);
+    const focusHits = focusTerms.filter((term) => slideText.includes(term));
+    if (focusTerms.length >= 3 && focusHits.length < 2) {
+        issues.push({
+            code: 'weak_focus_coverage',
+            message: `Slides weakly cover the selected ${unitLabel.toLowerCase()} focus. Missing focus terms: ${focusTerms.filter((term) => !focusHits.includes(term)).slice(0, 5).join(', ')}.`,
+        });
+    }
+
+    if (sourceBlock.found && sourceBlock.keyTerms.length >= 6) {
+        const sourceHits = sourceBlock.keyTerms.filter((term) => slideText.includes(term));
+        const requiredHits = Math.min(4, Math.ceil(sourceBlock.keyTerms.length * 0.3));
+        if (sourceHits.length < requiredHits) {
+            issues.push({
+                code: 'weak_source_coverage',
+                message: `Slides do not preserve enough source-specific details from the extracted ${unitLabel.toLowerCase()} block. Missing source terms: ${sourceBlock.keyTerms.filter((term) => !sourceHits.includes(term)).slice(0, 6).join(', ')}.`,
+            });
+        }
+    }
+
+    return issues;
+}
+
+function alignmentRepairInstruction(issues: SessionAlignmentIssue[]): string {
+    if (issues.length === 0) return '';
+
+    return `
+        **ALIGNMENT REPAIR REQUIRED:**
+        The previous draft failed the source-alignment check:
+        ${issues.map((issue) => `- ${issue.code}: ${issue.message}`).join('\n')}
+
+        Regenerate the deck so every slide clearly belongs to the selected session/day source extract. Remove any slide title that points to a different session/day. Preserve source-specific materials, activity steps, expected output, assessment, and assignment details from the selected source extract.
+    `;
+}
+
 // PHASE 1: DEEP ANALYSIS & BLUEPRINT CREATION
 export async function createK12LessonBlueprint(content: string, format: string, language: 'EN' | 'FIL'): Promise<LessonBlueprint> {
     const inferredPlanUnitInfo = inferPlanUnitInfo(content);
@@ -483,8 +721,12 @@ export async function createK12LessonBlueprint(content: string, format: string, 
 
 // PHASE 2: SLIDE GENERATION (PER DAY)
 export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL'): Promise<Slide[]> {
-    let prompt = "";
     const unitLabel = getPlanUnitLabel(blueprint);
+    const normalizedUnitLabel = normalizePlanUnitLabel(blueprint.planUnitLabel, 'Day');
+    const sourceBlock = extractPlanUnitSourceBlock(originalContent, normalizedUnitLabel, day);
+    const secondarySourceContext = sourceBlock.found
+        ? truncateSourceText(originalContent, SOURCE_CONTEXT_MAX_CHARS)
+        : 'Same as the best available source context above.';
     const commonRules = `
     ${K12_SCIENCE_APPROVED_PRESENTATION_STANDARD}
 
@@ -518,10 +760,12 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
     else if (format === '4As Model') sections = `1. MOTIVATION, 2. ACTIVITY, 3. ANALYSIS, 4. ABSTRACTION, 5. APPLICATION, 6. EVALUATE`;
     else sections = `1. Title, 2. Introduction/Review, 3. Core Concepts, 4. Practice/Activity, 5. Assessment`;
 
-    prompt = `
+    const buildPrompt = (alignmentIssues: SessionAlignmentIssue[] = []) => `
         You are a professional K-12 Instructional Designer creating a slide deck for a teacher.
         
         **LANGUAGE OF OUTPUT:** You MUST generate all content (titles, content, speaker notes) in ${language === 'FIL' ? 'Filipino' : 'English'}. However, image prompts must ALWAYS be in English.
+
+        ${alignmentRepairInstruction(alignmentIssues)}
 
         **LESSON BLUEPRINT:**
         - Main Title: ${blueprint.mainTitle}
@@ -534,14 +778,25 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - Title: ${day.title}
         - Focus: ${day.focus}
 
-        **REFERENCE LESSON PLAN/TOPIC CONTENT:**
+        **SELECTED ${unitLabel.toUpperCase()} ${day.dayNumber} SOURCE EXTRACT (${sourceBlock.strategy.toUpperCase()} MATCH):**
+        ${sourceBlock.found
+            ? 'This extract is the binding source for the main lesson flow. Preserve its source-specific materials, questions, tasks, outputs, assessment, assignment, and reflection details when present.'
+            : `No exact ${unitLabel} ${day.dayNumber} block was found, so use Today's Focus plus this best available source context. Do not invent details that conflict with the full plan.`
+        }
+        Key source terms to preserve when relevant: ${sourceBlock.keyTerms.slice(0, 10).join(', ') || 'none detected'}.
         \`\`\`
-        ${originalContent}
+        ${sourceBlock.text}
+        \`\`\`
+
+        **FULL REFERENCE LESSON PLAN/TOPIC CONTENT (SECONDARY CONTEXT):**
+        Use this only to resolve missing context, shared competency wording, or resources. If it conflicts with the selected source extract, the selected extract wins.
+        \`\`\`
+        ${secondarySourceContext}
         \`\`\`
 
         **TASK:**
         Generate a set of 12-15 slides for ${unitLabel} ${day.dayNumber} ONLY, following the **${format}** model.
-        If the reference content includes session-specific columns or rows, use only the details tied to ${unitLabel} ${day.dayNumber} for the main lesson flow.
+        If the reference content includes session-specific columns or rows, use only the details tied to ${unitLabel} ${day.dayNumber} for the main lesson flow. Do not borrow activities, assessments, assignments, or outputs from a different ${unitLabel.toLowerCase()} except for a brief review reference when pedagogically necessary.
 
         **REQUIRED SECTIONS:**
         ${sections}
@@ -573,7 +828,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         required: ["slides"]
     };
 
-    try {
+    const requestSlides = async (prompt: string): Promise<{ slides: Slide[]; groundingChunks?: GroundingChunk[] }> => {
         const response = await callGeminiProxy<GeminiTextResponse>({
             task: 'text',
             model: TEXT_MODELS,
@@ -591,9 +846,30 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
             content: cleanSlideContent(s.content),
         }));
 
-        appendGroundingSources(slides, response.groundingChunks);
-        
-        return slides;
+        return { slides, groundingChunks: response.groundingChunks };
+    };
+
+    try {
+        let alignmentIssues: SessionAlignmentIssue[] = [];
+
+        for (let attempt = 0; attempt <= MAX_ALIGNMENT_REPAIR_ATTEMPTS; attempt += 1) {
+            const { slides, groundingChunks } = await requestSlides(buildPrompt(alignmentIssues));
+            alignmentIssues = validateGeneratedSessionAlignment(slides, sourceBlock, normalizedUnitLabel, day);
+
+            if (alignmentIssues.length === 0 || attempt === MAX_ALIGNMENT_REPAIR_ATTEMPTS) {
+                if (alignmentIssues.length > 0) {
+                    console.warn('Generated session deck still has source-alignment warnings after repair.', {
+                        unitLabel,
+                        dayNumber: day.dayNumber,
+                        issues: alignmentIssues,
+                    });
+                }
+                appendGroundingSources(slides, groundingChunks);
+                return slides;
+            }
+        }
+
+        throw new Error(`${unitLabel} ${day.dayNumber} did not pass source alignment.`);
 
     } catch (e) {
         console.error(`Failed to generate slides for Day ${day.dayNumber}`, e);

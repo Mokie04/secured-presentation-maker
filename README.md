@@ -120,6 +120,10 @@ Set `AI_TEXT_PROVIDER=deepseek` and `DEEPSEEK_API_KEY` to use DeepSeek for lesso
 
 Set `AI_TEXT_PROVIDER=xai` and `XAI_API_KEY` to use xAI/Grok instead. Gemini can still be used for text by setting `AI_TEXT_PROVIDER=gemini` and `GEMINI_API_KEY`.
 
+## Session Alignment
+
+For K-12 uploaded lesson plans, per-session/day slide generation first extracts the selected `Session N` or `Day N` source block when those markers are present. That selected block is treated as the binding source for the generated deck, with the full lesson plan kept only as secondary context. Generated session decks are checked for weak source coverage or wrong-session/day title leakage and retried once with stricter alignment instructions before being shown.
+
 For text-only deployments, set `VITE_DISABLE_IMAGES=true`. The app will skip image API calls, keep using the text provider for lesson and slide content, and show image placeholders that can be replaced by manual uploads.
 
 To use xAI for generated slide images, set `AI_IMAGE_PROVIDER=xai`, keep `VITE_DISABLE_IMAGES` unset or `false`, and configure `XAI_API_KEY`. The default xAI image model is `grok-imagine-image-quality`.

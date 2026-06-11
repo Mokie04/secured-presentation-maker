@@ -69,7 +69,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v31';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v32';
 const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v23';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
