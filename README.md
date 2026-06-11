@@ -95,7 +95,7 @@ Image lookup order is:
 3. Pexels landscape photo search, when enabled and the slide is not a diagram/infographic.
 4. Paid AI image generation.
 
-Pexels results are downloaded server-side, converted to the same data URL shape used by generated images, cached back into R2 when R2 is configured, and returned with photographer/source attribution. Pexels credits are rendered on the slide image and included in PPTX speaker notes/export output.
+Pexels results are downloaded server-side, converted to the same data URL shape used by generated images, cached back into R2 when R2 is configured, and returned with photographer/source attribution. Pexels credits are rendered on the slide image and included in PPTX speaker notes/export output. Uploaded lesson plans are parsed for text/table structure only; slide images are selected from each generated slide's image prompt and metadata, not copied from embedded DOCX/PDF images.
 
 ### Cloudflare R2 Shared Cache
 

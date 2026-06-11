@@ -33,6 +33,7 @@ export interface ImageAttribution {
   photographerUrl?: string;
   sourceUrl?: string;
   sourceId?: string;
+  cacheVersion?: string;
 }
 
 export interface Slide {

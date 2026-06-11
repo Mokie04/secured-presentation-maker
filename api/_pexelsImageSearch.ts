@@ -7,6 +7,7 @@ export type ImageAttribution = {
   photographerUrl: string;
   sourceUrl: string;
   sourceId: string;
+  cacheVersion: string;
 };
 
 export type PexelsImageResult = {
@@ -41,6 +42,7 @@ const PEXELS_SEARCH_URL = 'https://api.pexels.com/v1/search';
 const PEXELS_MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const PEXELS_SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PEXELS_TIMEOUT_MS = 8_000;
+const PEXELS_CACHE_VERSION = 'pexels-selection-v2';
 
 function pexelsApiKey(): string {
   return process.env.PEXELS_API_KEY?.trim() || '';
@@ -98,8 +100,8 @@ function buildPexelsQuery(prompt: string, metadata: ImageSemanticMetadata | unde
   const promptSubject = extractDepictedSubject(prompt);
   const roleTerm = roleSearchTerm(metadata?.slideTemplate || metadata?.visualRole || '');
 
-  const primary = anchor || topic || promptSubject;
-  return [primary, subject, roleTerm]
+  const primary = promptSubject || anchor || topic;
+  return [primary, topic && topic !== primary ? topic : '', subject, roleTerm]
     .filter(Boolean)
     .join(' ')
     .replace(/\s+/g, ' ')
@@ -126,10 +128,21 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs: numbe
   }
 }
 
-function pickPhoto(photos: PexelsPhoto[]): PexelsPhoto | null {
-  return photos
-    .filter((photo) => photo.src?.large && photo.width >= photo.height)
-    .sort((a, b) => (b.width * b.height) - (a.width * a.height))[0] || null;
+function hashString(value: string): number {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = ((hash << 5) - hash) + value.charCodeAt(index);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
+function pickPhoto(photos: PexelsPhoto[], seed: string): PexelsPhoto | null {
+  const candidates = photos.filter((photo) => photo.src?.large && photo.width >= photo.height);
+  if (candidates.length === 0) return null;
+
+  const relevantCandidates = candidates.slice(0, Math.min(candidates.length, 8));
+  return relevantCandidates[hashString(seed) % relevantCandidates.length] || relevantCandidates[0] || null;
 }
 
 export async function getPexelsImageForPrompt(input: {
@@ -148,7 +161,7 @@ export async function getPexelsImageForPrompt(input: {
   searchUrl.searchParams.set('query', query);
   searchUrl.searchParams.set('orientation', 'landscape');
   searchUrl.searchParams.set('size', 'large');
-  searchUrl.searchParams.set('per_page', '8');
+  searchUrl.searchParams.set('per_page', '12');
 
   try {
     const searchResponse = await fetchWithTimeout(searchUrl.toString(), {
@@ -164,7 +177,13 @@ export async function getPexelsImageForPrompt(input: {
     }
 
     const payload = await searchResponse.json() as PexelsSearchResponse;
-    const photo = pickPhoto(Array.isArray(payload.photos) ? payload.photos : []);
+    const selectionSeed = [
+      query,
+      extractDepictedSubject(input.prompt),
+      normalizeText(input.semanticMetadata?.semanticAnchor),
+      normalizeText(input.semanticMetadata?.slideTemplate || input.semanticMetadata?.visualRole),
+    ].filter(Boolean).join('\n');
+    const photo = pickPhoto(Array.isArray(payload.photos) ? payload.photos : [], selectionSeed);
     const imageUrl = photo?.src?.large;
     if (!photo || !imageUrl) return null;
 
@@ -200,6 +219,7 @@ export async function getPexelsImageForPrompt(input: {
       photographerUrl: photo.photographer_url,
       sourceUrl: photo.url,
       sourceId: String(photo.id),
+      cacheVersion: PEXELS_CACHE_VERSION,
     };
 
     return {

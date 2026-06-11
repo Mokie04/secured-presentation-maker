@@ -29,6 +29,7 @@ type ImageAttribution = {
   photographerUrl?: string;
   sourceUrl?: string;
   sourceId?: string;
+  cacheVersion?: string;
 };
 
 type ImageSemanticMetadata = Record<string, string | undefined>;
@@ -59,6 +60,7 @@ const SEMANTIC_IMAGE_INDEX_PREFIX = 'image-semantic:v2';
 const SEMANTIC_IMAGE_ALIAS_VERSION = 'image-semantic-alias-v1';
 const SEMANTIC_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 const SUPPORTED_IMAGE_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const CURRENT_PEXELS_CACHE_VERSION = 'pexels-selection-v2';
 
 let s3Client: S3Client | null = null;
 let s3ClientAccountId: string | null = null;
@@ -321,6 +323,7 @@ function attributionMetadata(attribution: ImageAttribution | undefined): Record<
     attributionPhotographerUrl: normalizeMetadataValue(attribution.photographerUrl, 256),
     attributionSourceUrl: normalizeMetadataValue(attribution.sourceUrl, 256),
     attributionSourceId: normalizeMetadataValue(attribution.sourceId, 64),
+    attributionCacheVersion: normalizeMetadataValue(attribution.cacheVersion, 64),
   };
 
   return Object.fromEntries(
@@ -336,6 +339,7 @@ function attributionFromMetadata(metadata: Record<string, string> | undefined): 
   const photographerUrl = metadata.attributionphotographerurl || metadata.attributionPhotographerUrl;
   const sourceUrl = metadata.attributionsourceurl || metadata.attributionSourceUrl;
   const sourceId = metadata.attributionsourceid || metadata.attributionSourceId;
+  const cacheVersion = metadata.attributioncacheversion || metadata.attributionCacheVersion;
 
   return {
     provider,
@@ -344,7 +348,12 @@ function attributionFromMetadata(metadata: Record<string, string> | undefined): 
     ...(photographerUrl ? { photographerUrl } : {}),
     ...(sourceUrl ? { sourceUrl } : {}),
     ...(sourceId ? { sourceId } : {}),
+    ...(cacheVersion ? { cacheVersion } : {}),
   };
+}
+
+function isStalePexelsAttribution(attribution: ImageAttribution | undefined): boolean {
+  return attribution?.provider === 'pexels' && attribution.cacheVersion !== CURRENT_PEXELS_CACHE_VERSION;
 }
 
 function createPromptHash(input: ImageCacheInput, cacheSecret: string): string {
@@ -682,11 +691,17 @@ async function getCachedR2ImageObject(
       return null;
     }
 
+    const attribution = attributionFromMetadata(response.Metadata);
+    if (isStalePexelsAttribution(attribution)) {
+      console.info('Ignored stale Pexels cached image created by an older selection strategy.', { objectKey });
+      return null;
+    }
+
     return {
       dataUrl,
       cacheKey,
       objectKey,
-      attribution: attributionFromMetadata(response.Metadata),
+      attribution,
     };
   } catch (error) {
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
@@ -760,11 +775,17 @@ async function getCachedR2ImageForKey(
       return null;
     }
 
+    const attribution = attributionFromMetadata(response.Metadata);
+    if (isStalePexelsAttribution(attribution)) {
+      console.info('Ignored stale Pexels cached image created by an older selection strategy.', { objectKey });
+      return null;
+    }
+
     return {
       dataUrl,
       cacheKey,
       objectKey,
-      attribution: attributionFromMetadata(response.Metadata),
+      attribution,
     };
   } catch (error) {
     const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
