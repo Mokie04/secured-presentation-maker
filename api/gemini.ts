@@ -434,18 +434,101 @@ function normalizeImageProvider(value: string | undefined): ImageProvider | null
   return null;
 }
 
+function envFlagEnabled(value: string | undefined): boolean {
+  return value?.trim().toLowerCase() === 'true';
+}
+
+function useVertexAiForGemini(): boolean {
+  const apiMode = process.env.GEMINI_API_MODE?.trim().toLowerCase();
+  return envFlagEnabled(process.env.GOOGLE_GENAI_USE_VERTEXAI)
+    || envFlagEnabled(process.env.GOOGLE_GENAI_USE_ENTERPRISE)
+    || apiMode === 'vertex'
+    || apiMode === 'vertex-ai';
+}
+
+function getVertexExpressApiKey(): string {
+  return process.env.VERTEX_AI_API_KEY?.trim()
+    || process.env.GOOGLE_VERTEX_AI_API_KEY?.trim()
+    || '';
+}
+
+function getGoogleApiKey(): string {
+  return process.env.GOOGLE_API_KEY?.trim()
+    || process.env.GEMINI_API_KEY?.trim()
+    || '';
+}
+
+function hasGoogleGenAiCredentials(): boolean {
+  if (useVertexAiForGemini()) {
+    return Boolean(
+      getVertexExpressApiKey()
+      || process.env.GOOGLE_CLOUD_PROJECT?.trim()
+      || getGoogleApiKey()
+    );
+  }
+
+  return Boolean(getGoogleApiKey());
+}
+
+function getGoogleGenAiApiVersion(): string | undefined {
+  return process.env.GOOGLE_GENAI_API_VERSION?.trim()
+    || process.env.VERTEX_AI_API_VERSION?.trim()
+    || process.env.GEMINI_API_VERSION?.trim()
+    || undefined;
+}
+
+function createGoogleGenAIClient(): GoogleGenAI | null {
+  const apiVersion = getGoogleGenAiApiVersion();
+  if (useVertexAiForGemini()) {
+    const vertexApiKey = getVertexExpressApiKey();
+    if (vertexApiKey) {
+      return new GoogleGenAI({
+        vertexai: true,
+        apiKey: vertexApiKey,
+        ...(apiVersion ? { apiVersion } : {}),
+      });
+    }
+
+    const project = process.env.GOOGLE_CLOUD_PROJECT?.trim();
+    const location = process.env.GOOGLE_CLOUD_LOCATION?.trim() || 'global';
+    if (project) {
+      return new GoogleGenAI({
+        vertexai: true,
+        project,
+        location,
+        ...(apiVersion ? { apiVersion } : {}),
+      });
+    }
+
+    const apiKey = getGoogleApiKey();
+    if (!apiKey) return null;
+    return new GoogleGenAI({
+      vertexai: true,
+      apiKey,
+      ...(apiVersion ? { apiVersion } : {}),
+    });
+  }
+
+  const apiKey = getGoogleApiKey();
+  if (!apiKey) return null;
+  return new GoogleGenAI({
+    apiKey,
+    ...(apiVersion ? { apiVersion } : {}),
+  });
+}
+
 function getTextProvider(): TextProvider {
   const configuredProvider = normalizeTextProvider(process.env.AI_TEXT_PROVIDER);
   if (configuredProvider) return configuredProvider;
   if (process.env.DEEPSEEK_API_KEY) return 'deepseek';
-  return process.env.XAI_API_KEY ? 'xai' : 'gemini';
+  return !hasGoogleGenAiCredentials() && process.env.XAI_API_KEY ? 'xai' : 'gemini';
 }
 
 function getImageProvider(): ImageProvider {
   const configuredProvider = normalizeImageProvider(process.env.AI_IMAGE_PROVIDER);
   if (configuredProvider) return configuredProvider;
   if (process.env.XAI_IMAGE_MODEL?.trim()) return 'xai';
-  if (!process.env.GEMINI_API_KEY && process.env.XAI_API_KEY) return 'xai';
+  if (!hasGoogleGenAiCredentials() && process.env.XAI_API_KEY) return 'xai';
   return 'gemini';
 }
 
@@ -809,6 +892,7 @@ export default async function handler(req: any, res: any) {
 
   const provider = task === 'text' ? getTextProvider() : getImageProvider();
   const isImageTask = task === 'image' || task === 'cacheImage' || task === 'cachedImage';
+  const usesVertexGemini = provider === 'gemini' && useVertexAiForGemini();
   const modelList = provider === 'xai'
     ? (isImageTask ? normalizeXaiImageModels(model) : normalizeXaiModels(model))
     : provider === 'deepseek'
@@ -827,6 +911,10 @@ export default async function handler(req: any, res: any) {
     })
     .map((m) => {
       if (provider === 'xai' || provider === 'deepseek') return m.replace(/^models\//, '');
+      if (usesVertexGemini) {
+        if (m.startsWith('projects/') || m.startsWith('publishers/')) return m;
+        return m.replace(/^models\//, '');
+      }
       return m.startsWith('models/') ? m : `models/${m}`;
     });
   if (!model || !contents) {
@@ -1127,12 +1215,10 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
+    const ai = createGoogleGenAIClient();
+    if (!ai) {
       return res.status(500).json({ error: SERVER_CONFIG_ERROR });
     }
-
-    const ai = new GoogleGenAI({ apiKey });
     let response: any = null;
     let lastError: unknown = null;
     let lastErrorInfo: GeminiErrorInfo | null = null;
