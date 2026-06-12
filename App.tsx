@@ -99,6 +99,7 @@ const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 const IMAGE_PROCESSING_CONCURRENCY = 3;
+const PAID_IMAGE_ATTEMPTS_PER_DECK_LIMIT = 4;
 const UPLOADED_IMAGE_CACHE_TARGET_BYTES = 3.5 * 1024 * 1024;
 const UPLOADED_IMAGE_CACHE_MAX_EDGE_PX = 1920;
 const UPLOADED_IMAGE_CACHE_JPEG_QUALITIES = [0.9, 0.82, 0.74, 0.66];
@@ -2677,6 +2678,31 @@ const getSlideImageTemplateKey = (slide: Slide): string => {
   return getSlideImageRole(slide);
 };
 
+const PAID_IMAGE_TEMPLATE_PRIORITY: Record<string, number> = {
+  concept: 100,
+  model: 96,
+  activity: 94,
+  application: 90,
+  assessment: 86,
+  overview: 80,
+  'success-criteria': 76,
+  practice: 72,
+  review: 58,
+  generalization: 54,
+  assignment: 42,
+  content: 64,
+};
+
+const getPaidImagePriorityScore = (slide: Slide, slideIndex: number): number => {
+  const template = slide.imageSemanticMetadata?.slideTemplate || getSlideImageTemplateKey(slide);
+  const role = slide.imageSemanticMetadata?.visualRole || getSlideImageRole(slide);
+  const templateScore = PAID_IMAGE_TEMPLATE_PRIORITY[template] ?? 50;
+  const roleScore = PAID_IMAGE_TEMPLATE_PRIORITY[role] ?? 50;
+  const earlySlideBoost = Math.max(0, 8 - slideIndex);
+
+  return Math.max(templateScore, roleScore) + earlySlideBoost;
+};
+
 const getSlideImageSemanticAnchor = (slide: Slide, prompt: string): string => {
   const slideText = normalizeImageSemanticText([
     slide.title,
@@ -3243,11 +3269,24 @@ const App: React.FC = () => {
     let imagesAttemptedCounter = 0;
     
     const paidImagesLeftToday = Math.max(0, limits.images - images);
-    const paidImageAttemptsAllowed = adminImageLimitBypassed
-      ? Math.min(totalImagesToAttempt, ADMIN_IMAGE_BATCH_LIMIT)
-      : Math.min(totalImagesToAttempt, paidImagesLeftToday);
+    const paidImageAttemptsAllowed = Math.min(
+      totalImagesToAttempt,
+      PAID_IMAGE_ATTEMPTS_PER_DECK_LIMIT,
+      adminImageLimitBypassed ? ADMIN_IMAGE_BATCH_LIMIT : paidImagesLeftToday
+    );
+    const paidImageCandidateIndexes = new Set(
+      slidesWithPrompts
+        .map((slide, slideIndex) => ({
+          slide,
+          slideIndex,
+          score: getPaidImagePriorityScore(slide, slideIndex),
+        }))
+        .filter(({ slide }) => buildImagePromptCandidates(slide).length > 0 && !slide.imageUrl)
+        .sort((a, b) => b.score - a.score || a.slideIndex - b.slideIndex)
+        .slice(0, paidImageAttemptsAllowed)
+        .map(({ slideIndex }) => slideIndex)
+    );
     const totalImagesThatCanBeGenerated = totalImagesToAttempt;
-    let paidImageAttemptsReserved = 0;
 
     if (!muteProgress) {
       if (totalImagesThatCanBeGenerated > 0) {
@@ -3295,11 +3334,8 @@ const App: React.FC = () => {
             }
 
             const allowPaidImageGeneration = !rateLimitWasHit
-              && paidImageAttemptsReserved < paidImageAttemptsAllowed
+              && paidImageCandidateIndexes.has(slideIndex)
               && (adminImageLimitBypassed || canGenerateImage);
-            if (allowPaidImageGeneration) {
-                paidImageAttemptsReserved++;
-            }
 
             if (rateLimitWasHit && !allowPaidImageGeneration) {
                 const fallbackImageUrl = getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata);

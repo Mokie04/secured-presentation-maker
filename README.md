@@ -96,6 +96,8 @@ Pexels results are downloaded server-side, converted to the same data URL shape 
 
 To avoid paid image spend, set `AI_IMAGE_PROVIDER=pexels` or `PAID_IMAGE_GENERATION_DISABLED=true` in the server environment. The app will still use curated images, R2 cache, and Pexels, but it will stop before Gemini/xAI image generation when those free sources miss.
 
+Batch slide generation has an additional client-side cost guard: each generated deck/session allows paid AI image fallback on at most four high-value slide images. All slides can still use curated R2, teacher-uploaded R2, generated/Pexels cache, and Pexels before this cap applies. Manual single-image regeneration remains available for deliberate teacher edits.
+
 ### Cloudflare R2 Shared Cache
 
 Create a private R2 bucket and an R2 API token with object read/write access to that bucket. Add the `R2_*` variables above to Vercel. The app stores legacy generated image bytes at `generated-images/v1/<hmac>.png`; the HMAC key is derived from the normalized image prompt, selected model, aspect ratio, and `R2_IMAGE_CACHE_SECRET`.
