@@ -316,6 +316,14 @@ type SessionAlignmentIssue = {
     message: string;
 };
 
+type PlanUnitMarkerBlockCandidate = {
+    index: number;
+    text: string;
+    focusScore: number;
+    wrongMarkerCount: number;
+    score: number;
+};
+
 const clampPlanUnitCount = (count: number): number | undefined => {
     if (!Number.isFinite(count) || count < 1 || count > 20) return undefined;
     return count;
@@ -491,6 +499,75 @@ function sliceSourceLines(lines: string[], start: number, end: number): string {
     return lines.slice(Math.max(0, start), Math.min(lines.length, end)).join('\n').trim();
 }
 
+function countWrongPlanUnitMarkers(text: string, unitLabel: PlanUnitLabel, dayNumber: number): number {
+    const regex = planUnitMarkerRegex(unitLabel, undefined, 'gi');
+    let wrongMarkerCount = 0;
+
+    for (const match of text.matchAll(regex)) {
+        const matchedNumber = Number.parseInt(match[1], 10);
+        if (Number.isFinite(matchedNumber) && matchedNumber !== dayNumber) {
+            wrongMarkerCount += 1;
+        }
+    }
+
+    return wrongMarkerCount;
+}
+
+function getMarkerBlockCandidates(
+    lines: string[],
+    markers: Array<{ index: number; dayNumber: number }>,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+): PlanUnitMarkerBlockCandidate[] {
+    const focusTerms = extractImportantTerms(`${day.title} ${day.focus}`, 10);
+
+    return markers
+        .filter((marker) => marker.dayNumber === day.dayNumber)
+        .map((marker) => {
+            const nextMarker = markers.find((candidate) => (
+                candidate.index > marker.index && candidate.dayNumber !== day.dayNumber
+            ));
+            const sameLineHasOtherUnit = markers.some((candidate) => (
+                candidate.index === marker.index && candidate.dayNumber !== day.dayNumber
+            ));
+            const start = Math.max(0, marker.index - (sameLineHasOtherUnit ? 0 : 1));
+            const end = nextMarker ? nextMarker.index : lines.length;
+            const text = sliceSourceLines(lines, start, end);
+            const focusScore = scoreLineAgainstTerms(text, focusTerms);
+            const wrongMarkerCount = countWrongPlanUnitMarkers(text, unitLabel, day.dayNumber);
+            const score = (focusScore * 100) + Math.min(text.length, 2400) - (wrongMarkerCount * 500);
+
+            return {
+                index: marker.index,
+                text,
+                focusScore,
+                wrongMarkerCount,
+                score,
+            };
+        })
+        .filter((candidate) => candidate.text.length >= 80)
+        .sort((a, b) => b.score - a.score || b.text.length - a.text.length);
+}
+
+function combineMarkerBlockCandidates(candidates: PlanUnitMarkerBlockCandidate[]): string {
+    const cleanCandidates = candidates.filter((candidate) => candidate.wrongMarkerCount === 0);
+    const selected = (cleanCandidates.length > 0 ? cleanCandidates : candidates)
+        .slice(0, 4)
+        .sort((a, b) => a.index - b.index);
+
+    const seen = new Set<string>();
+    const blocks = selected
+        .map((candidate) => candidate.text)
+        .filter((text) => {
+            const key = normalizeSourceText(text).slice(0, 300);
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+
+    return truncateSourceText(blocks.join('\n\n---\n\n'));
+}
+
 function extractPlanUnitSourceBlock(
     content: string,
     unitLabel: PlanUnitLabel,
@@ -509,15 +586,9 @@ function extractPlanUnitSourceBlock(
 
     for (const label of labelsToTry) {
         const markers = findPlanUnitMarkers(lines, label);
-        const targetMarker = markers.find((marker) => marker.dayNumber === day.dayNumber);
-        if (!targetMarker) continue;
-
-        const nextMarker = markers.find((marker) => marker.index > targetMarker.index && marker.dayNumber !== day.dayNumber);
-        const start = Math.max(0, targetMarker.index - 1);
-        const end = nextMarker ? nextMarker.index : lines.length;
-        const block = sliceSourceLines(lines, start, end);
-        if (block.length >= 80) {
-            const text = truncateSourceText(block);
+        const candidates = getMarkerBlockCandidates(lines, markers, label, day);
+        if (candidates.length > 0) {
+            const text = combineMarkerBlockCandidates(candidates);
             return {
                 text,
                 found: true,

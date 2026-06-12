@@ -92,11 +92,12 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v32';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v23';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v33';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v24';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
+const IMAGE_PROCESSING_CONCURRENCY = 3;
 // Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
 const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260604-week1-approved-v7';
@@ -412,6 +413,89 @@ type CachedLessonPlan = {
 
 const normalizeExtractedText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
+const mapWithConcurrency = async <T, R,>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> => {
+  if (items.length === 0) return [];
+
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex;
+      nextIndex += 1;
+      results[currentIndex] = await worker(items[currentIndex], currentIndex);
+    }
+  }));
+
+  return results;
+};
+
+const SESSION_COLUMN_MARKER_REGEX = /\b(?:learning\s+session|session|sesyon|sesion)\s*(?:(?:no\.?|number|#)\s*)?(?::|-)?\s*(\d{1,2})\b/i;
+
+type SessionTableColumn = {
+  columnIndex: number;
+  sessionNumber: number;
+  label: string;
+};
+
+const findSessionTableColumns = (rows: string[][]): SessionTableColumn[] => {
+  for (const cells of rows) {
+    const firstCell = cells[0] || '';
+    const hasSessionHeader = /\b(?:learning\s+session|session|sesyon|sesion)\b/i.test(firstCell);
+    const sessionColumns = cells
+      .map((cell, columnIndex) => {
+        if (columnIndex === 0) return null;
+        const markerMatch = cell.match(SESSION_COLUMN_MARKER_REGEX);
+        const numberOnlyMatch = hasSessionHeader ? cell.match(/^\s*(\d{1,2})\s*$/) : null;
+        const sessionNumber = markerMatch
+          ? Number.parseInt(markerMatch[1], 10)
+          : numberOnlyMatch
+            ? Number.parseInt(numberOnlyMatch[1], 10)
+            : NaN;
+        if (!Number.isFinite(sessionNumber)) return null;
+        return {
+          columnIndex,
+          sessionNumber,
+          label: `Learning Session ${sessionNumber}`,
+        };
+      })
+      .filter((column): column is SessionTableColumn => Boolean(column));
+
+    if (sessionColumns.length >= 2) {
+      return sessionColumns;
+    }
+  }
+
+  return [];
+};
+
+const buildSessionColumnBlocks = (rows: string[][]): string[] => {
+  const sessionColumns = findSessionTableColumns(rows);
+  if (sessionColumns.length === 0) return [];
+
+  return sessionColumns
+    .map(({ columnIndex, label }) => {
+      const details = rows
+        .map((cells) => {
+          const heading = normalizeExtractedText(cells[0] || '').slice(0, 180);
+          const value = normalizeExtractedText(cells[columnIndex] || '');
+          if (!value || value === label) return '';
+          return heading ? `${heading}: ${value}` : value;
+        })
+        .filter(Boolean);
+
+      return details.length > 0
+        ? [`${label}:`, ...details].join('\n')
+        : '';
+    })
+    .filter(Boolean);
+};
+
 const tableToStructuredText = (table: HTMLTableElement, tableIndex: number): string => {
   const rows = Array.from(table.rows)
     .map((row) => Array.from(row.cells).map((cell) => normalizeExtractedText(cell.textContent || '')))
@@ -422,6 +506,7 @@ const tableToStructuredText = (table: HTMLTableElement, tableIndex: number): str
   return [
     `Table ${tableIndex + 1}:`,
     ...rows.map((cells) => `| ${cells.join(' | ')} |`),
+    ...buildSessionColumnBlocks(rows),
   ].join('\n');
 };
 
@@ -1732,6 +1817,19 @@ const getEnglishLiteratureValuesImageFileName = (
   return templateMap?.[template] || templateMap?.content;
 };
 
+const GENERIC_ENGLISH_LITERATURE_VALUES_TEMPLATES = new Set(['concept', 'content', 'objectives', 'overview']);
+
+const getEnglishLiteratureValuesTemplateFallback = (
+  template: string,
+  collectionMap: Record<string, string> | undefined,
+): string | undefined => {
+  if (!collectionMap || GENERIC_ENGLISH_LITERATURE_VALUES_TEMPLATES.has(template)) {
+    return undefined;
+  }
+
+  return collectionMap[template];
+};
+
 const getEnglishPoetryImageryImageFileName = (
   metadata: ImageSemanticMetadata,
   exactOnly = false,
@@ -2307,7 +2405,8 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
   const fileName = collection === 'english-poetry-imagery'
     ? getEnglishPoetryImageryImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
     : collection === 'english-literature-values'
-      ? getEnglishLiteratureValuesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+      ? getEnglishLiteratureValuesImageFileName(metadata, true)
+        || getEnglishLiteratureValuesTemplateFallback(template, collectionMap)
       : collection === 'math-wages-income'
         ? getMathWagesIncomeImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
         : collection === 'math-law-of-sines'
@@ -2967,7 +3066,6 @@ const App: React.FC = () => {
           };
         }));
     }
-    const slidesWithImages = [];
     let rateLimitWasHit = false;
     
     const imagesToGenerate = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0 && !s.imageUrl);
@@ -2989,8 +3087,7 @@ const App: React.FC = () => {
       }
     }
 
-    for (let slideIndex = 0; slideIndex < slidesWithPrompts.length; slideIndex += 1) {
-        const slide = slidesWithPrompts[slideIndex];
+    const resolveSlideImage = async (slide: Slide, slideIndex: number): Promise<Slide> => {
         let newSlide = await attachImageCacheIds(slide, slideIndex);
         const promptCandidates = buildImagePromptCandidates(newSlide);
         if (!newSlide.imageUrl && promptCandidates.length > 0) {
@@ -3011,8 +3108,7 @@ const App: React.FC = () => {
                 if (cachedImage?.dataUrl && !isRejectedScienceParticleModelImageUrl(cachedImage.dataUrl, newSlide.imageSemanticMetadata)) {
                     newSlide.imageUrl = cachedImage.dataUrl;
                     newSlide.imageAttribution = cachedImage.attribution;
-                    slidesWithImages.push(newSlide);
-                    continue;
+                    return newSlide;
                 }
                 if (cachedImage?.dataUrl) {
                     console.warn('Ignored a cached particle-model image because it was an old SVG/static visual.');
@@ -3025,8 +3121,7 @@ const App: React.FC = () => {
             if (curatedStaticImageUrl) {
                 newSlide.imageUrl = curatedStaticImageUrl;
                 newSlide.imageAttribution = undefined;
-                slidesWithImages.push(newSlide);
-                continue;
+                return newSlide;
             }
 
             // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
@@ -3036,8 +3131,7 @@ const App: React.FC = () => {
                   : undefined;
                 newSlide.imageUrl = fallbackImageUrl || (adminImageLimitBypassed ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER);
                 newSlide.imageAttribution = undefined;
-                slidesWithImages.push(newSlide);
-                continue;
+                return newSlide;
             }
 
             if (!adminImageLimitBypassed && !canGenerateImage) {
@@ -3095,10 +3189,10 @@ const App: React.FC = () => {
                 }
             }
         }
-        slidesWithImages.push(newSlide);
-    }
+        return newSlide;
+    };
 
-    return slidesWithImages;
+    return mapWithConcurrency(slidesWithPrompts, IMAGE_PROCESSING_CONCURRENCY, resolveSlideImage);
   };
 
   const refreshSlidesWithCachedImages = useCallback(async (
