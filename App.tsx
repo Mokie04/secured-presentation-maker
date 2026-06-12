@@ -5,10 +5,6 @@ import { IMAGES_DISABLED, cacheUploadedImageForPrompt, createK12LessonBlueprint,
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
-import mammoth from 'mammoth';
-import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorkerSrc from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-import html2canvas from 'html2canvas';
 import { useTheme } from './contexts/ThemeContext';
 import Header from './components/Header';
 import Footer from './components/Footer';
@@ -16,7 +12,6 @@ import { useLanguage } from './contexts/LanguageContext';
 import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
-import { getReusableK12LessonPlanSeed, getReusableK12PlanUnitSlidesSeed } from './lib/reusableLessonSeeds';
 import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from './lib/branding';
 
 
@@ -41,8 +36,36 @@ type SessionCheckResult = {
   };
 };
 
+type PdfJsModule = typeof import('pdfjs-dist');
+type Html2Canvas = typeof import('html2canvas').default;
+type ReusableLessonSeedsModule = typeof import('./lib/reusableLessonSeeds');
+
 let sessionCheckCacheKey: string | null = null;
 let sessionCheckCachePromise: Promise<SessionCheckResult> | null = null;
+let pdfJsModulePromise: Promise<PdfJsModule> | null = null;
+let reusableLessonSeedsModulePromise: Promise<ReusableLessonSeedsModule> | null = null;
+
+const loadPdfJs = (): Promise<PdfJsModule> => {
+  if (!pdfJsModulePromise) {
+    pdfJsModulePromise = Promise.all([
+      import('pdfjs-dist'),
+      import('pdfjs-dist/build/pdf.worker.min.mjs?url'),
+    ]).then(([pdfjsLib, pdfWorkerSrc]) => {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc.default;
+      return pdfjsLib;
+    });
+  }
+
+  return pdfJsModulePromise;
+};
+
+const loadReusableLessonSeeds = (): Promise<ReusableLessonSeedsModule> => {
+  if (!reusableLessonSeedsModulePromise) {
+    reusableLessonSeedsModulePromise = import('./lib/reusableLessonSeeds');
+  }
+
+  return reusableLessonSeedsModulePromise;
+};
 
 const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
   if (sessionCheckCacheKey === endpoint && sessionCheckCachePromise) {
@@ -2720,17 +2743,6 @@ const App: React.FC = () => {
     };
   }, []);
   
-  // Safely set worker path for pdf.js after mount
-  useEffect(() => {
-    try {
-      if (pdfjsLib && pdfjsLib.GlobalWorkerOptions) {
-          pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerSrc;
-      }
-    } catch (e) {
-      console.warn("Failed to set PDF worker source", e);
-    }
-  }, []);
-
   const handleApiError = (e: unknown) => {
     const errorMessage = getErrorMessage(e);
     const normalizedError = errorMessage.toLowerCase();
@@ -2771,6 +2783,7 @@ const App: React.FC = () => {
   
   const processSlidesForTables = async (slides: Slide[]): Promise<Slide[]> => {
     const updatedSlides = [];
+    let html2canvas: Html2Canvas | null = null;
 
     const computedStyle = getComputedStyle(document.body);
     const bgColor = computedStyle.getPropertyValue('--bg-surface').trim();
@@ -2827,6 +2840,9 @@ const App: React.FC = () => {
                 container.innerHTML = `<div style="width: 100%;">${html}</div>`;
                 
                 try {
+                    if (!html2canvas) {
+                        html2canvas = (await import('html2canvas')).default;
+                    }
                     const canvas = await html2canvas(container, { backgroundColor: bgColor, scale: 1 });
                     newSlide.imageUrl = canvas.toDataURL('image/png');
                     newSlide.imagePrompt = '';
@@ -3278,6 +3294,7 @@ const App: React.FC = () => {
                   language,
                 ]);
 
+                const { getReusableK12LessonPlanSeed } = await loadReusableLessonSeeds();
                 const reusablePlan = getReusableK12LessonPlanSeed(content, language);
                 if (reusablePlan) {
                   const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
@@ -3459,6 +3476,7 @@ const App: React.FC = () => {
             return;
         }
 
+        const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
         const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, language);
         if (reusableSlides && reusableSlides.length > 0) {
             await waitForReusableGenerationLoading(setLoadingProgress);
@@ -3659,6 +3677,7 @@ const App: React.FC = () => {
         let text = '';
         if (fileExtension === '.pdf') {
             const arrayBuffer = await file.arrayBuffer();
+            const pdfjsLib = await loadPdfJs();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             for (let i = 1; i <= pdf.numPages; i++) {
                 const page = await pdf.getPage(i);
@@ -3671,6 +3690,7 @@ const App: React.FC = () => {
             }
         } else if (fileExtension === '.docx') {
             const arrayBuffer = await file.arrayBuffer();
+            const mammoth = (await import('mammoth')).default;
             const result = await mammoth.convertToHtml(
                 { arrayBuffer },
                 { convertImage: mammoth.images.imgElement(async () => ({ src: '' })) }
