@@ -92,8 +92,8 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v33';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v24';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v34';
+const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v25';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -1817,13 +1817,13 @@ const getEnglishLiteratureValuesImageFileName = (
   return templateMap?.[template] || templateMap?.content;
 };
 
-const GENERIC_ENGLISH_LITERATURE_VALUES_TEMPLATES = new Set(['concept', 'content', 'objectives', 'overview']);
+const GENERIC_CURATED_STATIC_TEMPLATE_FALLBACKS = new Set(['concept', 'content', 'objectives', 'overview']);
 
-const getEnglishLiteratureValuesTemplateFallback = (
+const getCuratedStaticTemplateFallback = (
   template: string,
   collectionMap: Record<string, string> | undefined,
 ): string | undefined => {
-  if (!collectionMap || GENERIC_ENGLISH_LITERATURE_VALUES_TEMPLATES.has(template)) {
+  if (!collectionMap || GENERIC_CURATED_STATIC_TEMPLATE_FALLBACKS.has(template)) {
     return undefined;
   }
 
@@ -2403,31 +2403,41 @@ const getCuratedStaticImageUrl = (metadata: ImageSemanticMetadata | undefined): 
   const template = slugifyImageSemanticText(metadata.slideTemplate || metadata.visualRole || 'content');
   const collectionMap = CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE[collection];
   const fileName = collection === 'english-poetry-imagery'
-    ? getEnglishPoetryImageryImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+    ? getEnglishPoetryImageryImageFileName(metadata, true)
+      || getCuratedStaticTemplateFallback(template, collectionMap)
     : collection === 'english-literature-values'
       ? getEnglishLiteratureValuesImageFileName(metadata, true)
-        || getEnglishLiteratureValuesTemplateFallback(template, collectionMap)
+        || getCuratedStaticTemplateFallback(template, collectionMap)
       : collection === 'math-wages-income'
-        ? getMathWagesIncomeImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+        ? getMathWagesIncomeImageFileName(metadata, true)
+          || getCuratedStaticTemplateFallback(template, collectionMap)
         : collection === 'math-law-of-sines'
-          ? getMathLawOfSinesImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+          ? getMathLawOfSinesImageFileName(metadata, true)
+            || getCuratedStaticTemplateFallback(template, collectionMap)
           : collection === 'math-geometry-construction'
-            ? getMathGeometryConstructionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+            ? getMathGeometryConstructionImageFileName(metadata, true)
+              || getCuratedStaticTemplateFallback(template, collectionMap)
             : collection === 'math-statistics-expressions'
-              ? getMathStatisticsExpressionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+              ? getMathStatisticsExpressionsImageFileName(metadata, true)
+                || getCuratedStaticTemplateFallback(template, collectionMap)
               : collection === 'math-polygons'
-                ? getMathPolygonsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                ? getMathPolygonsImageFileName(metadata, true)
+                  || getCuratedStaticTemplateFallback(template, collectionMap)
                 : collection === 'science-digestive-system'
-                  ? getScienceDigestiveImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                  ? getScienceDigestiveImageFileName(metadata, true)
+                    || getCuratedStaticTemplateFallback(template, collectionMap)
                   : collection === 'science-force-motion'
-                    ? getScienceForceMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                    ? getScienceForceMotionImageFileName(metadata, true)
+                      || getCuratedStaticTemplateFallback(template, collectionMap)
                     : collection === 'science-scientists-inventions'
                       ? getScienceScientistsInventionsImageFileName(metadata)
                       : collection === 'science-chemistry-reactions'
-                        ? getScienceChemistryReactionsImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
+                        ? getScienceChemistryReactionsImageFileName(metadata, true)
+                          || getCuratedStaticTemplateFallback(template, collectionMap)
                         : collection === 'science-general-motion'
-                          ? getScienceGeneralMotionImageFileName(metadata) || collectionMap?.[template] || collectionMap?.content
-                          : collectionMap?.[template] || collectionMap?.content;
+                          ? getScienceGeneralMotionImageFileName(metadata, true)
+                            || getCuratedStaticTemplateFallback(template, collectionMap)
+                          : getCuratedStaticTemplateFallback(template, collectionMap);
   const basePath = CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION[collection];
   return fileName && basePath ? buildCuratedStaticImageUrl(basePath, fileName) : undefined;
 };
