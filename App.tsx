@@ -99,6 +99,9 @@ const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
 const IMAGE_PROCESSING_CONCURRENCY = 3;
+const UPLOADED_IMAGE_CACHE_TARGET_BYTES = 3.5 * 1024 * 1024;
+const UPLOADED_IMAGE_CACHE_MAX_EDGE_PX = 1920;
+const UPLOADED_IMAGE_CACHE_JPEG_QUALITIES = [0.9, 0.82, 0.74, 0.66];
 // Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
 const UPLOADED_FILIPINO_LANGUAGE_SCORE_THRESHOLD = 5;
@@ -814,6 +817,91 @@ const slugifyImageSemanticText = (value: string | undefined): string => (
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
 );
+
+const getDataUrlByteLength = (dataUrl: string): number => {
+  const commaIndex = dataUrl.indexOf(',');
+  if (commaIndex < 0) return 0;
+  const base64 = dataUrl.slice(commaIndex + 1).replace(/\s+/g, '');
+  const padding = (base64.match(/=+$/)?.[0].length) || 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+};
+
+const isR2SupportedImageDataUrl = (dataUrl: string): boolean => (
+  /^data:image\/(?:png|jpe?g|webp);base64,/i.test(dataUrl)
+);
+
+const readFileAsDataUrl = (file: File): Promise<string> => (
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result;
+      if (typeof result === 'string') {
+        resolve(result);
+      } else {
+        reject(new Error('Image file did not return a data URL.'));
+      }
+    };
+    reader.onerror = () => reject(reader.error || new Error('Failed to read image file.'));
+    reader.readAsDataURL(file);
+  })
+);
+
+const loadImageElement = (dataUrl: string): Promise<HTMLImageElement> => (
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('Failed to load uploaded image.'));
+    image.src = dataUrl;
+  })
+);
+
+const resizeUploadedImageForCache = async (dataUrl: string): Promise<string> => {
+  const image = await loadImageElement(dataUrl);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+  if (!sourceWidth || !sourceHeight) return dataUrl;
+
+  let scale = Math.min(1, UPLOADED_IMAGE_CACHE_MAX_EDGE_PX / Math.max(sourceWidth, sourceHeight));
+  let bestDataUrl = dataUrl;
+  let bestByteLength = getDataUrlByteLength(dataUrl) || Number.POSITIVE_INFINITY;
+
+  for (let dimensionAttempt = 0; dimensionAttempt < 4; dimensionAttempt += 1) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return bestDataUrl;
+
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+    for (const quality of UPLOADED_IMAGE_CACHE_JPEG_QUALITIES) {
+      const candidate = canvas.toDataURL('image/jpeg', quality);
+      const candidateByteLength = getDataUrlByteLength(candidate);
+      if (candidateByteLength < bestByteLength) {
+        bestDataUrl = candidate;
+        bestByteLength = candidateByteLength;
+      }
+      if (candidateByteLength <= UPLOADED_IMAGE_CACHE_TARGET_BYTES) {
+        return candidate;
+      }
+    }
+
+    scale *= 0.82;
+  }
+
+  return bestDataUrl;
+};
+
+const prepareUploadedImageForCache = async (file: File): Promise<string> => {
+  const dataUrl = await readFileAsDataUrl(file);
+  if (isR2SupportedImageDataUrl(dataUrl) && getDataUrlByteLength(dataUrl) <= UPLOADED_IMAGE_CACHE_TARGET_BYTES) {
+    return dataUrl;
+  }
+
+  return resizeUploadedImageForCache(dataUrl);
+};
 
 const isValuesEducationSemanticSubject = (value: string | undefined): boolean => {
   const subjectSlug = slugifyImageSemanticText(value);
@@ -4406,9 +4494,8 @@ const App: React.FC = () => {
     const imageCacheId = slideForCache?.imageCacheId;
     const imageSemanticCacheId = slideForCache?.imageSemanticCacheId;
     const imageSemanticMetadata = slideForCache?.imageSemanticMetadata;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        const imageUrl = event.target?.result as string;
+    prepareUploadedImageForCache(file).then((imageUrl) => {
+        setError(null);
         setPresentation(prev => {
             if (!prev) return null;
             const updatedSlides = [...prev.slides];
@@ -4423,13 +4510,16 @@ const App: React.FC = () => {
             cacheUploadedImageForPrompt(promptForCache, imageUrl, styleForCache, language, imageCacheId, imageSemanticCacheId, imageSemanticMetadata).then((cached) => {
                 if (!cached) {
                     console.warn('Uploaded image was not saved for reuse.');
+                    setError('The uploaded image was applied to this slide, but it could not be saved for reuse. Please try a smaller PNG, JPEG, or WebP file.');
                 }
             }).catch(() => {
                 console.warn('Failed to save uploaded slide image for reuse.');
+                setError('The uploaded image was applied to this slide, but it could not be saved for reuse. Please try a smaller PNG, JPEG, or WebP file.');
             });
         }
-    };
-    reader.readAsDataURL(file);
+    }).catch(() => {
+        setError('The uploaded image could not be read. Please use a PNG, JPEG, or WebP file.');
+    });
   }, [buildFallbackImagePrompt, language, presentation]);
 
   const renderWeeklyBlueprintView = () => {
