@@ -15,14 +15,6 @@ Create `.env.local` for local/full-stack runs:
 
 ```bash
 GEMINI_API_KEY=your_real_key_here
-# Optional: use Vertex AI/Gemini instead of the Gemini Developer API.
-# GEMINI_API_MODE=vertex
-# GOOGLE_GENAI_USE_VERTEXAI=true
-# Vertex Express Mode API key:
-# VERTEX_AI_API_KEY=your_vertex_express_api_key_here
-# Or standard Vertex project/location auth:
-# GOOGLE_CLOUD_PROJECT=your_google_cloud_project_id
-# GOOGLE_CLOUD_LOCATION=global
 # Use DeepSeek for text generation.
 AI_TEXT_PROVIDER=deepseek
 DEEPSEEK_API_KEY=your_deepseek_key_here
@@ -126,8 +118,6 @@ The app also stores successful text generation responses at `generated-text/v1/<
 Set `AI_TEXT_PROVIDER=deepseek` and `DEEPSEEK_API_KEY` to use DeepSeek for lesson-plan, slide, and lecture text generation. The default DeepSeek text model is `deepseek-v4-flash`; override it with `DEEPSEEK_TEXT_MODEL` when needed.
 
 Set `AI_TEXT_PROVIDER=xai` and `XAI_API_KEY` to use xAI/Grok instead. Gemini can still be used for text by setting `AI_TEXT_PROVIDER=gemini` and `GEMINI_API_KEY`.
-
-Set `GEMINI_API_MODE=vertex` or `GOOGLE_GENAI_USE_VERTEXAI=true` to route Gemini text/image requests through Vertex AI. For Vertex Express Mode, set `VERTEX_AI_API_KEY`; `GOOGLE_API_KEY` or `GEMINI_API_KEY` can also be used in Vertex mode, but the dedicated Vertex env name is clearer. For standard Vertex AI auth, set `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION`; the Google SDK must also be able to resolve Google Cloud credentials in the server runtime.
 
 ## Session Alignment
 
