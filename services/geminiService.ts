@@ -240,12 +240,30 @@ function appendGroundingSources(slides: Slide[], groundingChunks?: GroundingChun
     });
 }
 
+const normalizeGeneratedString = (value: unknown, fallback = ''): string => (
+    typeof value === 'string' && value.trim() ? value.trim() : fallback
+);
+
+const normalizeGeneratedStringList = (value: unknown, fallback: string[] = []): string[] => {
+    const source = Array.isArray(value)
+        ? value
+        : typeof value === 'string'
+            ? value.split(/\n|[;•]+/)
+            : [];
+    const normalized = source
+        .map((item) => (typeof item === 'string' ? item.trim() : ''))
+        .filter(Boolean);
+
+    return normalized.length > 0 ? normalized : fallback;
+};
+
 // Helper to clean and split content
-function cleanSlideContent(content: string[]): string[] {
+function cleanSlideContent(content: unknown): string[] {
     const cleaned: string[] = [];
     const splitMarker = "|||SPLIT|||";
+    const contentItems = normalizeGeneratedStringList(content);
 
-    for (const item of content) {
+    for (const item of contentItems) {
         let formatted = item;
 
         // 0. Normalize newlines to splits first
@@ -371,14 +389,30 @@ const normalizeLessonBlueprintUnits = (
     inferred: InferredPlanUnitInfo,
 ): LessonBlueprint => {
     const planUnitLabel = normalizePlanUnitLabel(blueprint.planUnitLabel, inferred.label || 'Day');
+    const subject = normalizeGeneratedString(blueprint.subject, 'Uploaded lesson plan');
+    const gradeLevel = normalizeGeneratedString(blueprint.gradeLevel, 'Not specified');
+    const quarter = normalizeGeneratedString(blueprint.quarter, 'Not specified');
+    const learningCompetency = normalizeGeneratedString(
+        blueprint.learningCompetency,
+        'Learning competency from the uploaded lesson plan'
+    );
+    const studentObjectivesFromModel = normalizeGeneratedStringList(blueprint.studentFacingObjectives);
+    const smartObjectives = normalizeGeneratedStringList(
+        blueprint.smartObjectives,
+        studentObjectivesFromModel.length > 0 ? studentObjectivesFromModel : [learningCompetency]
+    );
+    const studentFacingObjectives = studentObjectivesFromModel.length > 0
+        ? studentObjectivesFromModel
+        : smartObjectives.slice(0, 3);
     const normalizedDays = (Array.isArray(blueprint.days) ? blueprint.days : [])
         .map((day, index) => {
             const dayNumber = Number.isFinite(day.dayNumber) && day.dayNumber > 0 ? day.dayNumber : index + 1;
             return {
                 ...day,
                 dayNumber,
-                title: day.title?.trim() || `${planUnitLabel} ${dayNumber}`,
-                focus: day.focus?.trim() || `${planUnitLabel} ${dayNumber} from the uploaded lesson plan`,
+                title: normalizeGeneratedString(day.title, `${planUnitLabel} ${dayNumber}`),
+                focus: normalizeGeneratedString(day.focus, `${planUnitLabel} ${dayNumber} from the uploaded lesson plan`),
+                generationStatus: day.generationStatus || 'pending' as const,
             };
         })
         .sort((a, b) => a.dayNumber - b.dayNumber);
@@ -392,7 +426,14 @@ const normalizeLessonBlueprintUnits = (
     if (!inferred.count) {
         return {
             ...blueprint,
+            mainTitle: normalizeGeneratedString(blueprint.mainTitle, `${planUnitLabel} Lesson Plan`),
             planUnitLabel,
+            subject,
+            gradeLevel,
+            quarter,
+            learningCompetency,
+            smartObjectives,
+            studentFacingObjectives,
             days: normalizedDays.length > 0 ? normalizedDays : [fallbackDay],
         };
     }
@@ -410,7 +451,14 @@ const normalizeLessonBlueprintUnits = (
 
     return {
         ...blueprint,
+        mainTitle: normalizeGeneratedString(blueprint.mainTitle, `${planUnitLabel} Lesson Plan`),
         planUnitLabel,
+        subject,
+        gradeLevel,
+        quarter,
+        learningCompetency,
+        smartObjectives,
+        studentFacingObjectives,
         days,
     };
 };
@@ -789,8 +837,9 @@ export async function createK12LessonBlueprint(content: string, format: string, 
 
 // PHASE 2: SLIDE GENERATION (PER DAY)
 export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL'): Promise<Slide[]> {
-    const unitLabel = getPlanUnitLabel(blueprint);
-    const normalizedUnitLabel = normalizePlanUnitLabel(blueprint.planUnitLabel, 'Day');
+    const blueprintForGeneration = normalizeLessonBlueprintUnits(blueprint, inferPlanUnitInfo(originalContent));
+    const unitLabel = getPlanUnitLabel(blueprintForGeneration);
+    const normalizedUnitLabel = normalizePlanUnitLabel(blueprintForGeneration.planUnitLabel, 'Day');
     const sourceBlock = extractPlanUnitSourceBlock(originalContent, normalizedUnitLabel, day);
     const secondarySourceContext = sourceBlock.found
         ? truncateSourceText(originalContent, SOURCE_CONTEXT_MAX_CHARS)
@@ -836,11 +885,11 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         ${alignmentRepairInstruction(alignmentIssues)}
 
         **LESSON BLUEPRINT:**
-        - Main Title: ${blueprint.mainTitle}
-        - Subject: ${blueprint.subject}
-        - Grade Level: ${blueprint.gradeLevel}
-        - Learning Competency: ${blueprint.learningCompetency}
-        - SMART Objectives for the Plan: ${blueprint.smartObjectives.join(", ")}
+        - Main Title: ${blueprintForGeneration.mainTitle}
+        - Subject: ${blueprintForGeneration.subject}
+        - Grade Level: ${blueprintForGeneration.gradeLevel}
+        - Learning Competency: ${blueprintForGeneration.learningCompetency}
+        - SMART Objectives for the Plan: ${blueprintForGeneration.smartObjectives.join(", ")}
         
         **TODAY'S FOCUS (${unitLabel.toUpperCase()} ${day.dayNumber}):**
         - Title: ${day.title}
