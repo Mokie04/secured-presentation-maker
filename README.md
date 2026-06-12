@@ -50,9 +50,6 @@ APPSTORE_AUTH_ENABLED=false
 # Optional admin image-limit bypass. Comma or space separated.
 # ADMIN_EMAILS=admin@example.com
 # ADMIN_SUBS=appstore-user-id
-# Optional: allow paid AI image fallback when open-source image match is not found.
-# Default is false for cost control.
-# VITE_ENABLE_AI_IMAGE_FALLBACK=false
 # Optional: text-only mode. Skips Gemini/Imagen image generation and shows uploadable image placeholders.
 # VITE_DISABLE_IMAGES=true
 # Optional Gemini model overrides. Used only when the corresponding provider is Gemini:

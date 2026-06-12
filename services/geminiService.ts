@@ -6,7 +6,6 @@ type ClientEnv = {
     VITE_GEMINI_PROXY_BASE_URL?: string;
     VITE_GEMINI_TEXT_MODEL?: string;
     VITE_GEMINI_IMAGE_MODEL?: string;
-    VITE_ENABLE_AI_IMAGE_FALLBACK?: string;
     VITE_DISABLE_IMAGES?: string;
 };
 
@@ -45,8 +44,6 @@ const IMAGE_MODELS = uniqueNonEmpty([
     "models/imagen-4.0-fast-generate-001",
 ]);
 
-// Default to enabled so users still see images if open-source search fails.
-export const AI_IMAGE_FALLBACK_ENABLED = parseBooleanEnv(ENV.VITE_ENABLE_AI_IMAGE_FALLBACK, true);
 export const IMAGES_DISABLED = parseBooleanEnv(ENV.VITE_DISABLE_IMAGES, false);
 
 const JSON_SCHEMA = {

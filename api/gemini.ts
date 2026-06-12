@@ -855,28 +855,6 @@ export default async function handler(req: any, res: any) {
           }
         }
 
-        const pexelsImage = await getPexelsImageWithCache({
-          prompt: imageRequest.prompt,
-          model: cacheModel,
-          aspectRatio: imageRequest.aspectRatio,
-          cacheId: imageRequest.cacheId,
-          semanticCacheId: imageRequest.semanticCacheId,
-          semanticMetadata: imageRequest.semanticMetadata,
-        });
-        if (pexelsImage) {
-          return res.status(200).json({
-            dataUrl: pexelsImage.dataUrl,
-            attribution: pexelsImage.attribution,
-            ok: true,
-            modelUsed: cacheModel,
-            provider: 'pexels',
-            cache: {
-              hit: false,
-              provider: pexelsImage.cacheProvider,
-            },
-          });
-        }
-
         return res.status(200).json({
           dataUrl: '',
           ok: true,
@@ -1125,36 +1103,6 @@ export default async function handler(req: any, res: any) {
         try {
           if (task === 'image') {
             const imageRequest = getImageRequestDetails(contents, requestConfig);
-            const cachedImage = attempt === 1
-              ? await getCachedImageWithPromptFallback({
-                prompt: imageRequest.prompt,
-                model: candidateModel,
-                aspectRatio: imageRequest.aspectRatio,
-                cacheId: imageRequest.cacheId,
-                semanticCacheId: imageRequest.semanticCacheId,
-                semanticMetadata: imageRequest.semanticMetadata,
-              })
-              : null;
-
-            if (cachedImage) {
-              console.info('Generated image cache hit', {
-                imageProvider: 'gemini',
-                cacheProvider: 'r2',
-                model: candidateModel,
-              });
-
-              return res.status(200).json({
-                dataUrl: cachedImage.dataUrl,
-                attribution: cachedImage.attribution,
-                modelUsed: candidateModel,
-                provider: 'gemini',
-                cache: {
-                  hit: true,
-                  provider: 'r2',
-                },
-              });
-            }
-
             const imgConfig = {
               aspectRatio: imageRequest.aspectRatio,
               numberOfImages: 1,
