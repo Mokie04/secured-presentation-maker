@@ -495,7 +495,7 @@ const mapWithConcurrency = async <T, R,>(
   return results;
 };
 
-const SESSION_COLUMN_MARKER_REGEX = /\b(?:learning\s+session|session|sesyon|sesion)\s*(?:(?:no\.?|number|#)\s*)?(?::|-)?\s*(\d{1,2})\b/i;
+const SESSION_COLUMN_MARKER_REGEX = /\b(?:learning\s+session|session|sesyon(?:\s+ng\s+pagkatuto)?|sesion)\s*(?:(?:no\.?|number|#)\s*)?(?::|-)?\s*(\d{1,2})\b/i;
 
 type SessionTableColumn = {
   columnIndex: number;

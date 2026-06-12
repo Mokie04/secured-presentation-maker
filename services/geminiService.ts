@@ -340,6 +340,7 @@ type PlanUnitMarkerBlockCandidate = {
     text: string;
     focusScore: number;
     wrongMarkerCount: number;
+    isDedicatedBlock: boolean;
     score: number;
 };
 
@@ -350,7 +351,7 @@ const clampPlanUnitCount = (count: number): number | undefined => {
 
 const inferPlanUnitInfo = (content: string): InferredPlanUnitInfo => {
     const normalized = content.replace(/\s+/g, ' ').trim();
-    const sessionNumbers = [...normalized.matchAll(/\b(?:learning\s+session|session|sesyon|sesion)\s*(?:no\.?|#|:|-)?\s*(\d{1,2})\b/gi)]
+    const sessionNumbers = [...normalized.matchAll(/\b(?:learning\s+session|session|sesyon(?:\s+ng\s+pagkatuto)?|sesion)\s*(?:no\.?|#|:|-)?\s*(\d{1,2})\b/gi)]
         .map((match) => Number.parseInt(match[1], 10))
         .filter(Number.isFinite);
     const dayNumbers = [...normalized.matchAll(/\b(?:day|araw)\s*(?:no\.?|#|:|-)?\s*(\d{1,2})\b/gi)]
@@ -469,7 +470,7 @@ const SOURCE_CONTEXT_MAX_CHARS = 18_000;
 const MAX_ALIGNMENT_REPAIR_ATTEMPTS = 1;
 
 const PLAN_UNIT_TERMS: Record<PlanUnitLabel, string[]> = {
-    Session: ['learning session', 'session', 'sesyon', 'sesion'],
+    Session: ['learning session', 'session', 'sesyon ng pagkatuto', 'sesyon', 'sesion'],
     Day: ['day', 'araw'],
 };
 
@@ -562,6 +563,17 @@ function countWrongPlanUnitMarkers(text: string, unitLabel: PlanUnitLabel, dayNu
     return wrongMarkerCount;
 }
 
+function isDedicatedPlanUnitBlockStart(line: string, unitLabel: PlanUnitLabel, dayNumber: number): boolean {
+    const terms = PLAN_UNIT_TERMS[unitLabel]
+        .map((term) => term.replace(/\s+/g, '\\s+'))
+        .join('|');
+
+    return new RegExp(
+        `^\\s*(?:${terms})\\s*(?:(?:no\\.?|number|#)\\s*)?(?::|-)?\\s*${dayNumber}\\s*:?\\s*$`,
+        'i'
+    ).test(line);
+}
+
 function getMarkerBlockCandidates(
     lines: string[],
     markers: Array<{ index: number; dayNumber: number }>,
@@ -570,31 +582,56 @@ function getMarkerBlockCandidates(
 ): PlanUnitMarkerBlockCandidate[] {
     const focusTerms = extractImportantTerms(`${day.title} ${day.focus}`, 10);
 
-    return markers
+    const candidates = markers
         .filter((marker) => marker.dayNumber === day.dayNumber)
         .map((marker) => {
-            const nextMarker = markers.find((candidate) => (
+            const markerLine = lines[marker.index] || '';
+            const isDedicatedBlock = isDedicatedPlanUnitBlockStart(markerLine, unitLabel, day.dayNumber);
+            const boundaryMarkers = isDedicatedBlock
+                ? markers.filter((candidate) => (
+                    isDedicatedPlanUnitBlockStart(lines[candidate.index] || '', unitLabel, candidate.dayNumber)
+                ))
+                : markers;
+            const nextMarker = boundaryMarkers.find((candidate) => (
                 candidate.index > marker.index && candidate.dayNumber !== day.dayNumber
             ));
-            const sameLineHasOtherUnit = markers.some((candidate) => (
+            const nextBlockBoundaryIndex = isDedicatedBlock
+                ? lines.findIndex((line, index) => index > marker.index && !line.trim())
+                : -1;
+            const sameLineHasOtherUnit = boundaryMarkers.some((candidate) => (
                 candidate.index === marker.index && candidate.dayNumber !== day.dayNumber
             ));
-            const start = Math.max(0, marker.index - (sameLineHasOtherUnit ? 0 : 1));
-            const end = nextMarker ? nextMarker.index : lines.length;
+            const start = Math.max(0, marker.index - (isDedicatedBlock || sameLineHasOtherUnit ? 0 : 1));
+            const end = Math.min(
+                nextMarker ? nextMarker.index : lines.length,
+                nextBlockBoundaryIndex > marker.index ? nextBlockBoundaryIndex : lines.length,
+            );
             const text = sliceSourceLines(lines, start, end);
             const focusScore = scoreLineAgainstTerms(text, focusTerms);
-            const wrongMarkerCount = countWrongPlanUnitMarkers(text, unitLabel, day.dayNumber);
-            const score = (focusScore * 100) + Math.min(text.length, 2400) - (wrongMarkerCount * 500);
+            const wrongMarkerCount = isDedicatedBlock
+                ? 0
+                : countWrongPlanUnitMarkers(text, unitLabel, day.dayNumber);
+            const score = (focusScore * 100)
+                + Math.min(text.length, 2400)
+                + (isDedicatedBlock ? 5000 : 0)
+                - (wrongMarkerCount * 500);
 
             return {
                 index: marker.index,
                 text,
                 focusScore,
                 wrongMarkerCount,
+                isDedicatedBlock,
                 score,
             };
         })
-        .filter((candidate) => candidate.text.length >= 80)
+        .filter((candidate) => candidate.text.length >= 80);
+
+    const preferredCandidates = candidates.some((candidate) => candidate.isDedicatedBlock)
+        ? candidates.filter((candidate) => candidate.isDedicatedBlock)
+        : candidates;
+
+    return preferredCandidates
         .sort((a, b) => b.score - a.score || b.text.length - a.text.length);
 }
 
