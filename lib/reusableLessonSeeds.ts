@@ -65,6 +65,12 @@ import {
   getScientistsInventionsK12PlanUnitSlidesSeed,
   isReusableScientistsInventionsLesson,
 } from './scientistsInventionsLessonSeed';
+import {
+  getAralingPanlipunanContemporaryIssuesK12CompleteLessonPlanSeed,
+  getAralingPanlipunanContemporaryIssuesK12LessonPlanSeed,
+  getAralingPanlipunanContemporaryIssuesK12PlanUnitSlidesSeed,
+  isReusableAralingPanlipunanContemporaryIssuesLesson,
+} from './aralingPanlipunanContemporaryIssuesLessonSeed';
 
 type CachedLessonPlanSeed = {
   blueprint: LessonBlueprint;
@@ -1173,6 +1179,9 @@ export const getReusableK12LessonPlanSeed = (
   content: string,
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
+  if (isReusableAralingPanlipunanContemporaryIssuesLesson(content)) {
+    return getAralingPanlipunanContemporaryIssuesK12LessonPlanSeed();
+  }
   if (language !== 'EN') return null;
   if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12LessonPlanSeed();
   if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12LessonPlanSeed();
@@ -1202,6 +1211,9 @@ export const getReusableK12PlanUnitSlidesSeed = (
   dayNumber: number,
   language: 'EN' | 'FIL',
 ): Slide[] | null => {
+  if (isReusableAralingPanlipunanContemporaryIssuesLesson(content)) {
+    return getAralingPanlipunanContemporaryIssuesK12PlanUnitSlidesSeed(dayNumber);
+  }
   if (language !== 'EN') return null;
   if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12PlanUnitSlidesSeed(dayNumber);
   if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12PlanUnitSlidesSeed(dayNumber);
@@ -1223,6 +1235,9 @@ export const getReusableK12CompleteLessonPlanSeed = (
   content: string,
   language: 'EN' | 'FIL',
 ): CachedLessonPlanSeed | null => {
+  if (isReusableAralingPanlipunanContemporaryIssuesLesson(content)) {
+    return getAralingPanlipunanContemporaryIssuesK12CompleteLessonPlanSeed();
+  }
   if (language !== 'EN') return null;
   if (isReusableEnglishLiteratureValuesLesson(content)) return getEnglishLiteratureValuesK12CompleteLessonPlanSeed();
   if (isReusableMathWagesIncomeLesson(content)) return getMathWagesIncomeK12CompleteLessonPlanSeed();
