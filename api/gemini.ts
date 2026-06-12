@@ -28,6 +28,7 @@ type ImageRequestDetails = {
   cacheId?: string;
   semanticCacheId?: string;
   semanticMetadata?: ImageSemanticMetadata;
+  allowPaidImageGeneration: boolean;
 };
 
 type ImageSemanticMetadata = Record<string, string>;
@@ -40,7 +41,7 @@ type TextGenerationResponse = {
 };
 
 type TextProvider = 'gemini' | 'xai' | 'deepseek';
-type ImageProvider = 'gemini' | 'xai';
+type ImageProvider = 'gemini' | 'xai' | 'pexels';
 type AIProvider = TextProvider | ImageProvider;
 const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 25_000;
 const MAX_UPLOADED_IMAGE_BYTES = 6 * 1024 * 1024;
@@ -113,6 +114,32 @@ function getXaiImageTimeoutMs(): number {
   }
 
   return Math.max(5_000, Math.min(50_000, parsed));
+}
+
+function parseBooleanEnv(value: string | undefined): boolean {
+  return ['1', 'true', 'yes', 'on'].includes((value || '').trim().toLowerCase());
+}
+
+function paidImageGenerationDisabled(): boolean {
+  return parseBooleanEnv(process.env.PAID_IMAGE_GENERATION_DISABLED)
+    || parseBooleanEnv(process.env.AI_PAID_IMAGE_GENERATION_DISABLED);
+}
+
+function shouldSkipPaidImageGeneration(provider: ImageProvider, imageRequest: ImageRequestDetails): boolean {
+  return provider === 'pexels' || !imageRequest.allowPaidImageGeneration || paidImageGenerationDisabled();
+}
+
+function sendPaidImageGenerationSkipped(res: any, modelUsed: string, provider: ImageProvider) {
+  return res.status(200).json({
+    dataUrl: '',
+    modelUsed,
+    provider,
+    paidImageGenerationSkipped: true,
+    cache: {
+      hit: false,
+      provider: 'none',
+    },
+  });
 }
 
 async function getCachedImageWithPromptFallback(input: {
@@ -337,10 +364,14 @@ function getImageRequestDetails(contents: unknown, requestConfig: Record<string,
       : '';
   const rawSemanticMetadata = (contents as any)?.semanticMetadata || imageConfig.semanticMetadata;
   const semanticMetadata = normalizeImageSemanticMetadata(rawSemanticMetadata);
+  const rawAllowPaidImageGeneration = (contents as any)?.allowPaidImageGeneration ?? imageConfig.allowPaidImageGeneration;
+  const allowPaidImageGeneration = rawAllowPaidImageGeneration !== false
+    && rawAllowPaidImageGeneration !== 'false';
 
   return {
     prompt: imagePrompt,
     aspectRatio: imageConfig.aspectRatio || '16:9',
+    allowPaidImageGeneration,
     ...(cacheId ? { cacheId } : {}),
     ...(semanticCacheId ? { semanticCacheId } : {}),
     ...(semanticMetadata ? { semanticMetadata } : {}),
@@ -398,6 +429,7 @@ function normalizeTextProvider(value: string | undefined): TextProvider | null {
 function normalizeImageProvider(value: string | undefined): ImageProvider | null {
   const configuredProvider = value?.trim().toLowerCase();
   if (configuredProvider === 'xai' || configuredProvider === 'grok') return 'xai';
+  if (configuredProvider === 'pexels' || configuredProvider === 'stock' || configuredProvider === 'free') return 'pexels';
   if (configuredProvider === 'gemini') return 'gemini';
   return null;
 }
@@ -988,6 +1020,10 @@ export default async function handler(req: any, res: any) {
               });
             }
 
+            if (shouldSkipPaidImageGeneration(provider, imageRequest)) {
+              return sendPaidImageGenerationSkipped(res, candidateModel, provider);
+            }
+
             const generatedImage = await generateXaiImage(candidateModel, imageRequest);
             const storedImage = await setCachedR2Image({
               prompt: imageRequest.prompt,
@@ -1083,6 +1119,11 @@ export default async function handler(req: any, res: any) {
             provider: pexelsImage.cacheProvider,
           },
         });
+      }
+
+      const imageProvider: ImageProvider = provider === 'pexels' ? 'pexels' : 'gemini';
+      if (shouldSkipPaidImageGeneration(imageProvider, imageRequest)) {
+        return sendPaidImageGenerationSkipped(res, modelCandidates[0], imageProvider);
       }
     }
 

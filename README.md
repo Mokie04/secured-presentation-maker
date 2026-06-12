@@ -94,6 +94,8 @@ Image lookup order is:
 
 Pexels results are downloaded server-side, converted to the same data URL shape used by generated images, cached back into R2 when R2 is configured, and returned with photographer/source attribution. Pexels credits are rendered on the slide image and included in PPTX speaker notes/export output. Uploaded lesson plans are parsed for text/table structure only; slide images are selected from each generated slide's image prompt and metadata, not copied from embedded DOCX/PDF images.
 
+To avoid paid image spend, set `AI_IMAGE_PROVIDER=pexels` or `PAID_IMAGE_GENERATION_DISABLED=true` in the server environment. The app will still use curated images, R2 cache, and Pexels, but it will stop before Gemini/xAI image generation when those free sources miss.
+
 ### Cloudflare R2 Shared Cache
 
 Create a private R2 bucket and an R2 API token with object read/write access to that bucket. Add the `R2_*` variables above to Vercel. The app stores legacy generated image bytes at `generated-images/v1/<hmac>.png`; the HMAC key is derived from the normalized image prompt, selected model, aspect ratio, and `R2_IMAGE_CACHE_SECRET`.
@@ -123,7 +125,7 @@ For K-12 uploaded lesson plans, per-session/day slide generation first extracts 
 
 For text-only deployments, set `VITE_DISABLE_IMAGES=true`. The app will skip image API calls, keep using the text provider for lesson and slide content, and show image placeholders that can be replaced by manual uploads.
 
-To use xAI for generated slide images, set `AI_IMAGE_PROVIDER=xai`, keep `VITE_DISABLE_IMAGES` unset or `false`, and configure `XAI_API_KEY`. The default xAI image model is `grok-imagine-image-quality`.
+To use xAI for generated slide images, set `AI_IMAGE_PROVIDER=xai`, keep `VITE_DISABLE_IMAGES` unset or `false`, configure `XAI_API_KEY`, and leave `PAID_IMAGE_GENERATION_DISABLED` unset or `false`. The default xAI image model is `grok-imagine-image-quality`.
 
 ## Local Development
 

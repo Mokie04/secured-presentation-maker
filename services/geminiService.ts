@@ -72,6 +72,7 @@ type GeminiImageResponse = {
     explanation?: string;
     provider?: string;
     attribution?: ImageAttribution;
+    paidImageGenerationSkipped?: boolean;
     cache?: {
         hit: boolean;
         provider: string;
@@ -1287,7 +1288,15 @@ export async function cacheUploadedImageForPrompt(prompt: string, dataUrl: strin
     return response.ok === true;
 }
 
-export async function generateImageResultFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<ImagePromptResult> {
+export async function generateImageResultFromPrompt(
+    prompt: string,
+    style: ImageStyle = 'illustration',
+    language: 'EN' | 'FIL',
+    cacheId?: string,
+    semanticCacheId?: string,
+    semanticMetadata?: ImageSemanticMetadata,
+    allowPaidImageGeneration = true
+): Promise<ImagePromptResult> {
     if (!prompt || style === 'none') {
         return Promise.resolve({ dataUrl: '' });
     }
@@ -1300,6 +1309,7 @@ export async function generateImageResultFromPrompt(prompt: string, style: Image
             model: IMAGE_MODELS,
             contents: {
                 parts: [{ text: finalPrompt }],
+                allowPaidImageGeneration,
                 ...(cacheId ? { cacheId } : {}),
                 ...(semanticCacheId ? { semanticCacheId } : {}),
                 ...(semanticMetadata ? { semanticMetadata } : {}),
@@ -1314,6 +1324,15 @@ export async function generateImageResultFromPrompt(prompt: string, style: Image
         if (response.dataUrl) {
             return {
                 dataUrl: response.dataUrl,
+                provider: response.provider,
+                attribution: response.attribution,
+                cache: response.cache,
+            };
+        }
+
+        if (response.paidImageGenerationSkipped) {
+            return {
+                dataUrl: '',
                 provider: response.provider,
                 attribution: response.attribution,
                 cache: response.cache,
@@ -1336,7 +1355,15 @@ export async function generateImageResultFromPrompt(prompt: string, style: Image
     }
 }
 
-export async function generateImageFromPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<string> {
-    const result = await generateImageResultFromPrompt(prompt, style, language, cacheId, semanticCacheId, semanticMetadata);
+export async function generateImageFromPrompt(
+    prompt: string,
+    style: ImageStyle = 'illustration',
+    language: 'EN' | 'FIL',
+    cacheId?: string,
+    semanticCacheId?: string,
+    semanticMetadata?: ImageSemanticMetadata,
+    allowPaidImageGeneration = true
+): Promise<string> {
+    const result = await generateImageResultFromPrompt(prompt, style, language, cacheId, semanticCacheId, semanticMetadata, allowPaidImageGeneration);
     return result.dataUrl;
 }

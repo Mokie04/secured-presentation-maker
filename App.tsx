@@ -3082,12 +3082,12 @@ const App: React.FC = () => {
     const totalImagesToAttempt = imagesToGenerate.length;
     let imagesAttemptedCounter = 0;
     
-    const imagesLeftToday = Math.max(0, limits.images - images);
-    const imageAttemptsAllowed = adminImageLimitBypassed
+    const paidImagesLeftToday = Math.max(0, limits.images - images);
+    const paidImageAttemptsAllowed = adminImageLimitBypassed
       ? Math.min(totalImagesToAttempt, ADMIN_IMAGE_BATCH_LIMIT)
-      : Math.min(totalImagesToAttempt, imagesLeftToday);
-    const totalImagesThatCanBeGenerated = imageAttemptsAllowed;
-    let imageAttemptsUsed = 0;
+      : Math.min(totalImagesToAttempt, paidImagesLeftToday);
+    const totalImagesThatCanBeGenerated = totalImagesToAttempt;
+    let paidImageAttemptsReserved = 0;
 
     if (!muteProgress) {
       if (totalImagesThatCanBeGenerated > 0) {
@@ -3134,25 +3134,24 @@ const App: React.FC = () => {
                 return newSlide;
             }
 
-            // Simplify: always attempt AI image once, skip open-source fetch to reduce latency and irrelevance.
-            if (imageAttemptsUsed >= imageAttemptsAllowed) {
-                const fallbackImageUrl = adminImageLimitBypassed
-                  ? getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata)
-                  : undefined;
-                newSlide.imageUrl = fallbackImageUrl || (adminImageLimitBypassed ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER);
-                newSlide.imageAttribution = undefined;
-                return newSlide;
+            const allowPaidImageGeneration = !rateLimitWasHit
+              && paidImageAttemptsReserved < paidImageAttemptsAllowed
+              && (adminImageLimitBypassed || canGenerateImage);
+            if (allowPaidImageGeneration) {
+                paidImageAttemptsReserved++;
             }
 
-            if (!adminImageLimitBypassed && !canGenerateImage) {
-                newSlide.imageUrl = USER_IMAGE_LIMIT_PLACEHOLDER;
-                newSlide.imageAttribution = undefined;
-            } else if (rateLimitWasHit) {
-                newSlide.imageUrl = getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata) || PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
-                newSlide.imageAttribution = undefined;
-            } else {
+            if (rateLimitWasHit && !allowPaidImageGeneration) {
+                const fallbackImageUrl = getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata);
+                if (fallbackImageUrl) {
+                    newSlide.imageUrl = fallbackImageUrl;
+                    newSlide.imageAttribution = undefined;
+                    return newSlide;
+                }
+            }
+
+            {
                 imagesAttemptedCounter++;
-                imageAttemptsUsed++;
                 if (!muteProgress) {
                   setLoadingMessage(t.presentation.loadingImages.replace('{current}', imagesAttemptedCounter.toString()).replace('{total}', totalImagesThatCanBeGenerated.toString()));
                 }
@@ -3169,14 +3168,15 @@ const App: React.FC = () => {
                       language,
                       newSlide.imageCacheId,
                       newSlide.imageSemanticCacheId,
-                      newSlide.imageSemanticMetadata
+                      newSlide.imageSemanticMetadata,
+                      allowPaidImageGeneration
                     );
                     if (isRejectedScienceParticleModelImageUrl(imageResult.dataUrl, newSlide.imageSemanticMetadata)) {
                         throw new Error('Generated image resolved to an old SVG/static particle-model visual.');
                     }
-                    newSlide.imageUrl = imageResult.dataUrl;
+                    newSlide.imageUrl = imageResult.dataUrl || (allowPaidImageGeneration ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER);
                     newSlide.imageAttribution = imageResult.attribution;
-                    if (!adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
+                    if (imageResult.dataUrl && !adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
                         incrementCount('images');
                     }
                 } catch (imgError) {
@@ -4283,28 +4283,16 @@ const App: React.FC = () => {
             console.warn('Failed to check saved slide image before regeneration.');
         }
 
-        if (!adminImageLimitBypassed && !canGenerateImage) {
-            alert(t.presentation.errorImageLimit.replace('{limit}', limits.images.toString()));
-            setPresentation(prev => {
-                if (!prev) return null;
-                const finalSlides = [...prev.slides];
-                const currentSlide = finalSlides[slideIndex];
-                if (!currentSlide) return prev;
-                finalSlides[slideIndex] = { ...currentSlide, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imagePrompt: trimmedPrompt, imageAttribution: undefined };
-                return { ...prev, slides: finalSlides };
-            });
-            return;
-        }
-
         const imageResult = await generateImageResultFromPrompt(
             trimmedPrompt,
             originalSlideStyle,
             language,
             originalSlide.imageCacheId,
             originalSlide.imageSemanticCacheId,
-            originalSlide.imageSemanticMetadata
+            originalSlide.imageSemanticMetadata,
+            adminImageLimitBypassed || canGenerateImage
         );
-        if (!adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
+        if (imageResult.dataUrl && !adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
             incrementCount('images');
         }
         setPresentation(prev => {
@@ -4314,7 +4302,7 @@ const App: React.FC = () => {
             if (!currentSlide) return prev;
             finalSlides[slideIndex] = {
                 ...currentSlide,
-                imageUrl: imageResult.dataUrl || IMAGE_SKIPPED_PLACEHOLDER,
+                imageUrl: imageResult.dataUrl || USER_IMAGE_LIMIT_PLACEHOLDER,
                 imagePrompt: trimmedPrompt,
                 imageAttribution: imageResult.attribution,
             };
