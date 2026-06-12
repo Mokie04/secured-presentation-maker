@@ -19,6 +19,7 @@ type AppStep = 'input' | 'planning' | 'presenting';
 type TransitionDirection = 'next' | 'prev' | null;
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
+type AppLanguage = 'EN' | 'FIL';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
 type LoadingProgressSetter = React.Dispatch<React.SetStateAction<number | null>>;
 type SessionUser = {
@@ -100,6 +101,33 @@ const ADMIN_IMAGE_BATCH_LIMIT = 12;
 const IMAGE_PROCESSING_CONCURRENCY = 3;
 // Use only exact HD particle-model matches; unmapped particle visuals still go through generation/cached images.
 const USE_STATIC_SCIENCE_PARTICLE_MODEL_IMAGES = true;
+const UPLOADED_FILIPINO_LANGUAGE_SCORE_THRESHOLD = 5;
+const UPLOADED_FILIPINO_LANGUAGE_MIN_HITS = 2;
+const UPLOADED_FILIPINO_STRONG_SUBJECT_PATTERNS = [
+  /\baraling\s+panlipunan\b/,
+  /\baral\s*[- ]?\s*pan\b/,
+  /\basignatura\s*[:\-]?\s*(?:filipino|araling\s+panlipunan|aral\s*[- ]?\s*pan)\b/,
+  /\bsubject\s*[:\-]?\s*(?:filipino|araling\s+panlipunan|aral\s*[- ]?\s*pan)\b/,
+];
+const UPLOADED_FILIPINO_LANGUAGE_PATTERNS: Array<[RegExp, number]> = [
+  [/\bfilipino\s+(?:sa|baitang|grade|quarter|kuwarter|markahan)\b/, 3],
+  [/\b(?:una|ikalawa|ikatlo|ikaapat|ikalima|ikaanim|ikapito|ikawalo|ikasiyam|ikasampu)ng\s+(?:araw|sesyon)\b/, 3],
+  [/\b(?:araw|sesyon)\s*(?:blg\.?|bilang|numero|#|:|-)?\s*\d{1,2}\b/, 2],
+  [/\bbilang\s+ng\s+(?:mga\s+)?(?:araw|sesyon)\b/, 2],
+  [/\blayunin(?:g)?\b/, 2],
+  [/\bkasanayang\s+pampagkatuto\b/, 3],
+  [/\bpinakamahalagang\s+kasanayan\b/, 3],
+  [/\bpaksa\b/, 1],
+  [/\bgawain\b/, 2],
+  [/\bpagtataya\b/, 2],
+  [/\btakdang\s*[- ]?\s*aralin\b/, 2],
+  [/\bpamamaraan\b/, 2],
+  [/\bpanimulang\s+gawain\b/, 2],
+  [/\bpaglinang\b/, 2],
+  [/\bpaglalahat\b/, 2],
+  [/\bpaglalapat\b/, 2],
+  [/\bmga\s+(?:mag[- ]?aaral|kagamitan|layunin|gawain)\b/, 1],
+];
 const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260604-week1-approved-v7';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
@@ -357,6 +385,38 @@ const CURATED_STATIC_IMAGE_BY_COLLECTION_TEMPLATE: Record<string, Record<string,
     summary: 'g11-hd-motion-explainer.png',
     'success-criteria': 'g11-hd-cart-wheel-evidence.png',
   },
+};
+
+const normalizeUploadedLanguageSignalText = (value: string): string => (
+  value
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[–—]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+);
+
+const inferUploadedLessonLanguage = (content: string, uploadedFileName = ''): AppLanguage | null => {
+  const text = normalizeUploadedLanguageSignalText(`${uploadedFileName}\n${content.slice(0, 30_000)}`);
+  if (!text) return null;
+
+  if (UPLOADED_FILIPINO_STRONG_SUBJECT_PATTERNS.some((pattern) => pattern.test(text))) {
+    return 'FIL';
+  }
+
+  let score = 0;
+  let hits = 0;
+  UPLOADED_FILIPINO_LANGUAGE_PATTERNS.forEach(([pattern, weight]) => {
+    if (pattern.test(text)) {
+      score += weight;
+      hits += 1;
+    }
+  });
+
+  return score >= UPLOADED_FILIPINO_LANGUAGE_SCORE_THRESHOLD && hits >= UPLOADED_FILIPINO_LANGUAGE_MIN_HITS
+    ? 'FIL'
+    : null;
 };
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
@@ -2784,7 +2844,7 @@ const App: React.FC = () => {
   const regeneratingImageIndexesRef = useRef<Set<number>>(new Set());
 
   const { theme } = useTheme();
-  const { language } = useLanguage();
+  const { language, setLanguage } = useLanguage();
   const t = translations[language];
   const appStoreUrl = ((import.meta as ImportMeta & { env?: { VITE_APPSTORE_URL?: string } }).env?.VITE_APPSTORE_URL || '').trim();
   const {
@@ -3817,6 +3877,10 @@ const App: React.FC = () => {
             setFileName(null);
             setDllContent('');
             return;
+        }
+        const inferredLanguage = inferUploadedLessonLanguage(text, file.name);
+        if (inferredLanguage && inferredLanguage !== language) {
+            setLanguage(inferredLanguage);
         }
         setDllContent(text);
     } catch (err) {
