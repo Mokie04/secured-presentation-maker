@@ -19,6 +19,9 @@ export interface ImageSemanticMetadata {
   gradeLevel?: string;
   gradeBand?: string;
   learningCompetency?: string;
+  planUnitLabel?: string;
+  planUnitNumber?: string;
+  planUnitTitle?: string;
   visualRole?: string;
   slideTemplate?: string;
   semanticAnchor?: string;

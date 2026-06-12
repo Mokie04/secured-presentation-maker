@@ -42,6 +42,7 @@ type ImageCacheInput = {
   semanticCacheId?: string;
   semanticMetadata?: ImageSemanticMetadata;
   imageAttribution?: ImageAttribution;
+  imageSource?: 'manual-upload';
 };
 
 type SemanticImageCacheRecord = {
@@ -54,10 +55,16 @@ type SemanticImageCacheRecord = {
   metadata: Record<string, string>;
 };
 
+type UploadedImageCacheRecord = SemanticImageCacheRecord & {
+  source: 'manual-upload';
+  aliases: string[];
+};
+
 const IMAGE_CACHE_PREFIX = 'generated-images/v1';
 const SEMANTIC_IMAGE_CACHE_PREFIX = 'generated-images/v2';
 const SEMANTIC_IMAGE_INDEX_PREFIX = 'image-semantic:v2';
 const SEMANTIC_IMAGE_ALIAS_VERSION = 'image-semantic-alias-v1';
+const UPLOADED_IMAGE_ALIAS_VERSION = 'image-uploaded-alias-v1';
 const SEMANTIC_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 const SUPPORTED_IMAGE_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const CURRENT_PEXELS_CACHE_VERSION = 'pexels-selection-v2';
@@ -544,6 +551,88 @@ function semanticIndexObjectKey(input: ImageCacheInput): string | null {
   return `${SEMANTIC_IMAGE_CACHE_PREFIX}/_index/${indexHash}.json`;
 }
 
+function uploadedImageUnitSlug(metadata: Record<string, string>): string {
+  return slugify([
+    metadata.planUnitLabel,
+    metadata.planUnitNumber,
+    metadata.planUnitTitle,
+  ].filter(Boolean).join(' '), '');
+}
+
+function uploadedImageAliases(input: ImageCacheInput): string[] {
+  const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  if (Object.keys(metadata).length === 0) return [];
+
+  const subject = semanticSubjectSlug(metadata);
+  const gradeScope = semanticGradeScopeSlug(metadata);
+  const topic = semanticTopicSlug(metadata, subject);
+  const unit = uploadedImageUnitSlug(metadata);
+  const role = slugify(metadata.slideTemplate || metadata.visualRole, 'content');
+  const style = slugify(metadata.style, 'illustration');
+  const anchor = slugify(metadata.semanticAnchor, '');
+  const competency = slugify(metadata.learningCompetency, '');
+  const base = `${UPLOADED_IMAGE_ALIAS_VERSION}:subject=${subject}:grade=${gradeScope}:role=${role}:style=${style}`;
+  const aliases: string[] = [];
+
+  if (unit) {
+    if (topic && anchor) aliases.push(`${base}:topic=${topic}:unit=${unit}:anchor=${anchor}`);
+    if (topic) aliases.push(`${base}:topic=${topic}:unit=${unit}`);
+    if (competency && anchor) aliases.push(`${base}:competency=${competency}:unit=${unit}:anchor=${anchor}`);
+    if (competency) aliases.push(`${base}:competency=${competency}:unit=${unit}`);
+  } else {
+    if (topic && anchor) aliases.push(`${base}:topic=${topic}:anchor=${anchor}`);
+    if (topic) aliases.push(`${base}:topic=${topic}`);
+    if (competency && anchor) aliases.push(`${base}:competency=${competency}:anchor=${anchor}`);
+    if (competency) aliases.push(`${base}:competency=${competency}`);
+  }
+
+  return Array.from(new Set(aliases));
+}
+
+function uploadedImageIndexObjectKey(alias: string): string {
+  const indexHash = createHash('sha256').update(alias).digest('hex');
+  return `${SEMANTIC_IMAGE_CACHE_PREFIX}/_uploaded-index/${indexHash}.json`;
+}
+
+function uploadedImageObjectKey(input: ImageCacheInput, cacheKey: string, contentType: string): string {
+  const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  const subject = semanticSubjectSlug(metadata);
+  const gradeScope = semanticGradeScopeSlug(metadata);
+  const topic = semanticTopicSlug(metadata, subject);
+  const unit = uploadedImageUnitSlug(metadata) || 'all-units';
+  const role = slugify(metadata.slideTemplate || metadata.visualRole, 'content');
+  const anchor = slugify(metadata.semanticAnchor, 'manual-upload');
+  const extension = extensionFromContentType(contentType);
+
+  return `${SEMANTIC_IMAGE_CACHE_PREFIX}/_uploaded/${subject}/${gradeScope}/${topic}/${unit}/${role}/${anchor}-${cacheKey.slice(0, 12)}/image.${extension}`;
+}
+
+async function getUploadedSemanticR2Image(
+  input: ImageCacheInput,
+  config: R2ImageCacheConfig,
+  cacheKey: string,
+): Promise<CachedImage | null> {
+  const aliases = uploadedImageAliases(input);
+  const records = await Promise.all(
+    aliases.map((alias) => getR2JsonRecord<UploadedImageCacheRecord>(uploadedImageIndexObjectKey(alias), config)),
+  );
+
+  for (const record of records) {
+    if (!record?.objectKey) continue;
+
+    const uploadedImage = await getCachedR2ImageObject(record.objectKey, record.cacheKey || cacheKey, config);
+    if (uploadedImage) {
+      console.info('Uploaded semantic image override hit.', {
+        ...semanticLookupLogMetadata(input, config),
+        objectKey: record.objectKey,
+      });
+      return uploadedImage;
+    }
+  }
+
+  return null;
+}
+
 async function getKvRecord<T>(key: string): Promise<T | null> {
   const config = getKvConfig();
   if (!config) return null;
@@ -718,11 +807,17 @@ async function getCachedSemanticR2Image(
 ): Promise<CachedImage | null> {
   const semanticCacheKey = createSemanticCacheKey(input, config.cacheSecret);
   if (!semanticCacheKey) {
-    return getCachedCuratedSemanticR2Image(input, config, createPromptHash(input, config.cacheSecret));
+    const promptCacheKey = createPromptHash(input, config.cacheSecret);
+    const curatedImage = await getCachedCuratedSemanticR2Image(input, config, promptCacheKey);
+    if (curatedImage) return curatedImage;
+    return getUploadedSemanticR2Image(input, config, promptCacheKey);
   }
 
   const curatedImage = await getCachedCuratedSemanticR2Image(input, config, semanticCacheKey);
   if (curatedImage) return curatedImage;
+
+  const uploadedImage = await getUploadedSemanticR2Image(input, config, semanticCacheKey);
+  if (uploadedImage) return uploadedImage;
 
   const indexObjectKey = semanticIndexObjectKey(input);
   if (indexObjectKey) {
@@ -930,18 +1025,91 @@ async function setCachedSemanticR2Image(
   }
 }
 
+async function setUploadedSemanticR2Image(
+  input: ImageCacheInput,
+  imageBytes: string,
+  contentType: string,
+  config: R2ImageCacheConfig,
+): Promise<CachedImage | null> {
+  if (input.imageSource !== 'manual-upload') return null;
+
+  const safeContentType = normalizeImageContentType(contentType);
+  if (!safeContentType) {
+    console.warn('Refused to cache uploaded image with unsupported content type.', { contentType });
+    return null;
+  }
+
+  const aliases = uploadedImageAliases(input);
+  if (aliases.length === 0) return null;
+
+  const buffer = Buffer.from(imageBytes, 'base64');
+  if (buffer.length === 0) return null;
+
+  const cacheKey = createSemanticCacheKey(input, config.cacheSecret) || createPromptHash(input, config.cacheSecret);
+  const objectKey = uploadedImageObjectKey(input, cacheKey, safeContentType);
+  const metadata = normalizeSemanticMetadata(input.semanticMetadata);
+  const promptHash = createPromptHash(input, config.cacheSecret);
+  const record: UploadedImageCacheRecord = {
+    version: SEMANTIC_IMAGE_CACHE_PREFIX,
+    source: 'manual-upload',
+    cacheKey,
+    objectKey,
+    contentType: safeContentType,
+    createdAt: new Date().toISOString(),
+    promptHash,
+    metadata,
+    aliases,
+  };
+
+  try {
+    await getClient(config).send(new PutObjectCommand({
+      Bucket: config.bucketName,
+      Key: objectKey,
+      Body: buffer,
+      ContentType: safeContentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+      Metadata: {
+        cacheKey,
+        source: 'manual-upload',
+        subject: (metadata.subject || metadata.topic || 'general').slice(0, 128),
+        visualRole: (metadata.visualRole || 'content').slice(0, 64),
+        ...attributionMetadata(input.imageAttribution),
+      },
+    }));
+
+    await Promise.all(
+      aliases.map((alias) => setR2JsonRecord<UploadedImageCacheRecord>(uploadedImageIndexObjectKey(alias), record, config)),
+    );
+
+    const dataUrl = dataUrlFromBuffer(buffer, safeContentType);
+    if (!dataUrl) return null;
+
+    return {
+      dataUrl,
+      cacheKey,
+      objectKey,
+      attribution: input.imageAttribution,
+    };
+  } catch (error) {
+    const statusCode = (error as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode;
+    console.warn('Failed to write uploaded semantic image data.', statusCode ? { statusCode } : undefined);
+    return null;
+  }
+}
+
 export async function setCachedR2Image(input: ImageCacheInput, imageBytes: string, contentType: string): Promise<CachedImage | null> {
   const config = getConfig();
   if (!config) return null;
 
+  const uploadedStoredImage = await setUploadedSemanticR2Image(input, imageBytes, contentType, config);
   const semanticStoredImage = await setCachedSemanticR2Image(input, imageBytes, contentType, config);
   const stableCacheIds = getStableCacheIds(input);
   if (stableCacheIds.length === 0) {
     const storedImage = await setCachedR2ImageForKey(input, imageBytes, contentType, config);
-    return semanticStoredImage || storedImage;
+    return uploadedStoredImage || semanticStoredImage || storedImage;
   }
 
-  let firstStoredImage: CachedImage | null = semanticStoredImage;
+  let firstStoredImage: CachedImage | null = uploadedStoredImage || semanticStoredImage;
   for (const cacheId of stableCacheIds) {
     const storedImage = await setCachedR2ImageForKey(input, imageBytes, contentType, config, cacheId);
     if (!firstStoredImage && storedImage) {

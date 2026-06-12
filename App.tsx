@@ -2726,6 +2726,9 @@ const buildSlideImageSemanticMetadata = (
     gradeLevel,
     gradeBand: getGradeBand(gradeLevel),
     learningCompetency: getImageSemanticScopeValue(semanticScope, 'learningCompetency'),
+    planUnitLabel: getImageSemanticScopeValue(semanticScope, 'planUnitLabel'),
+    planUnitNumber: getImageSemanticScopeValue(semanticScope, 'planUnitNumber'),
+    planUnitTitle: getImageSemanticScopeValue(semanticScope, 'planUnitTitle'),
     visualRole: getSlideImageRole(slide),
     slideTemplate: getSlideImageTemplateKey(slide),
     semanticAnchor: getSlideImageSemanticAnchor(slide, prompt),
@@ -2734,13 +2737,22 @@ const buildSlideImageSemanticMetadata = (
   };
 };
 
-const buildK12ImageSemanticScope = (blueprint: Pick<LessonBlueprint, 'mainTitle' | 'subject' | 'gradeLevel' | 'learningCompetency'>) => ({
+const buildK12ImageSemanticScope = (
+  blueprint: Pick<LessonBlueprint, 'mainTitle' | 'subject' | 'gradeLevel' | 'learningCompetency'>,
+  planUnit?: Pick<DayPlan, 'dayNumber' | 'title'>,
+  planUnitLabel?: string,
+) => ({
   level: 'k12',
   format: DEFAULT_LESSON_FORMAT,
   subject: blueprint.subject,
   topic: blueprint.mainTitle,
   gradeLevel: blueprint.gradeLevel,
   learningCompetency: blueprint.learningCompetency,
+  ...(planUnit ? {
+    planUnitLabel: planUnitLabel || DEFAULT_PLAN_UNIT_LABEL,
+    planUnitNumber: String(planUnit.dayNumber),
+    planUnitTitle: planUnit.title,
+  } : {}),
 });
 
 const buildTopicImageSemanticScope = (level: TeachingLevel, topic: string, format?: string) => ({
@@ -3678,7 +3690,7 @@ const App: React.FC = () => {
           unitLabel,
           dayToGenerate.dayNumber,
         ]);
-        const imageSemanticScope = buildK12ImageSemanticScope(lessonBlueprint);
+        const imageSemanticScope = buildK12ImageSemanticScope(lessonBlueprint, dayToGenerate, unitLabel);
 
         setLoadingMessage(
           t.presentation.loadingDailySlides

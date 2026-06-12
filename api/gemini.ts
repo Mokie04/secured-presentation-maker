@@ -913,6 +913,11 @@ export default async function handler(req: any, res: any) {
         cacheId: imageRequest.cacheId,
         semanticCacheId: imageRequest.semanticCacheId,
         semanticMetadata: imageRequest.semanticMetadata,
+        imageSource: 'manual-upload',
+        imageAttribution: {
+          provider: 'upload',
+          label: 'Teacher uploaded image',
+        },
       }, uploadedImage.base64, uploadedImage.mime);
 
       console.info('Manual image cache write', {
