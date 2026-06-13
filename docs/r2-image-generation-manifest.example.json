@@ -1,0 +1,33 @@
+{
+  "defaults": {
+    "collection": "science-force-motion",
+    "level": "k12",
+    "format": "K-12",
+    "subject": "Science",
+    "topic": "Force and Motion",
+    "gradeLevel": "Grade 9",
+    "gradeBand": "7-10",
+    "learningCompetency": "MELC or BOW competency",
+    "language": "EN",
+    "style": "photorealistic"
+  },
+  "sources": [
+    {
+      "path": "./sources/lesson-exemplar.pdf",
+      "kind": "lesson-exemplar",
+      "label": "Lesson Exemplar"
+    },
+    {
+      "path": "./sources/bow.docx",
+      "kind": "bow",
+      "label": "Budget of Work"
+    }
+  ],
+  "generation": {
+    "count": 12,
+    "aspectRatio": "16:9",
+    "provider": "replicate",
+    "concurrency": 1,
+    "autoCurated": true
+  }
+}

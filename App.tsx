@@ -12,6 +12,7 @@ import { useLanguage } from './contexts/LanguageContext';
 import { translations } from './lib/translations';
 import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
+import { IMAGE_SEMANTIC_CACHE_VERSION } from './lib/imageSemantic';
 import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from './lib/branding';
 
 
@@ -95,8 +96,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v35';
-const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v25';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v36';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -442,11 +442,15 @@ const buildK12InitialSlides = (blueprint: LessonBlueprint, language: AppLanguage
           title: blueprint.mainTitle,
           content: [`Asignatura: ${blueprint.subject}`, `Baitang: ${blueprint.gradeLevel}`, `Markahan: ${blueprint.quarter}`],
           speakerNotes: 'Batiin ang klase at ipakilala nang maikli ang pangunahing paksa para sa linggo.',
+          imagePrompt: '',
+          imageStyle: 'none',
         },
         {
           title: 'Mga Layunin sa Pagkatuto',
           content: blueprint.studentFacingObjectives,
           speakerNotes: 'Basahin ang mga layunin. Ipaliwanag kung ano ang inaasahang magagawa ng mga mag-aaral sa pagtatapos ng aralin.',
+          imagePrompt: '',
+          imageStyle: 'none',
         },
       ]
     : [
@@ -454,11 +458,15 @@ const buildK12InitialSlides = (blueprint: LessonBlueprint, language: AppLanguage
           title: blueprint.mainTitle,
           content: [`Subject: ${blueprint.subject}`, `Grade Level: ${blueprint.gradeLevel}`, `Quarter: ${blueprint.quarter}`],
           speakerNotes: 'Welcome the class and briefly introduce the main topic for the week.',
+          imagePrompt: '',
+          imageStyle: 'none',
         },
         {
           title: 'Learning Objectives',
           content: blueprint.studentFacingObjectives,
           speakerNotes: 'Read the objectives aloud. Explain what students will be able to do by the end of the week. These are the simplified goals. The full SMART objectives are in your lesson plan for reference.',
+          imagePrompt: '',
+          imageStyle: 'none',
         },
       ]
 );
@@ -811,6 +819,18 @@ const extractAltChunkDocxText = async (arrayBuffer: ArrayBuffer): Promise<string
 const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
   blueprint?.planUnitLabel?.trim() || DEFAULT_PLAN_UNIT_LABEL
 );
+
+const shouldShowPlanUnitFocus = (focus: string | undefined, unitLabel: string, dayNumber: number): boolean => {
+  const normalized = (focus || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  if (!normalized) return false;
+  const unit = unitLabel.trim().toLowerCase() || DEFAULT_PLAN_UNIT_LABEL.toLowerCase();
+  return normalized !== `${unit} ${dayNumber}`
+    && !normalized.includes('uploaded lesson plan')
+    && !normalized.includes('provided lesson plan')
+    && !normalized.includes('uploaded content')
+    && !normalized.includes('source material')
+    && !normalized.includes('source document');
+};
 
 const waitForDuration = (durationMs: number): Promise<void> => (
   new Promise((resolve) => setTimeout(resolve, durationMs))
@@ -2764,6 +2784,20 @@ const PAID_IMAGE_TEMPLATE_PRIORITY: Record<string, number> = {
   content: 64,
 };
 
+const SESSION_SPECIFIC_IMAGE_CACHE_TEMPLATES = new Set([
+  'activity',
+  'application',
+  'assessment',
+  'practice',
+]);
+
+const shouldScopeImageCacheToPlanUnit = (metadata: ImageSemanticMetadata): boolean => {
+  const template = metadata.slideTemplate || metadata.visualRole || '';
+  const role = metadata.visualRole || '';
+  return Boolean(metadata.planUnitNumber || metadata.planUnitTitle)
+    && (SESSION_SPECIFIC_IMAGE_CACHE_TEMPLATES.has(template) || SESSION_SPECIFIC_IMAGE_CACHE_TEMPLATES.has(role));
+};
+
 const getPaidImagePriorityScore = (slide: Slide, slideIndex: number): number => {
   const template = slide.imageSemanticMetadata?.slideTemplate || getSlideImageTemplateKey(slide);
   const role = slide.imageSemanticMetadata?.visualRole || getSlideImageRole(slide);
@@ -2772,6 +2806,52 @@ const getPaidImagePriorityScore = (slide: Slide, slideIndex: number): number => 
   const earlySlideBoost = Math.max(0, 8 - slideIndex);
 
   return Math.max(templateScore, roleScore) + earlySlideBoost;
+};
+
+const TEXT_ONLY_IMAGE_TEMPLATES = new Set([
+  'overview',
+  'objectives',
+  'success-criteria',
+  'review',
+  'summary',
+  'generalization',
+  'assignment',
+]);
+
+const REQUIRED_INSTRUCTIONAL_IMAGE_TEMPLATES = new Set([
+  'activity',
+  'application',
+  'assessment',
+  'practice',
+  'model',
+]);
+
+const REQUIRED_INSTRUCTIONAL_IMAGE_PATTERN = /\b(?:diagram|model|layout|parts?|components?|structure|process|cycle|steps?|sequence|timeline|map|compare|comparison|before|after|sort|classify|classification|demonstration|demo|experiment|investigation|observe|observation|evidence|specimen|materials?|tools?|equipment|facility|facilities|house|setup|worksheet|output|sample|graph|chart|table|plot|measure|measuring|draw|drawing|construct|construction)\b/i;
+
+const isTextOnlyImageTemplate = (template: string, role: string): boolean => (
+  TEXT_ONLY_IMAGE_TEMPLATES.has(template) || TEXT_ONLY_IMAGE_TEMPLATES.has(role)
+);
+
+const shouldRequireInstructionalImage = (slide: Slide): boolean => {
+  const explicitPrompt = (slide.imagePrompt || '').trim();
+  if (!explicitPrompt || slide.imageStyle === 'none') return false;
+
+  const template = slide.imageSemanticMetadata?.slideTemplate || getSlideImageTemplateKey(slide);
+  const role = slide.imageSemanticMetadata?.visualRole || getSlideImageRole(slide);
+  if (isTextOnlyImageTemplate(template, role)) return false;
+  if (slide.visualLayout === 'evidence') return true;
+  if (REQUIRED_INSTRUCTIONAL_IMAGE_TEMPLATES.has(template) || REQUIRED_INSTRUCTIONAL_IMAGE_TEMPLATES.has(role)) {
+    return true;
+  }
+
+  const slideText = [
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.speakerNotes,
+    explicitPrompt,
+  ].filter(Boolean).join(' ');
+
+  return REQUIRED_INSTRUCTIONAL_IMAGE_PATTERN.test(slideText);
 };
 
 const getSlideImageSemanticAnchor = (slide: Slide, prompt: string): string => {
@@ -2946,8 +3026,8 @@ const GENERIC_REQUEST_ERROR = 'Something went wrong while processing your reques
 const SERVICE_LIMIT_ERROR = 'A service limit or billing issue prevented this request. Please contact the administrator.';
 const SERVICE_BUSY_ERROR = 'The service is temporarily busy. Please try again in about 1 minute.';
 const SERVER_CONFIG_ERROR = 'A required server configuration is missing or invalid. Please contact the administrator.';
-const IMAGE_LIMIT_ERROR = 'Image generation is temporarily unavailable. A placeholder was added so the slide can still be used.';
-const IMAGE_LIMIT_BATCH_ERROR = 'Image generation is temporarily unavailable. Placeholder slides were added so the deck can still be used.';
+const IMAGE_LIMIT_ERROR = 'Image generation is temporarily unavailable. The slide can still be used without a generated image.';
+const IMAGE_LIMIT_BATCH_ERROR = 'Image generation is temporarily unavailable. Slides that do not require images will stay text-only.';
 
 const getErrorMessage = (error: unknown): string => (
   error instanceof Error ? error.message : String(error || '')
@@ -3274,10 +3354,8 @@ const App: React.FC = () => {
     }
 
     const primary = (slide.imagePrompt || '').trim();
-    const fallback = buildFallbackImagePrompt(slide);
-    const bestPrompt = primary || fallback;
-    return bestPrompt ? [bestPrompt] : [];
-  }, [buildFallbackImagePrompt]);
+    return primary ? [primary] : [];
+  }, []);
 
   const buildImageSemanticCacheId = useCallback(async (
     semanticMetadata: ImageSemanticMetadata,
@@ -3288,13 +3366,24 @@ const App: React.FC = () => {
       return undefined;
     }
     const semanticAnchor = slugifyImageSemanticText(semanticMetadata.semanticAnchor || template).slice(0, 120);
-
-    return buildGenerationCacheKey('image-semantic', [
+    const cacheParts = [
       IMAGE_SEMANTIC_CACHE_VERSION,
       semanticMetadata.level || 'general',
       semanticMetadata.subject || 'general',
       semanticMetadata.topic || 'general',
       semanticMetadata.gradeBand || semanticMetadata.gradeLevel || 'all-grades',
+    ];
+
+    if (shouldScopeImageCacheToPlanUnit(semanticMetadata)) {
+      cacheParts.push(
+        semanticMetadata.planUnitLabel || 'unit',
+        semanticMetadata.planUnitNumber || 'un-numbered',
+        semanticMetadata.planUnitTitle || 'untitled-unit',
+      );
+    }
+
+    return buildGenerationCacheKey('image-semantic', [
+      ...cacheParts,
       semanticLanguage,
       template,
       semanticMetadata.visualRole || 'content',
@@ -3309,7 +3398,7 @@ const App: React.FC = () => {
     semanticScope?: unknown,
     existingSemanticMetadata?: ImageSemanticMetadata
   ): Promise<string | undefined> => {
-    const prompt = (slide.imagePrompt || buildFallbackImagePrompt(slide)).trim();
+    const prompt = (slide.imagePrompt || '').trim();
     if (!prompt || slide.imageStyle === 'none') {
       return undefined;
     }
@@ -3317,7 +3406,7 @@ const App: React.FC = () => {
     const semanticMetadata = existingSemanticMetadata
       || buildSlideImageSemanticMetadata(slide, prompt, semanticLanguage, semanticScope);
     return buildImageSemanticCacheId(semanticMetadata, semanticLanguage);
-  }, [buildFallbackImagePrompt, buildImageSemanticCacheId]);
+  }, [buildImageSemanticCacheId]);
 
   const processSlidesForImages = async (
     slidesWithPrompts: Slide[],
@@ -3326,13 +3415,11 @@ const App: React.FC = () => {
   ): Promise<Slide[]> => {
     const muteProgress = options?.muteProgress === true;
     const attachImageCacheIds = async (slide: Slide, slideIndex: number): Promise<Slide> => {
-        const imagePrompt = slide.imageStyle === 'none'
-          ? (slide.imagePrompt || '')
-          : (slide.imagePrompt || buildFallbackImagePrompt(slide));
+        const imagePrompt = slide.imageStyle === 'none' ? '' : (slide.imagePrompt || '').trim();
         const slideWithPrompt = { ...slide, imagePrompt };
         const imageSemanticMetadata = slide.imageSemanticMetadata || buildSlideImageSemanticMetadata(
           slideWithPrompt,
-          imagePrompt,
+          imagePrompt || buildFallbackImagePrompt(slideWithPrompt),
           language,
           options?.imageSemanticScope
         );
@@ -3357,47 +3444,22 @@ const App: React.FC = () => {
     if (IMAGES_DISABLED) {
         return Promise.all(slidesWithPrompts.map(async (s, slideIndex) => {
           const slideWithCacheIds = await attachImageCacheIds(s, slideIndex);
-          return {
-            ...slideWithCacheIds,
-            imageUrl: IMAGE_SKIPPED_PLACEHOLDER,
-          };
+          return buildImagePromptCandidates(slideWithCacheIds).length > 0
+            && shouldRequireInstructionalImage(slideWithCacheIds)
+            ? {
+                ...slideWithCacheIds,
+                imageUrl: IMAGE_SKIPPED_PLACEHOLDER,
+              }
+            : {
+                ...slideWithCacheIds,
+                imageUrl: undefined,
+                imageAttribution: undefined,
+              };
         }));
     }
     let rateLimitWasHit = false;
-    
-    const imagesToGenerate = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0 && !s.imageUrl);
-    const totalImagesToAttempt = imagesToGenerate.length;
-    let imagesAttemptedCounter = 0;
-    
-    const paidImagesLeftToday = Math.max(0, limits.images - images);
-    const paidImageAttemptsAllowed = Math.min(
-      totalImagesToAttempt,
-      PAID_IMAGE_ATTEMPTS_PER_DECK_LIMIT,
-      adminImageLimitBypassed ? ADMIN_IMAGE_BATCH_LIMIT : paidImagesLeftToday
-    );
-    const paidImageCandidateIndexes = new Set(
-      slidesWithPrompts
-        .map((slide, slideIndex) => ({
-          slide,
-          slideIndex,
-          score: getPaidImagePriorityScore(slide, slideIndex),
-        }))
-        .filter(({ slide }) => buildImagePromptCandidates(slide).length > 0 && !slide.imageUrl)
-        .sort((a, b) => b.score - a.score || a.slideIndex - b.slideIndex)
-        .slice(0, paidImageAttemptsAllowed)
-        .map(({ slideIndex }) => slideIndex)
-    );
-    const totalImagesThatCanBeGenerated = totalImagesToAttempt;
 
-    if (!muteProgress) {
-      if (totalImagesThatCanBeGenerated > 0) {
-          setLoadingProgress(0);
-      } else if (totalImagesToAttempt > 0) {
-          console.warn("Daily image limit reached or no prompts found. Skipping image generation.");
-      }
-    }
-
-    const resolveSlideImage = async (slide: Slide, slideIndex: number): Promise<Slide> => {
+    const resolveFreeSlideImage = async (slide: Slide, slideIndex: number): Promise<Slide> => {
         let newSlide = await attachImageCacheIds(slide, slideIndex);
         const promptCandidates = buildImagePromptCandidates(newSlide);
         if (!newSlide.imageUrl && promptCandidates.length > 0) {
@@ -3434,75 +3496,154 @@ const App: React.FC = () => {
                 return newSlide;
             }
 
-            const allowPaidImageGeneration = !rateLimitWasHit
-              && paidImageCandidateIndexes.has(slideIndex)
-              && (adminImageLimitBypassed || canGenerateImage);
-
-            if (rateLimitWasHit && !allowPaidImageGeneration) {
-                const fallbackImageUrl = getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata);
-                if (fallbackImageUrl) {
-                    newSlide.imageUrl = fallbackImageUrl;
-                    newSlide.imageAttribution = undefined;
-                    return newSlide;
+            try {
+                const imageResult = await generateImageResultFromPrompt(
+                  promptForGeneration,
+                  newSlide.imageStyle,
+                  language,
+                  newSlide.imageCacheId,
+                  newSlide.imageSemanticCacheId,
+                  newSlide.imageSemanticMetadata,
+                  false
+                );
+                if (isRejectedScienceParticleModelImageUrl(imageResult.dataUrl, newSlide.imageSemanticMetadata)) {
+                    throw new Error('Free image resolution returned an old SVG/static particle-model visual.');
                 }
-            }
-
-            {
-                imagesAttemptedCounter++;
-                if (!muteProgress) {
-                  setLoadingMessage(t.presentation.loadingImages.replace('{current}', imagesAttemptedCounter.toString()).replace('{total}', totalImagesThatCanBeGenerated.toString()));
-                }
-                
-                if (!muteProgress && totalImagesThatCanBeGenerated > 0) {
-                    const progress = (imagesAttemptedCounter / totalImagesThatCanBeGenerated) * 100;
-                    setLoadingProgress(progress);
-                }
-                
-                try {
-                    const generateImage = () => generateImageResultFromPrompt(
-                      promptForGeneration,
-                      newSlide.imageStyle,
-                      language,
-                      newSlide.imageCacheId,
-                      newSlide.imageSemanticCacheId,
-                      newSlide.imageSemanticMetadata,
-                      allowPaidImageGeneration
-                    );
-                    const imageResult = allowPaidImageGeneration
-                      ? await runQueuedPaidImageGeneration(generateImage)
-                      : await generateImage();
-                    if (isRejectedScienceParticleModelImageUrl(imageResult.dataUrl, newSlide.imageSemanticMetadata)) {
-                        throw new Error('Generated image resolved to an old SVG/static particle-model visual.');
-                    }
-                    newSlide.imageUrl = imageResult.dataUrl || (allowPaidImageGeneration ? IMAGE_SKIPPED_PLACEHOLDER : USER_IMAGE_LIMIT_PLACEHOLDER);
+                if (imageResult.dataUrl) {
+                    newSlide.imageUrl = imageResult.dataUrl;
                     newSlide.imageAttribution = imageResult.attribution;
-                    if (imageResult.dataUrl && !adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
-                        incrementCount('images');
-                    }
-                } catch (imgError) {
-                    console.error('Image generation failed.');
-                    if (isImageProviderLimitError(imgError)) {
-                        rateLimitWasHit = true;
-                        const fallbackImageUrl = getProviderLimitFallbackImageUrl(newSlide.imageSemanticMetadata);
-                        if (fallbackImageUrl) {
-                            newSlide.imageUrl = fallbackImageUrl;
-                        } else {
-                            setError(IMAGE_LIMIT_BATCH_ERROR);
-                            newSlide.imageUrl = PROVIDER_IMAGE_LIMIT_PLACEHOLDER;
-                        }
-                        newSlide.imageAttribution = undefined;
-                    } else {
-                        handleApiError(imgError);
-                        newSlide.imageUrl = 'error';
-                        newSlide.imageAttribution = undefined;
-                    }
                 }
+            } catch {
+                console.warn('Free slide image resolution failed before paid generation.');
             }
         }
         return newSlide;
     };
 
-    return mapWithConcurrency(slidesWithPrompts, IMAGE_PROCESSING_CONCURRENCY, resolveSlideImage);
+    const freeImageCandidates = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0 && !s.imageUrl);
+    let freeImagesResolvedCounter = 0;
+    if (!muteProgress && freeImageCandidates.length > 0) {
+      setLoadingProgress(0);
+    }
+
+    const slidesAfterFreeSources = await mapWithConcurrency(slidesWithPrompts, IMAGE_PROCESSING_CONCURRENCY, async (slide, slideIndex) => {
+        const hasPromptCandidate = buildImagePromptCandidates(slide).length > 0 && !slide.imageUrl;
+        const resolvedSlide = await resolveFreeSlideImage(slide, slideIndex);
+        if (hasPromptCandidate) {
+            freeImagesResolvedCounter++;
+            if (!muteProgress) {
+              setLoadingMessage(t.presentation.loadingImages.replace('{current}', freeImagesResolvedCounter.toString()).replace('{total}', freeImageCandidates.length.toString()));
+              setLoadingProgress((freeImagesResolvedCounter / freeImageCandidates.length) * 50);
+            }
+        }
+        return resolvedSlide;
+    });
+
+    const unresolvedPaidCandidates = slidesAfterFreeSources
+      .map((slide, slideIndex) => ({
+        slide,
+        slideIndex,
+        score: getPaidImagePriorityScore(slide, slideIndex),
+      }))
+      .filter(({ slide }) => (
+        buildImagePromptCandidates(slide).length > 0
+        && !slide.imageUrl
+        && shouldRequireInstructionalImage(slide)
+      ))
+      .sort((a, b) => b.score - a.score || a.slideIndex - b.slideIndex);
+
+    const paidImagesLeftToday = Math.max(0, limits.images - images);
+    const paidImageAttemptsAllowed = Math.min(
+      unresolvedPaidCandidates.length,
+      PAID_IMAGE_ATTEMPTS_PER_DECK_LIMIT,
+      adminImageLimitBypassed ? ADMIN_IMAGE_BATCH_LIMIT : paidImagesLeftToday
+    );
+    const paidImageCandidates = unresolvedPaidCandidates.slice(0, paidImageAttemptsAllowed);
+    const paidCandidateIndexes = new Set(paidImageCandidates.map(({ slideIndex }) => slideIndex));
+    const finalSlides = [...slidesAfterFreeSources];
+
+    if (!muteProgress && freeImageCandidates.length > 0 && paidImageCandidates.length === 0) {
+      setLoadingProgress(100);
+    }
+
+    let paidImagesAttemptedCounter = 0;
+    for (const { slide, slideIndex } of paidImageCandidates) {
+        const promptCandidates = buildImagePromptCandidates(slide);
+        const promptForGeneration = promptCandidates[0];
+        if (!promptForGeneration) continue;
+
+        if (rateLimitWasHit) {
+            const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
+            finalSlides[slideIndex] = fallbackImageUrl
+              ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined }
+              : { ...slide, imageUrl: PROVIDER_IMAGE_LIMIT_PLACEHOLDER, imageAttribution: undefined };
+            continue;
+        }
+
+        paidImagesAttemptedCounter++;
+        if (!muteProgress && paidImageCandidates.length > 0) {
+          setLoadingMessage(t.presentation.loadingImages.replace('{current}', paidImagesAttemptedCounter.toString()).replace('{total}', paidImageCandidates.length.toString()));
+          setLoadingProgress(50 + ((paidImagesAttemptedCounter / paidImageCandidates.length) * 50));
+        }
+
+        try {
+            const imageResult = await runQueuedPaidImageGeneration(() => generateImageResultFromPrompt(
+              promptForGeneration,
+              slide.imageStyle,
+              language,
+              slide.imageCacheId,
+              slide.imageSemanticCacheId,
+              slide.imageSemanticMetadata,
+              true
+            ));
+            if (isRejectedScienceParticleModelImageUrl(imageResult.dataUrl, slide.imageSemanticMetadata)) {
+                throw new Error('Generated image resolved to an old SVG/static particle-model visual.');
+            }
+            finalSlides[slideIndex] = {
+              ...slide,
+              imageUrl: imageResult.dataUrl || IMAGE_SKIPPED_PLACEHOLDER,
+              imageAttribution: imageResult.attribution,
+            };
+            if (imageResult.dataUrl && !adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
+                incrementCount('images');
+            }
+        } catch (imgError) {
+            console.error('Image generation failed.');
+            if (isImageProviderLimitError(imgError)) {
+                rateLimitWasHit = true;
+                const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
+                finalSlides[slideIndex] = fallbackImageUrl
+                  ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined }
+                  : { ...slide, imageUrl: PROVIDER_IMAGE_LIMIT_PLACEHOLDER, imageAttribution: undefined };
+                if (!fallbackImageUrl) {
+                    setError(IMAGE_LIMIT_BATCH_ERROR);
+                }
+            } else {
+                handleApiError(imgError);
+                finalSlides[slideIndex] = { ...slide, imageUrl: 'error', imageAttribution: undefined };
+            }
+        }
+    }
+
+    return finalSlides.map((slide, slideIndex) => {
+      if (
+        slide.imageUrl
+        || buildImagePromptCandidates(slide).length === 0
+        || paidCandidateIndexes.has(slideIndex)
+        || !shouldRequireInstructionalImage(slide)
+      ) {
+        return slide;
+      }
+
+      if (rateLimitWasHit) {
+        const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
+        return fallbackImageUrl
+          ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined }
+          : { ...slide, imageUrl: PROVIDER_IMAGE_LIMIT_PLACEHOLDER, imageAttribution: undefined };
+      }
+
+      return { ...slide, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imageAttribution: undefined };
+    });
   };
 
   const refreshSlidesWithCachedImages = useCallback(async (
@@ -4766,11 +4907,13 @@ const App: React.FC = () => {
                                 <span className="text-xs font-semibold text-brand">{unitLabel.toUpperCase()}</span>
                                 <span className="text-xl font-bold text-brand">{day.dayNumber}</span>
                             </div>
-                            <div>
-                                <h3 className="text-lg font-semibold text-primary">{day.title}</h3>
-                                <p className="text-base text-secondary">{day.focus}</p>
-                            </div>
-                        </div>
+	                            <div>
+	                                <h3 className="text-lg font-semibold text-primary">{day.title}</h3>
+	                                {shouldShowPlanUnitFocus(day.focus, unitLabel, day.dayNumber) && (
+	                                  <p className="text-base text-secondary">{day.focus}</p>
+	                                )}
+	                            </div>
+	                        </div>
                         
                         {day.generationStatus === 'pending' && (
                             <button 

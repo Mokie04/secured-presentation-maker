@@ -118,6 +118,15 @@ npm run upload:curated-images -- ./curated-image-batches/english-grade-7-q1-week
 
 The upload manifest should include one row per approved visual with `collection`, `subject`, `topic`, `gradeLevel`, `gradeBand`, `learningCompetency`, `slideTemplate`, `visualRole`, and `semanticAnchor`. The API first looks for anchor-specific keys such as `generated-images/v2/_curated/english-poetry-imagery/activity/grade-7/anchors/core-memory-sharing/image.png`, then broader fallbacks only when an image has no anchor.
 
+To generate and upload image batches from Lesson Exemplar/BOW source files, create a manifest like `docs/r2-image-generation-manifest.example.json`, then run:
+
+```bash
+npm run generate:r2-images -- ./curated-image-batches/science-force-motion.json --env .env.r2.local --env .env.replicate.local --dry-run
+npm run generate:r2-images -- ./curated-image-batches/science-force-motion.json --env .env.r2.local --env .env.replicate.local --auto-curated
+```
+
+The generator supports PDF, DOCX, TXT, and MD sources. It does not perform OCR, so scanned PDFs must be converted to extractable text first. Real runs create local review artifacts under `outputs/<batch>/`, write generated semantic-cache entries to R2, and upload `_curated` R2 objects only when both `generation.autoCurated` is `true` in the manifest and `--auto-curated` is present on the command line.
+
 Teacher-uploaded slide replacements are also saved to R2 when image caching is configured. These are stored under `generated-images/v2/_uploaded/<subject>/<grade>/<topic>/<session-or-day>/<slide-role>/...` and indexed by subject, grade, topic, session/day, slide role, competency, and semantic anchor. Lookup checks curated approved images first, then teacher-uploaded overrides, then generated/Pexels semantic cache records.
 
 The app also stores successful text generation responses at `generated-text/v1/<hmac>.json`; the HMAC key is derived from the normalized request contents, selected text provider/model, request config, and `R2_GENERATION_CACHE_SECRET` or `R2_IMAGE_CACHE_SECRET`. If any required R2 variable is missing, the app skips shared caching and falls back to direct generation.
@@ -130,7 +139,7 @@ Set `AI_TEXT_PROVIDER=xai` and `XAI_API_KEY` to use xAI/Grok instead. Gemini can
 
 ## Session Alignment
 
-For K-12 uploaded lesson plans, per-session/day slide generation first extracts the selected `Session N` or `Day N` source block when those markers are present. That selected block is treated as the binding source for the generated deck, with the full lesson plan kept only as secondary context. Generated session decks are checked for weak source coverage or wrong-session/day title leakage and retried once with stricter alignment instructions before being shown.
+For K-12 uploaded lesson plans, per-session/day slide generation first extracts the selected `Session N` or `Day N` source block when those markers are present. That selected block is treated as the binding source for a presentation outline, and the slide deck is generated from that outline with the full lesson plan kept only as secondary context. Generated outlines and session decks are checked for weak source coverage or wrong-session/day title leakage and retried once with stricter alignment instructions before being shown.
 
 The header language switch controls the app interface. The input screen has a separate presentation-language control for generated slide text and speaker notes. When an uploaded or pasted lesson plan strongly matches Filipino or Araling Panlipunan markers, such as `Araling Panlipunan`, `Aral-Pan`, `Asignatura: Filipino`, `Baitang`, `Markahan`, `Layunin`, `Pamantayang Pangnilalaman`, `Kasanayang Pampagkatuto`, `Gawain`, `Pagtataya`, or `Takdang-Aralin`, the app auto-selects Filipino for the presentation language before generation. Teachers can override the presentation language manually without changing the interface language.
 

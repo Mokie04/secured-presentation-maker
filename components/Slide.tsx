@@ -257,7 +257,7 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [isEditingLabels, selectedOverlayId, handleRemoveOverlay]);
 
-  const hasImageLayout = !!slide.imageUrl || !!slide.imagePrompt;
+  const hasImageLayout = !!slide.imageUrl;
   const hasContent = slide.content && slide.content.length > 0 && slide.content.some((c) => c.trim() !== '');
   const isEvidenceLayout = hasImageLayout && slide.visualLayout === 'evidence';
   const imagePanelWidthClass = isEvidenceLayout ? 'w-[62%]' : 'w-[48%]';

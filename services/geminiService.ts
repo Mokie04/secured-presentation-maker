@@ -1,6 +1,7 @@
 
 import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata, ImageAttribution } from '../types';
-import { K12_SCIENCE_APPROVED_PRESENTATION_STANDARD } from '../lib/presentationStandards';
+import { K12_ADAPTIVE_PRESENTATION_STANDARD } from '../lib/presentationStandards';
+import { buildFinalImagePrompt } from '../lib/imagePrompting';
 
 type ClientEnv = {
     VITE_GEMINI_PROXY_BASE_URL?: string;
@@ -335,6 +336,28 @@ type SessionAlignmentIssue = {
     message: string;
 };
 
+type PresentationOutlineStep = {
+    section: string;
+    slideTitle: string;
+    slidePurpose: string;
+    sourceEvidence: string[];
+    keyPoints: string[];
+    teacherMove: string;
+    studentAction: string;
+    assessmentCue: string;
+    visualIntent: string;
+};
+
+type PresentationOutline = {
+    title: string;
+    unitLabel: string;
+    unitNumber: number;
+    learningTarget: string;
+    sourceSummary: string;
+    flow: PresentationOutlineStep[];
+    missingSourceDetails: string[];
+};
+
 type PlanUnitMarkerBlockCandidate = {
     index: number;
     text: string;
@@ -386,9 +409,161 @@ const normalizePlanUnitLabel = (label: string | undefined, fallback: PlanUnitLab
     return fallback;
 };
 
+const PLAN_UNIT_OBJECTIVE_HEADING_PATTERN = /\b(?:objectives?|learning\s+(?:objectives?|targets?|outcomes?|competenc(?:y|ies))|success\s+criteria|melc|most\s+essential\s+learning\s+competenc(?:y|ies)|layunin|mga\s+layunin|kasanayang\s+pampagkatuto|kasanayan)\b/i;
+const PLAN_UNIT_OBJECTIVE_ACTION_PATTERN = /\b(?:determine|identify|describe|explain|compare|classify|analy[sz]e|solve|compute|calculate|interpret|construct|represent|differentiate|evaluate|create|use|apply|measure|infer|predict|illustrate|define|recognize|read|write|discuss|relate|natutukoy|matukoy|tukuyin|nailalarawan|mailarawan|ilarawan|naipaliliwanag|maipaliwanag|ipaliwanag|naihahambing|maihambing|nasusuri|masuri|suriin|nakakalkula|makalkula|nakakuwenta|makuwenta|nalulutas|malutas|lutasin|naipakikita|maipakita|nagagamit|magamit|gamitin|nakabubuo|makabuo)\b/i;
+const PLAN_UNIT_OBJECTIVE_LEARNER_SIGNAL_PATTERN = /\b(?:(?:students?|learners?|pupils?)\s+(?:will|should|can|shall|must|are\s+able\s+to|be\s+able\s+to|are\s+expected\s+to(?:\s+be\s+able\s+to)?)|(?:mga\s+)?mag-aaral\s+(?:ay\s+)?(?:inaasahang|maaaring|makakaya(?:ng)?|dapat))\b/i;
+const PLAN_UNIT_STANDARD_LABEL_PATTERN = /\b(?:content\s+standard|performance\s+standard|pamantayang\s+pangnilalaman|pamantayan\s+sa\s+pagganap)\b/i;
+
+function isGenericPlanUnitSummary(value: unknown, unitLabel: PlanUnitLabel, dayNumber: number): boolean {
+    const normalized = normalizeSourceText(typeof value === 'string' ? value : '');
+    if (!normalized) return true;
+
+    const unit = unitLabel.toLowerCase();
+    return normalized === `${unit} ${dayNumber}`
+        || normalized === `${unit} ${dayNumber}.`
+        || normalized.includes('uploaded lesson plan')
+        || normalized.includes('provided lesson plan')
+        || normalized.includes('uploaded content')
+        || normalized.includes('source material')
+        || normalized.includes('source document');
+}
+
+function cleanPlanUnitFocusCandidateLine(line: string, unitLabel: PlanUnitLabel, dayNumber: number): string {
+    let cleaned = line
+        .replace(/\|/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    cleaned = cleaned
+        .replace(planUnitMarkerRegex(unitLabel, dayNumber, 'i'), '')
+        .replace(/^\s*(?:[-•*]|\(?[a-zA-Z]\)|[a-zA-Z][\).]|\d+[\).])\s*/, '')
+        .replace(/^\s*(?:focus|topic|paksa|lesson|title|content|objectives?|learning\s+(?:objectives?|targets?|outcomes?|competenc(?:y|ies))(?:\s*\/\s*objectives?)?|competenc(?:y|ies)(?:\s*\/\s*objectives?)?|melc|layunin|mga\s+layunin|kasanayang\s+pampagkatuto|kasanayan|activity|gawain|materials?|assessment|evaluation)\s*[:\-–—]\s*/i, '')
+        .replace(/\b(?:from|of)\s+(?:the\s+)?(?:uploaded|provided)\s+(?:lesson\s+plan|content|source|material|document)\b/gi, '')
+        .replace(/^[\s:;,\-–—]+|[\s:;,\-–—]+$/g, '')
+        .trim();
+
+    if (cleaned.length < 12 || isGenericPlanUnitSummary(cleaned, unitLabel, dayNumber)) return '';
+    return cleaned;
+}
+
+function normalizeObjectiveFocusText(value: string, unitLabel: PlanUnitLabel, dayNumber: number): string {
+    let cleaned = cleanPlanUnitFocusCandidateLine(value, unitLabel, dayNumber);
+    if (!cleaned) return '';
+
+    cleaned = cleaned
+        .replace(/^(?:(?:at|by)\s+the\s+end\s+of\s+(?:the\s+)?(?:lesson|session|period|discussion|activity|week),?\s*)/i, '')
+        .replace(/^(?:(?:the\s+)?(?:students?|learners?|pupils?)|(?:mga\s+)?mag-aaral)\s+(?:will|should|can|shall|must|are\s+able\s+to|be\s+able\s+to|are\s+expected\s+to(?:\s+be\s+able\s+to)?|ay\s+inaasahang|ay\s+maaaring|ay\s+makakaya(?:ng)?|dapat)\s*/i, '')
+        .replace(/^(?:be\s+able\s+to|able\s+to|to)\s+/i, '')
+        .replace(/^[\s:;,\-–—]+|[\s:;,\-–—.]+$/g, '')
+        .trim();
+
+    if (cleaned.length < 12 || isGenericPlanUnitSummary(cleaned, unitLabel, dayNumber)) return '';
+
+    const clipped = cleaned.length > 150 ? `${cleaned.slice(0, 147).trim()}...` : cleaned;
+    return clipped.replace(/^[a-z]/, (letter) => letter.toUpperCase());
+}
+
+function extractPlanUnitObjectiveFocus(sourceText: string, unitLabel: PlanUnitLabel, dayNumber: number): string {
+    const candidates: Array<{ text: string; score: number; index: number }> = [];
+    const seen = new Set<string>();
+    let latestObjectiveHeadingIndex = -1;
+
+    sourceText.split(/\r?\n/).forEach((line, index) => {
+        const raw = line.replace(/\s+/g, ' ').trim();
+        if (!raw) return;
+
+        const hasObjectiveHeading = PLAN_UNIT_OBJECTIVE_HEADING_PATTERN.test(raw);
+        const hasLearnerSignal = PLAN_UNIT_OBJECTIVE_LEARNER_SIGNAL_PATTERN.test(raw);
+        const opensObjectiveList = hasObjectiveHeading || (hasLearnerSignal && /:\s*$/.test(raw));
+        if (opensObjectiveList) {
+            latestObjectiveHeadingIndex = index;
+        }
+
+        const isBroadStandard = PLAN_UNIT_STANDARD_LABEL_PATTERN.test(raw) && !hasObjectiveHeading;
+        if (isBroadStandard) return;
+
+        const text = normalizeObjectiveFocusText(raw, unitLabel, dayNumber);
+        if (!text) return;
+
+        const hasAction = PLAN_UNIT_OBJECTIVE_ACTION_PATTERN.test(text);
+        const isUnderObjectiveHeading = latestObjectiveHeadingIndex >= 0
+            && index > latestObjectiveHeadingIndex
+            && index - latestObjectiveHeadingIndex <= 10;
+
+        if (!hasAction && !hasObjectiveHeading && !hasLearnerSignal && !isUnderObjectiveHeading) return;
+
+        const key = normalizeSourceText(text);
+        if (seen.has(key)) return;
+        seen.add(key);
+
+        const headingDistance = isUnderObjectiveHeading ? index - latestObjectiveHeadingIndex : 0;
+        const score = (hasAction ? 140 : 0)
+            + (hasObjectiveHeading ? 90 : 0)
+            + (hasLearnerSignal ? 70 : 0)
+            + (isUnderObjectiveHeading ? Math.max(20, 80 - headingDistance * 6) : 0)
+            + Math.min(text.length, 120);
+
+        candidates.push({ text, score, index });
+    });
+
+    return candidates
+        .sort((a, b) => b.score - a.score || a.index - b.index || a.text.length - b.text.length)[0]?.text || '';
+}
+
+function summarizePlanUnitSourceText(
+    sourceText: string,
+    unitLabel: PlanUnitLabel,
+    dayNumber: number,
+    language: 'EN' | 'FIL',
+): string {
+    const objectiveFocus = extractPlanUnitObjectiveFocus(sourceText, unitLabel, dayNumber);
+    if (objectiveFocus) return objectiveFocus;
+
+    const candidates = sourceText
+        .split(/\r?\n/)
+        .map((line) => cleanPlanUnitFocusCandidateLine(line, unitLabel, dayNumber))
+        .filter(Boolean)
+        .map((text) => {
+            const actionScore = /\b(activity|demo|experiment|sort|compare|classify|analyze|explain|model|practice|application|assessment|exit|ticket|gawain|pagsasanay|pagtataya|talakayan|suriin|ipaliwanag|uriin)\b/i.test(text)
+                ? 80
+                : 0;
+            const lengthScore = Math.min(text.length, 140);
+            return { text, score: actionScore + lengthScore };
+        })
+        .sort((a, b) => b.score - a.score || a.text.length - b.text.length);
+
+    const bestLine = candidates[0]?.text;
+    if (bestLine) {
+        return bestLine.length > 150 ? `${bestLine.slice(0, 147).trim()}...` : bestLine;
+    }
+
+    const terms = extractImportantTerms(sourceText, 5);
+    if (terms.length >= 2) {
+        const joinedTerms = terms.slice(0, 4).join(', ');
+        return language === 'FIL'
+            ? `Tumutok sa ${joinedTerms}`
+            : `Focus on ${joinedTerms}`;
+    }
+
+    return '';
+}
+
+function derivePlanUnitFocusFromSource(
+    sourceContent: string | undefined,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+    language: 'EN' | 'FIL',
+): string {
+    if (!sourceContent?.trim()) return '';
+    const sourceBlock = extractPlanUnitSourceBlock(sourceContent, unitLabel, day);
+    return summarizePlanUnitSourceText(sourceBlock.text, unitLabel, day.dayNumber, language);
+}
+
 const normalizeLessonBlueprintUnits = (
     blueprint: LessonBlueprint,
     inferred: InferredPlanUnitInfo,
+    sourceContent?: string,
+    language: 'EN' | 'FIL' = 'EN',
 ): LessonBlueprint => {
     const planUnitLabel = normalizePlanUnitLabel(blueprint.planUnitLabel, inferred.label || 'Day');
     const subject = normalizeGeneratedString(blueprint.subject, 'Uploaded lesson plan');
@@ -409,11 +584,23 @@ const normalizeLessonBlueprintUnits = (
     const normalizedDays = (Array.isArray(blueprint.days) ? blueprint.days : [])
         .map((day, index) => {
             const dayNumber = Number.isFinite(day.dayNumber) && day.dayNumber > 0 ? day.dayNumber : index + 1;
+            const title = normalizeGeneratedString(day.title, `${planUnitLabel} ${dayNumber}`);
+            const fallbackDay = {
+                ...day,
+                dayNumber,
+                title,
+                focus: normalizeGeneratedString(day.focus),
+                generationStatus: day.generationStatus || 'pending' as const,
+            };
+            const sourceDerivedFocus = derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, fallbackDay, language);
+            const modelFocus = isGenericPlanUnitSummary(fallbackDay.focus, planUnitLabel, dayNumber)
+                ? ''
+                : fallbackDay.focus;
             return {
                 ...day,
                 dayNumber,
-                title: normalizeGeneratedString(day.title, `${planUnitLabel} ${dayNumber}`),
-                focus: normalizeGeneratedString(day.focus, `${planUnitLabel} ${dayNumber} from the uploaded lesson plan`),
+                title,
+                focus: sourceDerivedFocus || modelFocus,
                 generationStatus: day.generationStatus || 'pending' as const,
             };
         })
@@ -421,7 +608,12 @@ const normalizeLessonBlueprintUnits = (
     const fallbackDay = {
         dayNumber: 1,
         title: `${planUnitLabel} 1`,
-        focus: `${planUnitLabel} 1 from the uploaded lesson plan`,
+        focus: derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
+            dayNumber: 1,
+            title: `${planUnitLabel} 1`,
+            focus: '',
+            generationStatus: 'pending',
+        }, language),
         generationStatus: 'pending' as const,
     };
 
@@ -446,7 +638,12 @@ const normalizeLessonBlueprintUnits = (
         return byNumber.get(dayNumber) || {
             dayNumber,
             title: `${planUnitLabel} ${dayNumber}`,
-            focus: `${planUnitLabel} ${dayNumber} from the uploaded lesson plan`,
+            focus: derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
+                dayNumber,
+                title: `${planUnitLabel} ${dayNumber}`,
+                focus: '',
+                generationStatus: 'pending',
+            }, language),
             generationStatus: 'pending' as const,
         };
     });
@@ -468,6 +665,14 @@ const normalizeLessonBlueprintUnits = (
 const SOURCE_EXTRACT_MAX_CHARS = 12_000;
 const SOURCE_CONTEXT_MAX_CHARS = 18_000;
 const MAX_ALIGNMENT_REPAIR_ATTEMPTS = 1;
+
+function getK12FlowReference(format: string): string {
+    if (format === 'K-12') return `A. Review (IV-A), B. Motivation (IV-B), C. Content (IV-C), D. Discussion (IV-D), E. Concept Development (IV-E), F. Practice (IV-F), G. Application (IV-G), H. Generalization (IV-H), I. Evaluation (IV-I), J. Assignment (IV-J)`;
+    if (format === 'MATATAG') return `A. Activating Prior Knowledge, B. Establishing Purpose, C. Unlocking Vocabulary, D. Developing Understanding, E. Application, F. Generalization, G. Evaluating Learning, H. Homework`;
+    if (format === '5Es Model') return `1. ENGAGE, 2. EXPLORE, 3. EXPLAIN, 4. ELABORATE, 5. EVALUATE`;
+    if (format === '4As Model') return `1. MOTIVATION, 2. ACTIVITY, 3. ANALYSIS, 4. ABSTRACTION, 5. APPLICATION, 6. EVALUATE`;
+    return `1. Title, 2. Introduction/Review, 3. Core Concepts, 4. Practice/Activity, 5. Assessment`;
+}
 
 const PLAN_UNIT_TERMS: Record<PlanUnitLabel, string[]> = {
     Session: ['learning session', 'session', 'sesyon ng pagkatuto', 'sesyon', 'sesion'],
@@ -719,12 +924,11 @@ function extractPlanUnitSourceBlock(
     };
 }
 
-function findWrongUnitTitleReferences(slides: Slide[], unitLabel: PlanUnitLabel, dayNumber: number): number[] {
-    const titleText = slides.map((slide) => slide.title || '').join('\n');
+function findWrongUnitReferencesInText(text: string, unitLabel: PlanUnitLabel, dayNumber: number): number[] {
     const regex = planUnitMarkerRegex(unitLabel, undefined, 'gi');
     const wrongNumbers = new Set<number>();
 
-    for (const match of titleText.matchAll(regex)) {
+    for (const match of text.matchAll(regex)) {
         const matchedNumber = Number.parseInt(match[1], 10);
         if (Number.isFinite(matchedNumber) && matchedNumber !== dayNumber) {
             wrongNumbers.add(matchedNumber);
@@ -734,11 +938,36 @@ function findWrongUnitTitleReferences(slides: Slide[], unitLabel: PlanUnitLabel,
     return [...wrongNumbers].sort((a, b) => a - b);
 }
 
+function findWrongUnitTitleReferences(slides: Slide[], unitLabel: PlanUnitLabel, dayNumber: number): number[] {
+    return findWrongUnitReferencesInText(slides.map((slide) => slide.title || '').join('\n'), unitLabel, dayNumber);
+}
+
+function collectPresentationOutlineText(outline: PresentationOutline): string {
+    return [
+        outline.title,
+        outline.unitLabel,
+        outline.learningTarget,
+        outline.sourceSummary,
+        ...outline.missingSourceDetails,
+        ...outline.flow.flatMap((step) => [
+            step.section,
+            step.slideTitle,
+            step.slidePurpose,
+            ...step.sourceEvidence,
+            ...step.keyPoints,
+            step.teacherMove,
+            step.studentAction,
+            step.assessmentCue,
+        ]),
+    ].filter(Boolean).join(' ');
+}
+
 function validateGeneratedSessionAlignment(
     slides: Slide[],
     sourceBlock: PlanUnitSourceBlock,
     unitLabel: PlanUnitLabel,
     day: DayPlan,
+    outline?: PresentationOutline,
 ): SessionAlignmentIssue[] {
     const issues: SessionAlignmentIssue[] = [];
     const slideText = normalizeSourceText(slides.map((slide) => [
@@ -775,6 +1004,59 @@ function validateGeneratedSessionAlignment(
         }
     }
 
+    if (outline) {
+        const outlineTerms = extractImportantTerms(collectPresentationOutlineText(outline), 12);
+        const outlineHits = outlineTerms.filter((term) => slideText.includes(term));
+        const requiredHits = Math.min(5, Math.ceil(outlineTerms.length * 0.35));
+        if (outlineTerms.length >= 6 && outlineHits.length < requiredHits) {
+            issues.push({
+                code: 'weak_outline_coverage',
+                message: `Slides do not preserve enough details from the presentation outline. Missing outline terms: ${outlineTerms.filter((term) => !outlineHits.includes(term)).slice(0, 6).join(', ')}.`,
+            });
+        }
+    }
+
+    return issues;
+}
+
+function validatePresentationOutlineAlignment(
+    outline: PresentationOutline,
+    sourceBlock: PlanUnitSourceBlock,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+): SessionAlignmentIssue[] {
+    const issues: SessionAlignmentIssue[] = [];
+    const outlineRawText = collectPresentationOutlineText(outline);
+    const outlineText = normalizeSourceText(outlineRawText);
+
+    const wrongUnits = findWrongUnitReferencesInText(outlineRawText, unitLabel, day.dayNumber);
+    if (wrongUnits.length > 0) {
+        issues.push({
+            code: 'wrong_unit_outline',
+            message: `Outline references ${unitLabel} ${wrongUnits.join(', ')} while planning ${unitLabel} ${day.dayNumber}.`,
+        });
+    }
+
+    const focusTerms = extractImportantTerms(`${day.title} ${day.focus}`, 8);
+    const focusHits = focusTerms.filter((term) => outlineText.includes(term));
+    if (focusTerms.length >= 3 && focusHits.length < 2) {
+        issues.push({
+            code: 'weak_outline_focus',
+            message: `Outline weakly covers the selected ${unitLabel.toLowerCase()} focus. Missing focus terms: ${focusTerms.filter((term) => !focusHits.includes(term)).slice(0, 5).join(', ')}.`,
+        });
+    }
+
+    if (sourceBlock.found && sourceBlock.keyTerms.length >= 6) {
+        const sourceHits = sourceBlock.keyTerms.filter((term) => outlineText.includes(term));
+        const requiredHits = Math.min(5, Math.ceil(sourceBlock.keyTerms.length * 0.35));
+        if (sourceHits.length < requiredHits) {
+            issues.push({
+                code: 'weak_outline_source',
+                message: `Outline does not preserve enough source-specific details from the extracted ${unitLabel.toLowerCase()} block. Missing source terms: ${sourceBlock.keyTerms.filter((term) => !sourceHits.includes(term)).slice(0, 6).join(', ')}.`,
+            });
+        }
+    }
+
     return issues;
 }
 
@@ -788,6 +1070,203 @@ function alignmentRepairInstruction(issues: SessionAlignmentIssue[]): string {
 
         Regenerate the deck so every slide clearly belongs to the selected session/day source extract. Remove any slide title that points to a different session/day. Preserve source-specific materials, activity steps, expected output, assessment, and assignment details from the selected source extract.
     `;
+}
+
+function outlineRepairInstruction(issues: SessionAlignmentIssue[]): string {
+    if (issues.length === 0) return '';
+
+    return `
+        **OUTLINE REPAIR REQUIRED:**
+        The previous outline failed the source-alignment check:
+        ${issues.map((issue) => `- ${issue.code}: ${issue.message}`).join('\n')}
+
+        Regenerate the outline so it follows only the selected lesson-plan source extract. Remove any activity, assessment, assignment, output, or title that belongs to a different session/day.
+    `;
+}
+
+function normalizePresentationOutline(
+    outline: PresentationOutline,
+    fallbackTitle: string,
+    fallbackUnitLabel: string,
+    fallbackUnitNumber: number,
+): PresentationOutline {
+    const flow = (Array.isArray(outline.flow) ? outline.flow : [])
+        .map((step, index) => ({
+            section: normalizeGeneratedString(step?.section, `Step ${index + 1}`),
+            slideTitle: normalizeGeneratedString(step?.slideTitle, `${fallbackTitle} ${index + 1}`),
+            slidePurpose: normalizeGeneratedString(step?.slidePurpose, 'Present a source-aligned lesson-plan step.'),
+            sourceEvidence: normalizeGeneratedStringList(step?.sourceEvidence),
+            keyPoints: normalizeGeneratedStringList(step?.keyPoints),
+            teacherMove: normalizeGeneratedString(step?.teacherMove, 'Guide students through this lesson-plan step.'),
+            studentAction: normalizeGeneratedString(step?.studentAction, 'Respond to the teacher prompt or task.'),
+            assessmentCue: normalizeGeneratedString(step?.assessmentCue, 'Check student understanding before moving on.'),
+            visualIntent: normalizeGeneratedString(step?.visualIntent, 'A classroom visual directly matching this slide purpose.'),
+        }))
+        .filter((step) => step.slideTitle || step.slidePurpose || step.keyPoints.length > 0);
+
+    return {
+        title: normalizeGeneratedString(outline.title, fallbackTitle),
+        unitLabel: normalizeGeneratedString(outline.unitLabel, fallbackUnitLabel),
+        unitNumber: Number.isFinite(outline.unitNumber) && outline.unitNumber > 0
+            ? outline.unitNumber
+            : fallbackUnitNumber,
+        learningTarget: normalizeGeneratedString(outline.learningTarget, fallbackTitle),
+        sourceSummary: normalizeGeneratedString(outline.sourceSummary, fallbackTitle),
+        flow: flow.length > 0
+            ? flow
+            : [{
+                section: 'Lesson Flow',
+                slideTitle: fallbackTitle,
+                slidePurpose: 'Present the selected lesson-plan source in a clear sequence.',
+                sourceEvidence: [],
+                keyPoints: [fallbackTitle],
+                teacherMove: 'Guide students through the lesson-plan sequence.',
+                studentAction: 'Participate in the planned activity.',
+                assessmentCue: 'Check for understanding before closing.',
+                visualIntent: 'A classroom visual directly matching the lesson activity.',
+            }],
+        missingSourceDetails: normalizeGeneratedStringList(outline.missingSourceDetails),
+    };
+}
+
+const PRESENTATION_OUTLINE_RESPONSE_SCHEMA = {
+    type: JSON_SCHEMA.OBJECT,
+    properties: {
+        title: { type: JSON_SCHEMA.STRING },
+        unitLabel: { type: JSON_SCHEMA.STRING },
+        unitNumber: { type: JSON_SCHEMA.INTEGER },
+        learningTarget: { type: JSON_SCHEMA.STRING },
+        sourceSummary: { type: JSON_SCHEMA.STRING },
+        flow: {
+            type: JSON_SCHEMA.ARRAY,
+            items: {
+                type: JSON_SCHEMA.OBJECT,
+                properties: {
+                    section: { type: JSON_SCHEMA.STRING },
+                    slideTitle: { type: JSON_SCHEMA.STRING },
+                    slidePurpose: { type: JSON_SCHEMA.STRING },
+                    sourceEvidence: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                    keyPoints: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                    teacherMove: { type: JSON_SCHEMA.STRING },
+                    studentAction: { type: JSON_SCHEMA.STRING },
+                    assessmentCue: { type: JSON_SCHEMA.STRING },
+                    visualIntent: { type: JSON_SCHEMA.STRING },
+                },
+                required: ["section", "slideTitle", "slidePurpose", "sourceEvidence", "keyPoints", "teacherMove", "studentAction", "assessmentCue", "visualIntent"],
+            },
+        },
+        missingSourceDetails: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+    },
+    required: ["title", "unitLabel", "unitNumber", "learningTarget", "sourceSummary", "flow", "missingSourceDetails"],
+};
+
+async function createK12PresentationOutline(params: {
+    sourceLabel: string;
+    sourceText: string;
+    secondarySourceContext?: string;
+    format: string;
+    flowReference: string;
+    language: 'EN' | 'FIL';
+    unitLabel: string;
+    unitNumber: number;
+    targetSlideCount: string;
+    fallbackTitle: string;
+    blueprint?: LessonBlueprint;
+    day?: DayPlan;
+    alignmentIssues?: SessionAlignmentIssue[];
+}): Promise<PresentationOutline> {
+    const {
+        sourceLabel,
+        sourceText,
+        secondarySourceContext,
+        format,
+        flowReference,
+        language,
+        unitLabel,
+        unitNumber,
+        targetSlideCount,
+        fallbackTitle,
+        blueprint,
+        day,
+        alignmentIssues = [],
+    } = params;
+    const blueprintContext = blueprint
+        ? `
+        **LESSON BLUEPRINT CONTEXT:**
+        - Main Title: ${blueprint.mainTitle}
+        - Subject: ${blueprint.subject}
+        - Grade Level: ${blueprint.gradeLevel}
+        - Learning Competency: ${blueprint.learningCompetency}
+        - Plan Objectives: ${blueprint.smartObjectives.join(', ')}
+        `
+        : '';
+    const dayContext = day
+        ? `
+        **SELECTED ${unitLabel.toUpperCase()} ${unitNumber}:**
+        - Title: ${day.title}
+        - Focus: ${day.focus}
+        `
+        : '';
+
+    const prompt = `
+        You are a senior K-12 instructional designer. Create the PRESENTATION OUTLINE ONLY.
+        Do not write final slide content yet.
+
+        **LANGUAGE OF OUTPUT:** Use ${language === 'FIL' ? 'Filipino' : 'English'} for title, learning target, flow, teacher moves, student actions, and assessment cues. Use English for visualIntent.
+        **PEDAGOGICAL FORMAT:** ${format}
+        **FORMAT FLOW LABELS (REFERENCE ONLY):** ${flowReference}
+        **TARGET OUTLINE SIZE:** ${targetSlideCount}.
+
+        ${outlineRepairInstruction(alignmentIssues)}
+        ${blueprintContext}
+        ${dayContext}
+
+        **BINDING LESSON-PLAN SOURCE (${sourceLabel}):**
+        This is the source of truth. Extract the teaching flow, materials, prompts, student tasks, assessment, assignment, and output requirements from this source. Preserve the order used by the lesson plan.
+        \`\`\`
+        ${sourceText}
+        \`\`\`
+
+        **SECONDARY CONTEXT:**
+        Use this only for shared metadata or missing competency wording. Do not borrow main activities from a different session/day.
+        \`\`\`
+        ${secondarySourceContext || 'No secondary context provided.'}
+        \`\`\`
+
+        **OUTLINE RULES:**
+        - The outline is the binding bridge between lesson plan and slide deck.
+        - Add one first \`flow\` item for the title/context slide. Its visible title should be the week topic or lesson name, not merely "${unitLabel} ${unitNumber}". Its key points should narrow to the selected ${unitLabel.toLowerCase()} focus plus subject, grade, week/term, or session context when available.
+        - After the title/context item, every \`flow\` item must come from the selected lesson-plan source in the same order the teacher would teach it.
+        - Use the format flow labels only as a classification aid. Do not force a Review, Motivation, Activity, Reflection, Assignment, or any other template section unless the source actually contains or clearly implies it.
+        - Each \`flow\` item should become one slide plan unless the source step must be split for readability or two adjacent source micro-steps belong on one clear slide.
+        - Do not invent new activities, examples, assessments, assignments, or outputs.
+        - If a transition must be inferred, keep it small and list it under \`missingSourceDetails\`.
+        - Use \`sourceEvidence\` to capture short source-grounded details for each slide plan, such as exact materials, task names, questions, output, rubric, or assignment.
+        - Make \`slideTitle\` student-facing and content-specific, not just the pedagogy section name.
+        - Make \`keyPoints\` concise. They are planning notes, not final slide bullets.
+        - Make \`teacherMove\`, \`studentAction\`, and \`assessmentCue\` practical enough for speaker notes.
+        - Clean awkward source wording into natural classroom language, but keep the meaning and required task intact.
+
+        **OUTPUT (JSON FORMAT ONLY):**
+        Return a single JSON object matching the schema. Do not add extra text.
+    `;
+
+    const response = await callGeminiProxy<GeminiTextResponse>({
+        task: 'text',
+        model: TEXT_MODELS,
+        contents: prompt,
+        config: {
+            responseMimeType: "application/json",
+            responseSchema: PRESENTATION_OUTLINE_RESPONSE_SCHEMA,
+            temperature: 0.2,
+        },
+    });
+    const outline = parseJsonModelResponse<PresentationOutline>(response.text, `${sourceLabel} presentation outline`);
+    return normalizePresentationOutline(outline, fallbackTitle, unitLabel, unitNumber);
+}
+
+function formatPresentationOutlineForPrompt(outline: PresentationOutline): string {
+    return JSON.stringify(outline, null, 2);
 }
 
 // PHASE 1: DEEP ANALYSIS & BLUEPRINT CREATION
@@ -822,7 +1301,8 @@ export async function createK12LessonBlueprint(content: string, format: string, 
         - **Breakdown:** Structure the plan using the exact units present in the source material.
         - **Explicit Sessions/Days Rule:** If the input lists explicit units such as "Learning Session 1", "Session 1", "Sesyon 1", "Day 1", or "Araw 1", output exactly those numbered units. If the input states a total such as "Bilang ng Sesyon: 5" or "Number of Sessions: 5", output exactly that many Session units.
         - **Fallback Rule:** Only infer a 5-day plan when the source is a traditional weekly DLL without explicit session/day breakdowns.
-        - **Unit Focus:** For each unit, provide a concise 'focus' summary (e.g., "Session 1: Introduction to Particle Models", "Day 2: Exploring Homogeneous Mixtures").
+        - **Unit Focus:** For each unit, provide a concise, specific 8-16 word 'focus' summary that captures the actual lesson topic, skill, activity, assessment, or output for that session/day (e.g., "Introduce inertia through prediction sorting and a coin-card-cup demo", "Analyze acceleration using motion-change evidence tables").
+        - **No Generic Focus Text:** Never use vague text such as "from the uploaded lesson plan", "from the source material", "uploaded content", "lesson plan content", or only "Session 1" / "Day 1" for a unit title or focus.
         - **Source Fidelity:** Preserve each unit's objective, pre-lesson, flow, resources, assessment, extended learning, and reflection details when the document provides them.
 
         **FINAL OUTPUT (JSON FORMAT ONLY):**
@@ -869,51 +1349,86 @@ export async function createK12LessonBlueprint(content: string, format: string, 
     });
 
     const blueprint = parseJsonModelResponse<LessonBlueprint>(response.text, 'lesson blueprint generation');
-    return normalizeLessonBlueprintUnits(blueprint, inferredPlanUnitInfo);
+    return normalizeLessonBlueprintUnits(blueprint, inferredPlanUnitInfo, content, language);
 }
 
 
 // PHASE 2: SLIDE GENERATION (PER DAY)
 export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL'): Promise<Slide[]> {
-    const blueprintForGeneration = normalizeLessonBlueprintUnits(blueprint, inferPlanUnitInfo(originalContent));
+    const blueprintForGeneration = normalizeLessonBlueprintUnits(blueprint, inferPlanUnitInfo(originalContent), originalContent, language);
+    const dayForGeneration = blueprintForGeneration.days.find((candidateDay) => candidateDay.dayNumber === day.dayNumber) || day;
     const unitLabel = getPlanUnitLabel(blueprintForGeneration);
     const normalizedUnitLabel = normalizePlanUnitLabel(blueprintForGeneration.planUnitLabel, 'Day');
-    const sourceBlock = extractPlanUnitSourceBlock(originalContent, normalizedUnitLabel, day);
+    const sourceBlock = extractPlanUnitSourceBlock(originalContent, normalizedUnitLabel, dayForGeneration);
     const secondarySourceContext = sourceBlock.found
         ? truncateSourceText(originalContent, SOURCE_CONTEXT_MAX_CHARS)
         : 'Same as the best available source context above.';
     const commonRules = `
-    ${K12_SCIENCE_APPROVED_PRESENTATION_STANDARD}
+    ${K12_ADAPTIVE_PRESENTATION_STANDARD}
 
     **CRITICAL DIRECTIVES:**
-    1.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
-    2.  **IMAGE PROMPTS REQUIRED (CRITICAL FOR ACCURACY):** For EVERY slide, you MUST include the \`imagePrompt\` and \`imageStyle\` fields.
+    1.  **SOURCE-DRIVEN FLOW (STRICT):** The lesson plan controls the slide sequence. Do not add a template section just because the pedagogical format names it. Preserve the selected source order after the title/context slide.
+    2.  **TITLE/CONTEXT SLIDE (STRICT):** The first slide must use the week topic or lesson name as the main title, then narrow to ${unitLabel} ${day.dayNumber}'s focus in the content. Include grade, subject, week/term, or session context when available. This slide must use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
+    3.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
+    4.  **IMAGE PROMPTS REQUIRED (CRITICAL FOR ACCURACY):** For EVERY slide, you MUST include the \`imagePrompt\` and \`imageStyle\` fields.
+        - **Outline Visual Contract:** For each slide generated from a presentation outline item, derive \`imagePrompt\` from that item's \`visualIntent\` plus its \`sourceEvidence\`. The prompt must show the exact classroom material, demo, task, output, evidence, or misconception from the outline when one is present.
         - **Instructional Visuals:** Prefer visuals that help the teacher teach: before/after comparisons, process diagrams, evidence tables, classroom demos, sorting tasks, expected outputs, or misconception contrasts. Avoid stock-photo style decorative images.
-        - **Realistic Science Rule:** For Science/STEM slides showing real materials, demos, lab setups, worksheets, card sorts, or student outputs, choose \`"photorealistic"\` and prompt for a high-resolution realistic classroom photo. Use \`"diagram"\` only for invisible microscopic models or abstract process relationships. Avoid SVG/vector/cartoon/flat icon visuals for Science because simplified art can mislead learners.
+        - **Real-World Materials Rule:** For Science/STEM/TLE/TVL/AFA slides showing real tools, equipment, facilities, demos, lab setups, worksheets, card sorts, or student outputs, choose \`"photorealistic"\` and prompt for a high-resolution realistic classroom or workplace photo. Use \`"diagram"\` only for invisible models, process relationships, structures, or sequences that a photo cannot teach clearly.
         - **Specificity is Key:** The \`imagePrompt\` must be highly descriptive, detailed, and directly tied to the slide's title and content to ensure visual accuracy. Do not reuse the same generic background prompt across multiple slides. For abstract topics, use a concrete visual metaphor. The prompt MUST be in English.
         - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
         - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
-        - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
-    3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
-    4.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
-    5.  **CLASSROOM-READY FLOW:** Include concrete teacher-use slide types when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
-    6.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
-    7.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must strictly follow the sections for the **${format}** model. However, slide titles must be creative and directly reflect the content, NOT the section name. For example, instead of a slide titled "Explore", a better title is "Activity: Classifying Mixtures". Generic titles like "Review" or "Assignment" are acceptable.
-    8.  **CONTENT & CLARITY (CRITICAL):**
+        - **No Visual:** For text-only slides, title-only slides, agenda slides, objective/goal slides, transition slides, summary slides, or slides where a visual would be decorative, optional, or merely nice-to-have, you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not create an image prompt just to fill a layout.
+    5.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
+    6.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
+    7.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
+    8.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
+    9.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
+    10. **CONTENT & CLARITY (CRITICAL):**
         - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
         - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of volcanoes), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
         - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs.
         - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
-    9.  **UNIT GOAL SLIDE:** If generating for ${unitLabel} 2 or later, the first slide should be "Today's Goal". Do NOT generate a full "Learning Objectives" slide. Keep exact official objective wording in speaker notes only.
-    10. **CONCLUDING SLIDE (MANDATORY):** The very last slide generated MUST serve as a conclusion for the ${unitLabel.toLowerCase()}'s lesson. This slide should typically cover the 'Evaluation' or 'Assignment' section and provide a clear end to the presentation.
+    11. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the selected lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
     `;
     
-    let sections = "";
-    if (format === 'K-12') sections = `A. Review (IV-A), B. Motivation (IV-B), C. Content (IV-C), D. Discussion (IV-D), E. Concept Development (IV-E), F. Practice (IV-F), G. Application (IV-G), H. Generalization (IV-H), I. Evaluation (IV-I), J. Assignment (IV-J)`;
-    else if (format === 'MATATAG') sections = `A. Activating Prior Knowledge, B. Establishing Purpose, C. Unlocking Vocabulary, D. Developing Understanding, E. Application, F. Generalization, G. Evaluating Learning, H. Homework`;
-    else if (format === '5Es Model') sections = `1. ENGAGE, 2. EXPLORE, 3. EXPLAIN, 4. ELABORATE, 5. EVALUATE`;
-    else if (format === '4As Model') sections = `1. MOTIVATION, 2. ACTIVITY, 3. ANALYSIS, 4. ABSTRACTION, 5. APPLICATION, 6. EVALUATE`;
-    else sections = `1. Title, 2. Introduction/Review, 3. Core Concepts, 4. Practice/Activity, 5. Assessment`;
+    const flowReference = getK12FlowReference(format);
+    let outlineIssues: SessionAlignmentIssue[] = [];
+    let presentationOutline: PresentationOutline | null = null;
+
+    for (let attempt = 0; attempt <= MAX_ALIGNMENT_REPAIR_ATTEMPTS; attempt += 1) {
+        presentationOutline = await createK12PresentationOutline({
+            sourceLabel: `${unitLabel} ${day.dayNumber} source extract`,
+            sourceText: sourceBlock.text,
+            secondarySourceContext,
+            format,
+            flowReference,
+            language,
+            unitLabel,
+            unitNumber: day.dayNumber,
+            targetSlideCount: 'adaptive to the lesson-plan flow, usually 8-14 slide-plan items for one class session',
+            fallbackTitle: dayForGeneration.title,
+            blueprint: blueprintForGeneration,
+            day: dayForGeneration,
+            alignmentIssues: outlineIssues,
+        });
+        outlineIssues = validatePresentationOutlineAlignment(presentationOutline, sourceBlock, normalizedUnitLabel, dayForGeneration);
+
+        if (outlineIssues.length === 0 || attempt === MAX_ALIGNMENT_REPAIR_ATTEMPTS) {
+            if (outlineIssues.length > 0) {
+                console.warn('Generated presentation outline still has source-alignment warnings after repair.', {
+                    unitLabel,
+                    dayNumber: day.dayNumber,
+                    issues: outlineIssues,
+                });
+            }
+            break;
+        }
+    }
+
+    if (!presentationOutline) {
+        throw new Error(`${unitLabel} ${day.dayNumber} presentation outline was not generated.`);
+    }
+    const boundPresentationOutline = presentationOutline;
 
     const buildPrompt = (alignmentIssues: SessionAlignmentIssue[] = []) => `
         You are a professional K-12 Instructional Designer creating a slide deck for a teacher.
@@ -930,8 +1445,8 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - SMART Objectives for the Plan: ${blueprintForGeneration.smartObjectives.join(", ")}
         
         **TODAY'S FOCUS (${unitLabel.toUpperCase()} ${day.dayNumber}):**
-        - Title: ${day.title}
-        - Focus: ${day.focus}
+        - Title: ${dayForGeneration.title}
+        - Focus: ${dayForGeneration.focus}
 
         **SELECTED ${unitLabel.toUpperCase()} ${day.dayNumber} SOURCE EXTRACT (${sourceBlock.strategy.toUpperCase()} MATCH):**
         ${sourceBlock.found
@@ -943,6 +1458,12 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         ${sourceBlock.text}
         \`\`\`
 
+        **PRESENTATION OUTLINE (BINDING PLAN):**
+        This outline was extracted from the selected lesson-plan source. Generate the slide deck from this outline in order. Do not add, remove, reorder, or replace lesson activities, assessments, assignments, or outputs unless needed to split one dense outline item into readable slides.
+        \`\`\`json
+        ${formatPresentationOutlineForPrompt(boundPresentationOutline)}
+        \`\`\`
+
         **FULL REFERENCE LESSON PLAN/TOPIC CONTENT (SECONDARY CONTEXT):**
         Use this only to resolve missing context, shared competency wording, or resources. If it conflicts with the selected source extract, the selected extract wins.
         \`\`\`
@@ -950,11 +1471,11 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         \`\`\`
 
         **TASK:**
-        Generate a set of 12-15 slides for ${unitLabel} ${day.dayNumber} ONLY, following the **${format}** model.
+        Generate a source-aligned slide deck for ${unitLabel} ${day.dayNumber} ONLY from the presentation outline. The slide count must be adaptive: use enough slides to make the source flow teachable, but do not pad to a fixed count.
         If the reference content includes session-specific columns or rows, use only the details tied to ${unitLabel} ${day.dayNumber} for the main lesson flow. Do not borrow activities, assessments, assignments, or outputs from a different ${unitLabel.toLowerCase()} except for a brief review reference when pedagogically necessary.
 
-        **REQUIRED SECTIONS:**
-        ${sections}
+        **FORMAT FLOW LABELS (REFERENCE ONLY, NOT A CHECKLIST):**
+        ${flowReference}
 
         ${commonRules}
 
@@ -1009,7 +1530,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
 
         for (let attempt = 0; attempt <= MAX_ALIGNMENT_REPAIR_ATTEMPTS; attempt += 1) {
             const { slides, groundingChunks } = await requestSlides(buildPrompt(alignmentIssues));
-            alignmentIssues = validateGeneratedSessionAlignment(slides, sourceBlock, normalizedUnitLabel, day);
+            alignmentIssues = validateGeneratedSessionAlignment(slides, sourceBlock, normalizedUnitLabel, dayForGeneration, boundPresentationOutline);
 
             if (alignmentIssues.length === 0 || attempt === MAX_ALIGNMENT_REPAIR_ATTEMPTS) {
                 if (alignmentIssues.length > 0) {
@@ -1037,52 +1558,68 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
 export async function generateK12SingleLessonSlides(content: string, format: string, language: 'EN' | 'FIL', onProgress?: (message: string) => void): Promise<Presentation> {
     if (onProgress) onProgress(`Structuring your complete lesson...`);
 
-    let sections = "";
-    if (format === 'K-12') sections = `A. Review (IV-A), B. Motivation (IV-B), C. Content (IV-C), D. Discussion (IV-D), E. Concept Development (IV-E), F. Practice (IV-F), G. Application (IV-G), H. Generalization (IV-H), I. Evaluation (IV-I), J. Assignment (IV-J)`;
-    else if (format === 'MATATAG') sections = `A. Activating Prior Knowledge, B. Establishing Purpose, C. Unlocking Vocabulary, D. Developing Understanding, E. Application, F. Generalization, G. Evaluating Learning, H. Homework`;
-    else if (format === '5Es Model') sections = `1. ENGAGE, 2. EXPLORE, 3. EXPLAIN, 4. ELABORATE, 5. EVALUATE`;
-    else if (format === '4As Model') sections = `1. MOTIVATION, 2. ACTIVITY, 3. ANALYSIS, 4. ABSTRACTION, 5. APPLICATION, 6. EVALUATE`;
-    else sections = `1. Title, 2. Introduction/Review, 3. Core Concepts, 4. Practice/Activity, 5. Assessment`;
+    const flowReference = getK12FlowReference(format);
+    const sourceText = content.trim();
+    const presentationOutline = await createK12PresentationOutline({
+        sourceLabel: 'single lesson plan',
+        sourceText,
+        secondarySourceContext: 'Same as the binding single lesson plan source.',
+        format,
+        flowReference,
+        language,
+        unitLabel: 'Lesson',
+        unitNumber: 1,
+        targetSlideCount: 'adaptive to the lesson-plan flow, usually 8-14 slide-plan items for one class period',
+        fallbackTitle: 'Single Lesson Presentation',
+    });
 
     const prompt = `
         You are a Master K-12 Teacher and Instructional Designer creating a complete, professional slide presentation for a single lesson.
 
         **LANGUAGE OF OUTPUT:** You MUST generate all content (titles, content, speaker notes) in ${language === 'FIL' ? 'Filipino' : 'English'}. However, image prompts must ALWAYS be in English.
 
-        **INPUT LESSON PLAN / TOPIC:**
+        **PRESENTATION OUTLINE (BINDING PLAN):**
+        This outline was extracted from the lesson plan. Generate the slide deck from this outline in order. Do not add, remove, reorder, or replace lesson activities, assessments, assignments, or outputs unless needed to split one dense outline item into readable slides.
+        \`\`\`json
+        ${formatPresentationOutlineForPrompt(presentationOutline)}
         \`\`\`
-        ${content}
+
+        **INPUT LESSON PLAN / TOPIC (FACTUAL REFERENCE ONLY):**
+        \`\`\`
+        ${sourceText}
         \`\`\`
 
         **TASK:**
-        Generate a comprehensive slide deck for a single, self-contained lesson (e.g., for a 50-minute class period). The presentation must be engaging, clear, and logically structured from start to finish, following the specified pedagogical model.
+        Generate a comprehensive slide deck for a single, self-contained lesson from the presentation outline. The presentation must be engaging, clear, and logically structured from start to finish, but the uploaded lesson plan controls the order and scope.
 
         **PEDAGOGICAL FORMAT TO FOLLOW:** ${format}
-        **REQUIRED SECTIONS TO INCLUDE:** ${sections}
+        **FORMAT FLOW LABELS (REFERENCE ONLY, NOT A CHECKLIST):** ${flowReference}
 
-        ${K12_SCIENCE_APPROVED_PRESENTATION_STANDARD}
+        ${K12_ADAPTIVE_PRESENTATION_STANDARD}
 
         **CRITICAL DIRECTIVES:**
-        1.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
-        2.  **IMAGE PROMPTS REQUIRED (CRITICAL FOR ACCURACY):** For EVERY slide, you MUST include the \`imagePrompt\` and \`imageStyle\` fields.
+        1.  **SOURCE-DRIVEN FLOW (STRICT):** The lesson plan controls the slide sequence. Do not add a template section just because the pedagogical format names it. Preserve the source order after the title/context slide.
+        2.  **TITLE/CONTEXT SLIDE (STRICT):** The first slide must use the week topic, lesson name, or strongest source title as the main title. Add subject, grade, term/week, or lesson context when available. This slide must use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
+        3.  **THE 6x6 RULE (STRICT):** Adhere to the 6x6 rule for slide content. Aim for a maximum of 6 bullet points (lines) per slide, and a maximum of 6-8 words per bullet point. This is crucial for readability.
+        4.  **IMAGE PROMPTS REQUIRED (CRITICAL FOR ACCURACY):** For EVERY slide, you MUST include the \`imagePrompt\` and \`imageStyle\` fields.
+            - **Outline Visual Contract:** Derive each \`imagePrompt\` from the matching presentation outline item's \`visualIntent\` plus \`sourceEvidence\`. The prompt must show the exact classroom material, demo, task, output, evidence, or misconception from the outline when one is present.
             - **Instructional Visuals:** Prefer visuals that help the teacher teach: before/after comparisons, process diagrams, evidence tables, classroom demos, sorting tasks, expected outputs, or misconception contrasts. Avoid stock-photo style decorative images.
-            - **Realistic Science Rule:** For Science/STEM slides showing real materials, demos, lab setups, worksheets, card sorts, or student outputs, choose \`"photorealistic"\` and prompt for a high-resolution realistic classroom photo. Use \`"diagram"\` only for invisible microscopic models or abstract process relationships. Avoid SVG/vector/cartoon/flat icon visuals for Science because simplified art can mislead learners.
+            - **Real-World Materials Rule:** For Science/STEM/TLE/TVL/AFA slides showing real tools, equipment, facilities, demos, lab setups, worksheets, card sorts, or student outputs, choose \`"photorealistic"\` and prompt for a high-resolution realistic classroom or workplace photo. Use \`"diagram"\` only for invisible models, process relationships, structures, or sequences that a photo cannot teach clearly.
             - **Specificity is Key:** The \`imagePrompt\` must be highly descriptive, detailed, and directly tied to the slide's title and content to ensure visual accuracy. Do not reuse the same generic background prompt across multiple slides. For abstract topics, use a concrete visual metaphor. The prompt MUST be in English.
             - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
             - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
-            - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
-        3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
-        4.  **INITIAL SLIDES:** The first two slides MUST be a title slide and a short student-facing learning target or success criteria slide. Keep exact official objective wording in speaker notes only.
-        5.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
-        6.  **CLASSROOM-READY FLOW:** Include concrete teacher-use slide types when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
-        7.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
-        8.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the structure of the **${format}** model. However, slide titles must be creative and directly reflect the content, NOT the section name. For example, instead of a slide titled "Explore", a better title is "Activity: Classifying Mixtures". Generic titles like "Review" or "Assignment" are acceptable.
-        9.  **CONTENT & CLARITY (CRITICAL):**
+            - **No Visual:** For text-only slides, title-only slides, agenda slides, objective/goal slides, transition slides, summary slides, or slides where a visual would be decorative, optional, or merely nice-to-have, you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not create an image prompt just to fill a layout.
+        5.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
+        6.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
+        7.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
+        8.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
+        9.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
+        10. **CONTENT & CLARITY (CRITICAL):**
             - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
             - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of rocks), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
             - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs. Use markdown bolding (\`**term**\`) for key terminology.
             - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
-        10. **CONCLUDING SLIDE (MANDATORY):** The final slide generated MUST be an 'Assignment' or 'Summary' slide, providing a clear conclusion to the lesson.
+        11. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
 
         **OUTPUT (JSON FORMAT ONLY):**
         Return a single JSON object. Do not add any extra text.
@@ -1110,7 +1647,7 @@ export async function generateK12SingleLessonSlides(content: string, format: str
         required: ["title", "slides"]
     };
 
-    if (onProgress) onProgress(`Generating slide content...`);
+    if (onProgress) onProgress(`Generating slide content from the outline...`);
     const response = await callGeminiProxy<GeminiTextResponse>({
         task: 'text',
         model: TEXT_MODELS,
@@ -1169,7 +1706,7 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
             - **Specificity is Key:** The \`imagePrompt\` must be detailed, academic, and directly tied to the slide's title and content to ensure visual accuracy. For abstract concepts, use a sophisticated visual metaphor. The prompt MUST be in English.
             - **Example:** For a slide on "Quantum Superposition," a GOOD prompt is: "A diagram showing a single particle, like an electron, existing in multiple states simultaneously, represented by overlapping, semi-transparent wave functions." A BAD prompt is: "An atom."
             - **Style:** Select a professional \`imageStyle\` from ["photorealistic", "diagram", "infographic", "historical photo"].
-            - **No Visual:** For text-only slides (like an agenda), you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`.
+            - **No Visual:** For text-only slides (like an agenda), summary slides, or slides where a visual would be decorative, optional, or merely nice-to-have, you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not create an image prompt just to fill a layout.
         3.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
         4.  **SPEAKER NOTES:** Provide insightful speaker notes for each slide to guide the lecturer, including potential discussion points, deeper explanations, or transitions.
         5.  **CONTENT & CLARITY (CRITICAL):**
@@ -1233,32 +1770,6 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
 
 
 // --- IMAGE GENERATION ---
-
-export function buildFinalImagePrompt(prompt: string, style: ImageStyle = 'illustration', _language: 'EN' | 'FIL' = 'EN'): string {
-    let styleInstructions = '';
-
-    switch(style) {
-        case 'photorealistic':
-            styleInstructions = 'Create a professional, high-resolution, photorealistic image. It must look like a real photograph with accurate lighting, optics, scale, and textures. Avoid vector art, SVG style, cartoons, 3D renders, flat icon cards, artistic embellishments, or fantastical elements. The final image must be a factually accurate representation of the subject. Under no circumstances should any text, letters, numbers, or words appear in the image.';
-            break;
-        case 'infographic':
-            styleInstructions = 'Create a clean and modern infographic visual using a professional, cohesive color palette and clear icons. Do NOT render any words, labels, letters, numbers, symbols, or captions inside the image. Focus on visual structure only.';
-            break;
-        case 'diagram':
-             styleInstructions = 'Create a high-resolution raster educational diagram, not SVG/vector-code output. Use thin, precise lines and a clean minimalist style. The diagram must be factually accurate, with no decorative clip art or confusing cartoon objects. For particle diagrams, particles must be equal-size, spacing must match the state of matter, and motion arrows must match the concept. The diagram may use simple arrows, dots, and shapes when scientifically required, but must NOT contain any words, labels, letters, numbers, or titles.';
-            break;
-        case 'historical photo':
-            styleInstructions = 'Create an image that looks like an authentic historical photograph from the relevant era (e.g., black and white, sepia-toned). It should have realistic grain, lighting, and focus imperfections of the period. The depiction must be historically accurate. Avoid a modern, "costumed" look. Under no circumstances should any text, letters, numbers, or words appear in the image.';
-            break;
-        case 'illustration':
-        default:
-             styleInstructions = 'Create a professional, vibrant, and clear educational illustration with accurate subject matter and clean composition. Avoid SVG-like flat icon cards, cartoon simplifications, decorative filler, or anything that could misrepresent the concept. Under no circumstances should any text, letters, numbers, or words appear in the image.';
-            break;
-    }
-
-    const relevanceGuard = 'Keep the content tightly on-topic to the described subject and make it a slide-specific evidence visual, not a reusable generic background. Do NOT add any extra objects or unrelated scenes. No text, labels, numbers, watermarks, signatures, or UI chrome.';
-    return `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
-}
 
 export async function getCachedImageResultForPrompt(prompt: string, style: ImageStyle = 'illustration', language: 'EN' | 'FIL', cacheId?: string, semanticCacheId?: string, semanticMetadata?: ImageSemanticMetadata): Promise<ImagePromptResult | null> {
     if (!prompt || style === 'none' || IMAGES_DISABLED) {
