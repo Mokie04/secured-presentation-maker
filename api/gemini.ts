@@ -963,10 +963,12 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
-        return res.status(503).json({
-          error: SERVICE_BUSY_ERROR,
-        });
+      if (lastErrorInfo?.retryable && (lastErrorInfo.status === 503 || lastErrorInfo.status === 504)) {
+        return imageRequest.allowPaidImageGeneration
+          ? sendPaidImageGenerationSkipped(res, modelCandidates[0], provider)
+          : res.status(lastErrorInfo.status).json({
+            error: SERVICE_BUSY_ERROR,
+          });
       }
       throw lastError || new Error('All image generation candidates failed.');
     }
@@ -1071,10 +1073,12 @@ export default async function handler(req: any, res: any) {
         }
       }
 
-      if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
-        return res.status(503).json({
-          error: SERVICE_BUSY_ERROR,
-        });
+      if (lastErrorInfo?.retryable && (lastErrorInfo.status === 503 || lastErrorInfo.status === 504)) {
+        return imageRequest.allowPaidImageGeneration
+          ? sendPaidImageGenerationSkipped(res, modelCandidates[0], provider)
+          : res.status(lastErrorInfo.status).json({
+            error: SERVICE_BUSY_ERROR,
+          });
       }
       throw lastError || new Error('All Replicate image generation candidates failed.');
     }
@@ -1192,8 +1196,17 @@ export default async function handler(req: any, res: any) {
     }
 
     if (!response) {
-      if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
-        return res.status(503).json({
+      if (lastErrorInfo?.retryable && (lastErrorInfo.status === 503 || lastErrorInfo.status === 504)) {
+        if (task === 'image') {
+          const imageRequest = getImageRequestDetails(contents, requestConfig);
+          return imageRequest.allowPaidImageGeneration
+            ? sendPaidImageGenerationSkipped(res, modelCandidates[0], provider as ImageProvider)
+            : res.status(lastErrorInfo.status).json({
+              error: SERVICE_BUSY_ERROR,
+            });
+        }
+
+        return res.status(lastErrorInfo.status).json({
           error: SERVICE_BUSY_ERROR,
         });
       }

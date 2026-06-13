@@ -3011,10 +3011,14 @@ const hasAdminUsageBypass = (user: SessionUser | null): boolean => {
 const isImageProviderLimitError = (error: unknown): boolean => {
   const message = error instanceof Error ? error.message : String(error || '');
   const normalized = message.toLowerCase();
-  return normalized.includes('rate_limit_exceeded')
+  const status = getErrorStatus(error);
+  return status === 503
+    || status === 504
+    || normalized.includes('rate_limit_exceeded')
     || normalized.includes('spending cap')
     || normalized.includes('quota')
     || normalized.includes('billing')
+    || normalized.includes('service is temporarily busy')
     || normalized.includes('gateway timeout')
     || normalized.includes('timed out')
     || normalized.includes('timeout')
