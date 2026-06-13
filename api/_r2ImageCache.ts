@@ -318,7 +318,11 @@ function normalizeImageContentType(contentType: string | undefined): string | nu
 }
 
 function normalizeMetadataValue(value: string | undefined, maxLength: number): string {
-  return (value || '').replace(/\s+/g, ' ').trim().slice(0, maxLength);
+  return (value || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[^\x20-\x7E]/g, '')
+    .slice(0, maxLength);
 }
 
 function attributionMetadata(attribution: ImageAttribution | undefined): Record<string, string> {
@@ -996,9 +1000,9 @@ async function setCachedSemanticR2Image(
       CacheControl: 'public, max-age=31536000, immutable',
       Metadata: {
         cacheKey,
-        semanticCacheId: normalizeCacheId(input.semanticCacheId || '').slice(0, 256),
-        subject: (metadata.subject || metadata.topic || 'general').slice(0, 128),
-        visualRole: (metadata.visualRole || 'content').slice(0, 64),
+        semanticCacheId: normalizeMetadataValue(normalizeCacheId(input.semanticCacheId || ''), 256),
+        subject: normalizeMetadataValue(metadata.subject || metadata.topic || 'general', 128),
+        visualRole: normalizeMetadataValue(metadata.visualRole || 'content', 64),
         ...attributionMetadata(input.imageAttribution),
       },
     }));
@@ -1071,8 +1075,8 @@ async function setUploadedSemanticR2Image(
       Metadata: {
         cacheKey,
         source: 'manual-upload',
-        subject: (metadata.subject || metadata.topic || 'general').slice(0, 128),
-        visualRole: (metadata.visualRole || 'content').slice(0, 64),
+        subject: normalizeMetadataValue(metadata.subject || metadata.topic || 'general', 128),
+        visualRole: normalizeMetadataValue(metadata.visualRole || 'content', 64),
         ...attributionMetadata(input.imageAttribution),
       },
     }));

@@ -59,6 +59,7 @@ const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 25_000;
 const DEFAULT_REPLICATE_IMAGE_TIMEOUT_MS = 45_000;
 const DEFAULT_REPLICATE_IMAGE_MODEL = 'black-forest-labs/flux-schnell';
 const REPLICATE_POLL_INTERVAL_MS = 1_200;
+const REPLICATE_CREATE_MAX_ATTEMPTS = 3;
 const MAX_UPLOADED_IMAGE_BYTES = 6 * 1024 * 1024;
 const GENERIC_REQUEST_ERROR = 'The request could not be completed. Please try again.';
 const INVALID_REQUEST_ERROR = 'The request is missing required data.';
@@ -872,6 +873,36 @@ function getReplicateErrorMessage(payload: any, status: number): string {
   return `Replicate image request failed with status ${status}.`;
 }
 
+function isRetryableReplicateStatus(status: number): boolean {
+  return [429, 500, 502, 503, 504].includes(status);
+}
+
+function getRetryAfterMs(response: Response): number | null {
+  const retryAfter = response.headers.get('retry-after');
+  if (!retryAfter) return null;
+
+  const seconds = Number.parseInt(retryAfter, 10);
+  if (Number.isFinite(seconds)) {
+    return Math.max(0, seconds * 1000);
+  }
+
+  const dateMs = Date.parse(retryAfter);
+  if (Number.isFinite(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+
+  return null;
+}
+
+async function sleepUntilDeadline(delayMs: number, deadline: number): Promise<void> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw createReplicateTimeoutError();
+  }
+
+  await sleep(Math.min(delayMs, remainingMs));
+}
+
 function buildReplicatePredictionUrl(model: string): string {
   const [owner, name] = model.split('/');
   if (!owner || !name) {
@@ -983,6 +1014,12 @@ async function pollReplicatePrediction(
     const payload = await response.json().catch(() => ({}));
 
     if (!response.ok) {
+      if (isRetryableReplicateStatus(response.status)) {
+        const retryAfterMs = getRetryAfterMs(response) ?? REPLICATE_POLL_INTERVAL_MS;
+        await sleepUntilDeadline(retryAfterMs, deadline);
+        continue;
+      }
+
       throw createStatusError(getReplicateErrorMessage(payload, response.status), response.status);
     }
 
@@ -1033,30 +1070,53 @@ async function generateReplicateImage(
   }
 
   const deadline = Date.now() + getReplicateImageTimeoutMs();
-  const response = await fetchWithDeadline(buildReplicatePredictionUrl(candidateModel), {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      input: {
-        prompt: imageRequest.prompt,
-        aspect_ratio: imageRequest.aspectRatio || '16:9',
-        num_outputs: 1,
-        output_format: 'webp',
-        go_fast: true,
-      },
-    }),
-  }, deadline);
-  const payload = await response.json().catch(() => ({}));
+  let payload: ReplicatePredictionResponse | null = null;
 
-  if (!response.ok) {
-    throw createStatusError(getReplicateErrorMessage(payload, response.status), response.status);
+  for (let attempt = 1; attempt <= REPLICATE_CREATE_MAX_ATTEMPTS; attempt += 1) {
+    const response = await fetchWithDeadline(buildReplicatePredictionUrl(candidateModel), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+      body: JSON.stringify({
+        input: {
+          prompt: imageRequest.prompt,
+          aspect_ratio: imageRequest.aspectRatio || '16:9',
+          num_outputs: 1,
+          output_format: 'webp',
+          go_fast: true,
+        },
+      }),
+    }, deadline);
+    const responsePayload = await response.json().catch(() => ({}));
+
+    if (response.ok) {
+      payload = responsePayload as ReplicatePredictionResponse;
+      break;
+    }
+
+    const canRetry = isRetryableReplicateStatus(response.status) && attempt < REPLICATE_CREATE_MAX_ATTEMPTS;
+    if (!canRetry) {
+      throw createStatusError(getReplicateErrorMessage(responsePayload, response.status), response.status);
+    }
+
+    const retryAfterMs = getRetryAfterMs(response);
+    const retryDelayMs = retryAfterMs ?? getRetryDelayMs(attempt);
+    console.warn('Replicate image request was rate-limited; retrying.', {
+      status: response.status,
+      attempt,
+      model: candidateModel,
+    });
+    await sleepUntilDeadline(retryDelayMs, deadline);
   }
 
-  const prediction = await pollReplicatePrediction(payload as ReplicatePredictionResponse, apiKey, deadline);
+  if (!payload) {
+    throw createStatusError('Replicate image generation did not start.', 502);
+  }
+
+  const prediction = await pollReplicatePrediction(payload, apiKey, deadline);
   const outputUrl = getReplicateOutputUrls(prediction.output)[0];
   if (!outputUrl) {
     throw createStatusError('Replicate image generation returned no image URL.', 502);

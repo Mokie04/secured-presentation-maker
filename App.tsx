@@ -499,6 +499,23 @@ const mapWithConcurrency = async <T, R,>(
   return results;
 };
 
+let paidImageGenerationQueue: Promise<void> = Promise.resolve();
+
+const runQueuedPaidImageGeneration = async <T,>(task: () => Promise<T>): Promise<T> => {
+  const previous = paidImageGenerationQueue;
+  let release: () => void = () => {};
+  paidImageGenerationQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  try {
+    await previous.catch(() => undefined);
+    return await task();
+  } finally {
+    release();
+  }
+};
+
 const SESSION_COLUMN_MARKER_REGEX = /\b(?:learning\s+session|session|sesyon(?:\s+ng\s+pagkatuto)?|sesion)\s*(?:(?:no\.?|number|#)\s*)?(?::|-)?\s*(\d{1,2})\b/i;
 
 type SessionTableColumn = {
@@ -2875,8 +2892,8 @@ const GENERIC_REQUEST_ERROR = 'Something went wrong while processing your reques
 const SERVICE_LIMIT_ERROR = 'A service limit or billing issue prevented this request. Please contact the administrator.';
 const SERVICE_BUSY_ERROR = 'The service is temporarily busy. Please try again in about 1 minute.';
 const SERVER_CONFIG_ERROR = 'A required server configuration is missing or invalid. Please contact the administrator.';
-const IMAGE_LIMIT_ERROR = 'Image generation is temporarily unavailable because a service limit was reached. A placeholder was added so the slide can still be used.';
-const IMAGE_LIMIT_BATCH_ERROR = 'Image generation is temporarily unavailable because a service limit was reached. Placeholder slides were added so the deck can still be used.';
+const IMAGE_LIMIT_ERROR = 'Image generation is temporarily unavailable. A placeholder was added so the slide can still be used.';
+const IMAGE_LIMIT_BATCH_ERROR = 'Image generation is temporarily unavailable. Placeholder slides were added so the deck can still be used.';
 
 const getErrorMessage = (error: unknown): string => (
   error instanceof Error ? error.message : String(error || '')
@@ -3358,7 +3375,7 @@ const App: React.FC = () => {
                 }
                 
                 try {
-                    const imageResult = await generateImageResultFromPrompt(
+                    const generateImage = () => generateImageResultFromPrompt(
                       promptForGeneration,
                       newSlide.imageStyle,
                       language,
@@ -3367,6 +3384,9 @@ const App: React.FC = () => {
                       newSlide.imageSemanticMetadata,
                       allowPaidImageGeneration
                     );
+                    const imageResult = allowPaidImageGeneration
+                      ? await runQueuedPaidImageGeneration(generateImage)
+                      : await generateImage();
                     if (isRejectedScienceParticleModelImageUrl(imageResult.dataUrl, newSlide.imageSemanticMetadata)) {
                         throw new Error('Generated image resolved to an old SVG/static particle-model visual.');
                     }
@@ -4483,15 +4503,19 @@ const App: React.FC = () => {
             console.warn('Failed to check saved slide image before regeneration.');
         }
 
-        const imageResult = await generateImageResultFromPrompt(
+        const allowPaidImageGeneration = adminImageLimitBypassed || canGenerateImage;
+        const generateImage = () => generateImageResultFromPrompt(
             trimmedPrompt,
             originalSlideStyle,
             language,
             originalSlide.imageCacheId,
             originalSlide.imageSemanticCacheId,
             originalSlide.imageSemanticMetadata,
-            adminImageLimitBypassed || canGenerateImage
+            allowPaidImageGeneration
         );
+        const imageResult = allowPaidImageGeneration
+            ? await runQueuedPaidImageGeneration(generateImage)
+            : await generateImage();
         if (imageResult.dataUrl && !adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
             incrementCount('images');
         }
