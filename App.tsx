@@ -22,6 +22,7 @@ type DepEdMode = 'weekly' | 'single';
 type AppLanguage = 'EN' | 'FIL';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
 type LoadingProgressSetter = React.Dispatch<React.SetStateAction<number | null>>;
+type PptxExportImageFormat = 'image/png' | 'image/jpeg';
 type SessionUser = {
   sub?: string;
   email?: string;
@@ -458,6 +459,20 @@ const PPTX_TEXT_ONLY_H = 3.65;
 const SAYUNA_WATERMARK_WIDTH_RATIO = 0.08;
 const SAYUNA_WATERMARK_MARGIN_RATIO = 0.025;
 const SAYUNA_WATERMARK_OPACITY = 0.26;
+const PPTX_EXPORT_IMAGE_W = 1280;
+const PPTX_EXPORT_IMAGE_H = 720;
+const PPTX_EXPORT_JPEG_QUALITY = 0.86;
+const getPptxExportImageFormat = (slide: Slide): PptxExportImageFormat => {
+  if (slide.imageStyle === 'diagram' || slide.imageStyle === 'infographic') {
+    return 'image/png';
+  }
+
+  if (slide.imageUrl?.startsWith('data:image/svg+xml')) {
+    return 'image/png';
+  }
+
+  return 'image/jpeg';
+};
 const GRADE9_FORCE_MOTION_SCANNED_PDF_FALLBACK_TEXT = [
   'Grade 9 Science: Inertia, Net Force, and Acceleration Foundations',
   'Week 1 May 25-28 2026 Learning Sessions 1 2 3 4',
@@ -4092,8 +4107,8 @@ const App: React.FC = () => {
     await imageLoaded;
 
     const canvas = document.createElement('canvas');
-    canvas.width = 1600;
-    canvas.height = 900;
+    canvas.width = PPTX_EXPORT_IMAGE_W;
+    canvas.height = PPTX_EXPORT_IMAGE_H;
     const context = canvas.getContext('2d');
     if (!context) {
       throw new Error('Canvas is unavailable for PPTX image export.');
@@ -4117,6 +4132,7 @@ const App: React.FC = () => {
     imageData: string,
     watermarkData: string,
     fit: 'cover' | 'contain' = 'cover',
+    outputFormat: PptxExportImageFormat = 'image/png',
   ): Promise<string> => {
     const [baseImage, watermarkImage] = await Promise.all([
       loadCanvasImage(imageData),
@@ -4124,8 +4140,8 @@ const App: React.FC = () => {
     ]);
 
     const canvas = document.createElement('canvas');
-    canvas.width = 1600;
-    canvas.height = 900;
+    canvas.width = PPTX_EXPORT_IMAGE_W;
+    canvas.height = PPTX_EXPORT_IMAGE_H;
 
     const context = canvas.getContext('2d');
     if (!context) {
@@ -4165,7 +4181,9 @@ const App: React.FC = () => {
     );
     context.globalAlpha = 1;
 
-    return canvas.toDataURL('image/png');
+    return outputFormat === 'image/jpeg'
+      ? canvas.toDataURL(outputFormat, PPTX_EXPORT_JPEG_QUALITY)
+      : canvas.toDataURL(outputFormat);
   }, [loadCanvasImage]);
 
   const resolveImageForPptx = useCallback(async (imageUrl: string | undefined): Promise<string | null> => {
@@ -4205,6 +4223,7 @@ const App: React.FC = () => {
     setError(null);
     setIsExporting(true);
     setExportMessage(t.presentation.exportingMessage);
+    const exportStartedAt = performance.now();
     try {
         const PptxGenJS = (await import('pptxgenjs')).default;
         const pptx = new PptxGenJS();
@@ -4217,6 +4236,52 @@ const App: React.FC = () => {
         const brandColor = computedStyle.getPropertyValue('--brand').trim().replace('#', '');
         const textColor = computedStyle.getPropertyValue('--text-primary').trim().replace('#', '');
         const watermarkImageData = await resolveImageForPptx(SAYUNA_IMAGE_WATERMARK_LOGO_URL);
+        const resolvedImageCache = new Map<string, Promise<string | null>>();
+        const watermarkedImageCache = new Map<string, Promise<string>>();
+        let resolvedImageCacheHits = 0;
+        let watermarkedImageCacheHits = 0;
+        let imageResolveMs = 0;
+        let watermarkMs = 0;
+
+        const resolveImageForCurrentExport = (imageUrl: string | undefined): Promise<string | null> => {
+            const cacheKey = imageUrl || '';
+            if (!cacheKey) return Promise.resolve(null);
+
+            const cached = resolvedImageCache.get(cacheKey);
+            if (cached) {
+                resolvedImageCacheHits++;
+                return cached;
+            }
+
+            const startedAt = performance.now();
+            const imagePromise = resolveImageForPptx(imageUrl)
+                .finally(() => {
+                    imageResolveMs += performance.now() - startedAt;
+                });
+            resolvedImageCache.set(cacheKey, imagePromise);
+            return imagePromise;
+        };
+
+        const applyWatermarkForCurrentExport = (
+            cacheKey: string,
+            imageData: string,
+            fit: 'cover' | 'contain',
+            outputFormat: PptxExportImageFormat,
+        ): Promise<string> => {
+            const cached = watermarkedImageCache.get(cacheKey);
+            if (cached) {
+                watermarkedImageCacheHits++;
+                return cached;
+            }
+
+            const startedAt = performance.now();
+            const watermarkedImagePromise = applySayunaWatermarkToImageData(imageData, watermarkImageData || '', fit, outputFormat)
+                .finally(() => {
+                    watermarkMs += performance.now() - startedAt;
+                });
+            watermarkedImageCache.set(cacheKey, watermarkedImagePromise);
+            return watermarkedImagePromise;
+        };
 
         for (let i = 0; i < presentation.slides.length; i++) {
             setExportMessage(t.presentation.exportingSlideMessage.replace('{current}', (i + 1).toString()).replace('{total}', presentation.slides.length.toString()));
@@ -4282,7 +4347,7 @@ const App: React.FC = () => {
                 const imageH = isEvidenceLayout ? PPTX_EVIDENCE_IMAGE_H : PPTX_IMAGE_H;
                 let imageAdded = false;
                 try {
-                    const imageData = await resolveImageForPptx(slideData.imageUrl);
+                    const imageData = await resolveImageForCurrentExport(slideData.imageUrl);
                     if (!imageData) {
                         throw new Error('No valid image data available for export.');
                     }
@@ -4293,7 +4358,9 @@ const App: React.FC = () => {
                                 || slideData.visualLayout === 'evidence'
                                 ? 'contain'
                                 : 'cover';
-                            exportImageData = await applySayunaWatermarkToImageData(imageData, watermarkImageData, imageFit);
+                            const outputFormat = getPptxExportImageFormat(slideData);
+                            const watermarkedCacheKey = `${slideData.imageUrl || ''}|${imageFit}|${outputFormat}`;
+                            exportImageData = await applyWatermarkForCurrentExport(watermarkedCacheKey, imageData, imageFit, outputFormat);
                         } catch (watermarkError) {
                             console.warn('Failed to apply Sayuna watermark to image:', watermarkError);
                         }
@@ -4431,7 +4498,19 @@ const App: React.FC = () => {
             }
         }
         const safeTitle = presentation.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const writeStartedAt = performance.now();
         await pptx.writeFile({ fileName: `${safeTitle}_presentation.pptx` });
+        console.info('PPTX export completed.', {
+            slideCount: presentation.slides.length,
+            resolvedImageCount: resolvedImageCache.size,
+            resolvedImageCacheHits,
+            watermarkedImageCount: watermarkedImageCache.size,
+            watermarkedImageCacheHits,
+            imageResolveMs: Math.round(imageResolveMs),
+            watermarkMs: Math.round(watermarkMs),
+            writeMs: Math.round(performance.now() - writeStartedAt),
+            totalMs: Math.round(performance.now() - exportStartedAt),
+        });
     } catch (error) {
         console.error("Failed to generate PPTX:", error);
         setError(t.presentation.errorPptx);
