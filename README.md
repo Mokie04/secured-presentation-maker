@@ -31,6 +31,11 @@ DEEPSEEK_API_KEY=your_deepseek_key_here
 # XAI_IMAGE_MODEL=grok-imagine-image-quality
 # Optional xAI image request timeout in ms. Defaults to 25000 to avoid Vercel 504s.
 # XAI_IMAGE_TIMEOUT_MS=25000
+# Optional Replicate image provider. Set to replicate to use FLUX Schnell instead of Gemini/Imagen.
+# AI_IMAGE_PROVIDER=replicate
+# REPLICATE_API_TOKEN=your_replicate_api_token_here
+# REPLICATE_IMAGE_MODEL=black-forest-labs/flux-schnell
+# REPLICATE_IMAGE_TIMEOUT_MS=45000
 APPSTORE_AUTH_ENABLED=false
 # Required only when APPSTORE_AUTH_ENABLED=true
 # APPSTORE_SHARED_SECRET=replace_with_long_random_secret
@@ -78,7 +83,7 @@ Use `VITE_GEMINI_PROXY_BASE_URL` only when your frontend is running somewhere el
 
 ## Image Strategy (Cost + Relevance)
 
-- The app can generate images with xAI Grok Imagine or Google Gemini / Imagen.
+- The app can generate images with Replicate FLUX Schnell, xAI Grok Imagine, or Google Gemini / Imagen.
 - If `PEXELS_API_KEY` is configured, the server can use Pexels as a free stock-photo fallback before paid AI image generation. The key must stay server-side in Vercel env and must not use a `VITE_` prefix.
 - Only high-confidence matches are used to keep images tightly related to the slide.
 - If Cloudflare R2 env vars are configured, generated images are cached in R2 and reused across devices before calling the image provider again.
@@ -94,7 +99,7 @@ Image lookup order is:
 
 Pexels results are downloaded server-side, converted to the same data URL shape used by generated images, cached back into R2 when R2 is configured, and returned with photographer/source attribution. Pexels credits are rendered on the slide image and included in PPTX speaker notes/export output. Uploaded lesson plans are parsed for text/table structure only; slide images are selected from each generated slide's image prompt and metadata, not copied from embedded DOCX/PDF images.
 
-To avoid paid image spend, set `AI_IMAGE_PROVIDER=pexels` or `PAID_IMAGE_GENERATION_DISABLED=true` in the server environment. The app will still use curated images, R2 cache, and Pexels, but it will stop before Gemini/xAI image generation when those free sources miss.
+To avoid paid image spend, set `AI_IMAGE_PROVIDER=pexels` or `PAID_IMAGE_GENERATION_DISABLED=true` in the server environment. The app will still use curated images, R2 cache, and Pexels, but it will stop before Replicate, Gemini, or xAI image generation when those free sources miss.
 
 Batch slide generation has an additional client-side cost guard: each generated deck/session allows paid AI image fallback on at most four high-value slide images. All slides can still use curated R2, teacher-uploaded R2, generated/Pexels cache, and Pexels before this cap applies. Manual single-image regeneration remains available for deliberate teacher edits.
 
@@ -132,6 +137,8 @@ When an uploaded lesson plan strongly matches Filipino or Araling Panlipunan mar
 For text-only deployments, set `VITE_DISABLE_IMAGES=true`. The app will skip image API calls, keep using the text provider for lesson and slide content, and show image placeholders that can be replaced by manual uploads.
 
 To use xAI for generated slide images, set `AI_IMAGE_PROVIDER=xai`, keep `VITE_DISABLE_IMAGES` unset or `false`, configure `XAI_API_KEY`, and leave `PAID_IMAGE_GENERATION_DISABLED` unset or `false`. The default xAI image model is `grok-imagine-image-quality`.
+
+To use Replicate FLUX Schnell for generated slide images, set `AI_IMAGE_PROVIDER=replicate`, `REPLICATE_API_TOKEN`, and `REPLICATE_IMAGE_MODEL=black-forest-labs/flux-schnell` in the server environment. Do not prefix the Replicate token with `VITE_`; it must not be exposed to frontend code. Replicate still runs after curated R2, teacher-uploaded R2, generated/Pexels cache, and Pexels lookup, and it still obeys the four-paid-images-per-deck guard.
 
 ## Local Development
 

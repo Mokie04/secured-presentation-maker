@@ -40,10 +40,25 @@ type TextGenerationResponse = {
   provider?: string;
 };
 
+type ReplicatePredictionResponse = {
+  id?: string;
+  status?: 'starting' | 'processing' | 'succeeded' | 'failed' | 'canceled' | string;
+  output?: unknown;
+  error?: unknown;
+  model?: string;
+  version?: string;
+  urls?: {
+    get?: string;
+  };
+};
+
 type TextProvider = 'gemini' | 'xai' | 'deepseek';
-type ImageProvider = 'gemini' | 'xai' | 'pexels';
+type ImageProvider = 'gemini' | 'xai' | 'pexels' | 'replicate';
 type AIProvider = TextProvider | ImageProvider;
 const DEFAULT_XAI_IMAGE_TIMEOUT_MS = 25_000;
+const DEFAULT_REPLICATE_IMAGE_TIMEOUT_MS = 45_000;
+const DEFAULT_REPLICATE_IMAGE_MODEL = 'black-forest-labs/flux-schnell';
+const REPLICATE_POLL_INTERVAL_MS = 1_200;
 const MAX_UPLOADED_IMAGE_BYTES = 6 * 1024 * 1024;
 const GENERIC_REQUEST_ERROR = 'The request could not be completed. Please try again.';
 const INVALID_REQUEST_ERROR = 'The request is missing required data.';
@@ -114,6 +129,15 @@ function getXaiImageTimeoutMs(): number {
   }
 
   return Math.max(5_000, Math.min(50_000, parsed));
+}
+
+function getReplicateImageTimeoutMs(): number {
+  const parsed = Number.parseInt(process.env.REPLICATE_IMAGE_TIMEOUT_MS || '', 10);
+  if (!Number.isFinite(parsed)) {
+    return DEFAULT_REPLICATE_IMAGE_TIMEOUT_MS;
+  }
+
+  return Math.max(10_000, Math.min(55_000, parsed));
 }
 
 function parseBooleanEnv(value: string | undefined): boolean {
@@ -277,10 +301,14 @@ function getSafeProxyErrorMessage(info: GeminiErrorInfo): string {
 
   if (info.status === 401
     || info.status === 403
+    || info.status === 402
     || info.status === 429
     || message.includes('rate_limit')
     || message.includes('quota')
     || message.includes('billing')
+    || message.includes('payment')
+    || message.includes('credit')
+    || message.includes('balance')
     || message.includes('spending cap')
     || message.includes('permission')) {
     return SERVICE_LIMIT_ERROR;
@@ -316,7 +344,7 @@ function getSafeProxyStatus(info: GeminiErrorInfo): number {
     return info.status;
   }
 
-  if (info.status === 401 || info.status === 403) {
+  if (info.status === 401 || info.status === 402 || info.status === 403) {
     return 502;
   }
 
@@ -429,6 +457,7 @@ function normalizeTextProvider(value: string | undefined): TextProvider | null {
 function normalizeImageProvider(value: string | undefined): ImageProvider | null {
   const configuredProvider = value?.trim().toLowerCase();
   if (configuredProvider === 'xai' || configuredProvider === 'grok') return 'xai';
+  if (configuredProvider === 'replicate' || configuredProvider === 'flux' || configuredProvider === 'flux-schnell') return 'replicate';
   if (configuredProvider === 'pexels' || configuredProvider === 'stock' || configuredProvider === 'free') return 'pexels';
   if (configuredProvider === 'gemini') return 'gemini';
   return null;
@@ -446,6 +475,7 @@ function getImageProvider(): ImageProvider {
   if (configuredProvider) return configuredProvider;
   if (process.env.XAI_IMAGE_MODEL?.trim()) return 'xai';
   if (!process.env.GEMINI_API_KEY && process.env.XAI_API_KEY) return 'xai';
+  if (!process.env.GEMINI_API_KEY && !process.env.XAI_API_KEY && process.env.REPLICATE_API_TOKEN) return 'replicate';
   return 'gemini';
 }
 
@@ -490,6 +520,44 @@ function normalizeXaiImageModels(model: string | string[] | undefined): string[]
   ]
     .map((m) => (typeof m === 'string' ? m.trim().replace(/^models\//, '') : ''))
     .filter((m): m is string => Boolean(m) && m.toLowerCase().startsWith('grok-imagine-image'));
+
+  return Array.from(new Set(models));
+}
+
+function normalizeReplicateModelName(model: string | undefined): string {
+  const rawModel = typeof model === 'string' ? model.trim() : '';
+  if (!rawModel) return '';
+
+  try {
+    const url = new URL(rawModel);
+    if (url.hostname === 'replicate.com') {
+      const segments = url.pathname.split('/').filter(Boolean);
+      if (segments.length >= 2) {
+        return `${segments[0]}/${segments[1]}`;
+      }
+    }
+  } catch {
+    // Not a URL; normalize the plain model name below.
+  }
+
+  return rawModel
+    .replace(/^replicate\//, '')
+    .replace(/^models\//, '')
+    .split(':')[0]
+    .trim();
+}
+
+function normalizeReplicateImageModels(model: string | string[] | undefined): string[] {
+  const configuredModel = process.env.REPLICATE_IMAGE_MODEL?.trim();
+  const requestedModels = Array.isArray(model) ? model : [model];
+
+  const models = [
+    configuredModel,
+    ...requestedModels,
+    DEFAULT_REPLICATE_IMAGE_MODEL,
+  ]
+    .map(normalizeReplicateModelName)
+    .filter((m): m is string => Boolean(m) && /^[a-z0-9][a-z0-9._-]*\/[a-z0-9][a-z0-9._-]*$/i.test(m));
 
   return Array.from(new Set(models));
 }
@@ -787,6 +855,220 @@ async function generateXaiImage(
   };
 }
 
+function createStatusError(message: string, status: number): Error & { status?: number } {
+  const error = new Error(message) as Error & { status?: number };
+  error.status = status;
+  return error;
+}
+
+function getReplicateErrorMessage(payload: any, status: number): string {
+  const rawMessage = payload?.detail || payload?.error || payload?.title || payload?.message;
+  if (typeof rawMessage === 'string' && rawMessage.trim()) {
+    return rawMessage;
+  }
+  if (rawMessage && typeof rawMessage === 'object') {
+    return JSON.stringify(rawMessage);
+  }
+  return `Replicate image request failed with status ${status}.`;
+}
+
+function buildReplicatePredictionUrl(model: string): string {
+  const [owner, name] = model.split('/');
+  if (!owner || !name) {
+    throw createStatusError('Server is missing a valid REPLICATE_IMAGE_MODEL.', 500);
+  }
+
+  return `https://api.replicate.com/v1/models/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/predictions`;
+}
+
+function getReplicateOutputUrls(output: unknown): string[] {
+  if (typeof output === 'string') {
+    return [output];
+  }
+
+  if (Array.isArray(output)) {
+    return output.flatMap(getReplicateOutputUrls);
+  }
+
+  if (output && typeof output === 'object') {
+    const record = output as Record<string, unknown>;
+    return ['url', 'image', 'output']
+      .flatMap((key) => getReplicateOutputUrls(record[key]));
+  }
+
+  return [];
+}
+
+function parseImageDataUrl(dataUrl: string): { base64: string; mime: string } | null {
+  const match = dataUrl.match(/^data:(image\/(?:png|jpe?g|webp));base64,([A-Za-z0-9+/=\s]+)$/i);
+  if (!match) return null;
+
+  return {
+    mime: match[1].toLowerCase() === 'image/jpg' ? 'image/jpeg' : match[1].toLowerCase(),
+    base64: match[2].replace(/\s+/g, ''),
+  };
+}
+
+function getSupportedImageMime(contentType: string | null, base64: string): string {
+  const mime = (contentType || '').split(';')[0].trim().toLowerCase();
+  if (['image/png', 'image/jpeg', 'image/webp'].includes(mime)) {
+    return mime;
+  }
+
+  return detectImageMimeFromBase64(base64);
+}
+
+function createReplicateTimeoutError(): Error & { status?: number } {
+  return createStatusError('Replicate image generation timed out. Try again later.', 504);
+}
+
+async function fetchWithDeadline(url: string, init: RequestInit, deadline: number): Promise<Response> {
+  const remainingMs = deadline - Date.now();
+  if (remainingMs <= 0) {
+    throw createReplicateTimeoutError();
+  }
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), remainingMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if ((error as { name?: string })?.name === 'AbortError') {
+      throw createReplicateTimeoutError();
+    }
+
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function pollReplicatePrediction(
+  initialPrediction: ReplicatePredictionResponse,
+  apiKey: string,
+  deadline: number,
+): Promise<ReplicatePredictionResponse> {
+  let prediction = initialPrediction;
+
+  while (prediction.status !== 'succeeded') {
+    if (prediction.status === 'failed' || prediction.status === 'canceled') {
+      throw createStatusError(
+        typeof prediction.error === 'string' && prediction.error.trim()
+          ? prediction.error
+          : `Replicate prediction ${prediction.status}.`,
+        502,
+      );
+    }
+
+    if (!prediction.urls?.get) {
+      throw createStatusError('Replicate image generation did not return a polling URL.', 502);
+    }
+
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw createReplicateTimeoutError();
+    }
+
+    await sleep(Math.min(REPLICATE_POLL_INTERVAL_MS, remainingMs));
+    const response = await fetchWithDeadline(prediction.urls.get, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'application/json',
+      },
+    }, deadline);
+    const payload = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw createStatusError(getReplicateErrorMessage(payload, response.status), response.status);
+    }
+
+    prediction = payload as ReplicatePredictionResponse;
+  }
+
+  return prediction;
+}
+
+async function fetchReplicateOutputImage(
+  outputUrl: string,
+  deadline: number,
+): Promise<{ base64: string; mime: string }> {
+  const parsedDataUrl = parseImageDataUrl(outputUrl);
+  if (parsedDataUrl) {
+    return parsedDataUrl;
+  }
+
+  const response = await fetchWithDeadline(outputUrl, {
+    headers: {
+      Accept: 'image/avif,image/webp,image/png,image/jpeg,image/*,*/*;q=0.8',
+    },
+  }, deadline);
+
+  if (!response.ok) {
+    throw createStatusError(`Replicate image download failed with status ${response.status}.`, response.status);
+  }
+
+  const arrayBuffer = await response.arrayBuffer();
+  if (arrayBuffer.byteLength === 0) {
+    throw createStatusError('Replicate image generation returned empty image data.', 502);
+  }
+
+  const base64 = Buffer.from(arrayBuffer).toString('base64');
+  return {
+    base64,
+    mime: getSupportedImageMime(response.headers.get('content-type'), base64),
+  };
+}
+
+async function generateReplicateImage(
+  candidateModel: string,
+  imageRequest: ImageRequestDetails,
+): Promise<{ base64: string; mime: string; modelUsed: string }> {
+  const apiKey = process.env.REPLICATE_API_TOKEN;
+  if (!apiKey) {
+    throw createStatusError('Server is missing REPLICATE_API_TOKEN.', 500);
+  }
+
+  const deadline = Date.now() + getReplicateImageTimeoutMs();
+  const response = await fetchWithDeadline(buildReplicatePredictionUrl(candidateModel), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${apiKey}`,
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      input: {
+        prompt: imageRequest.prompt,
+        aspect_ratio: imageRequest.aspectRatio || '16:9',
+        num_outputs: 1,
+        output_format: 'webp',
+        go_fast: true,
+      },
+    }),
+  }, deadline);
+  const payload = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw createStatusError(getReplicateErrorMessage(payload, response.status), response.status);
+  }
+
+  const prediction = await pollReplicatePrediction(payload as ReplicatePredictionResponse, apiKey, deadline);
+  const outputUrl = getReplicateOutputUrls(prediction.output)[0];
+  if (!outputUrl) {
+    throw createStatusError('Replicate image generation returned no image URL.', 502);
+  }
+
+  const image = await fetchReplicateOutputImage(outputUrl, deadline);
+  return {
+    ...image,
+    modelUsed: prediction.model || candidateModel,
+  };
+}
+
 export default async function handler(req: any, res: any) {
   const corsAllowed = applyCorsHeaders(req, res);
 
@@ -813,12 +1095,14 @@ export default async function handler(req: any, res: any) {
     ? (isImageTask ? normalizeXaiImageModels(model) : normalizeXaiModels(model))
     : provider === 'deepseek'
       ? normalizeDeepSeekModels(model)
-    : (Array.isArray(model) ? model : [model]);
+      : provider === 'replicate'
+        ? normalizeReplicateImageModels(model)
+        : (Array.isArray(model) ? model : [model]);
   const normalizedModels = modelList
     .filter((m): m is string => typeof m === 'string' && m.trim().length > 0)
     .map((m) => m.trim())
     .map((m) => {
-      if (provider === 'xai' || provider === 'deepseek') return m;
+      if (provider === 'xai' || provider === 'deepseek' || provider === 'replicate') return m;
       // Map older/fallback names to supported ones for the v1beta generateContent endpoint
       if (m.startsWith('gemini-1.5-flash')) return 'models/gemini-1.5-flash-001';
       if (m.startsWith('gemini-2.5-flash-image')) return 'models/gemini-2.5-flash-image';
@@ -826,7 +1110,7 @@ export default async function handler(req: any, res: any) {
       return m;
     })
     .map((m) => {
-      if (provider === 'xai' || provider === 'deepseek') return m.replace(/^models\//, '');
+      if (provider === 'xai' || provider === 'deepseek' || provider === 'replicate') return m.replace(/^models\//, '');
       return m.startsWith('models/') ? m : `models/${m}`;
     });
   if (!model || !contents) {
@@ -1071,6 +1355,114 @@ export default async function handler(req: any, res: any) {
         });
       }
       throw lastError || new Error('All image generation candidates failed.');
+    }
+
+    if (task === 'image' && provider === 'replicate') {
+      const imageRequest = getImageRequestDetails(contents, requestConfig);
+      let lastError: unknown = null;
+      let lastErrorInfo: GeminiErrorInfo | null = null;
+
+      for (const candidateModel of modelCandidates) {
+        const maxAttemptsForModel = 1;
+        for (let attempt = 1; attempt <= maxAttemptsForModel; attempt += 1) {
+          try {
+            const cachedImage = attempt === 1
+              ? await getCachedImageWithPromptFallback({
+                prompt: imageRequest.prompt,
+                model: candidateModel,
+                aspectRatio: imageRequest.aspectRatio,
+                cacheId: imageRequest.cacheId,
+                semanticCacheId: imageRequest.semanticCacheId,
+                semanticMetadata: imageRequest.semanticMetadata,
+              })
+              : null;
+
+            if (cachedImage) {
+              console.info('Generated image cache hit', {
+                imageProvider: 'replicate',
+                cacheProvider: 'r2',
+                model: candidateModel,
+              });
+
+              return res.status(200).json({
+                dataUrl: cachedImage.dataUrl,
+                attribution: cachedImage.attribution,
+                modelUsed: candidateModel,
+                provider: 'replicate',
+                cache: {
+                  hit: true,
+                  provider: 'r2',
+                },
+              });
+            }
+
+            const pexelsImage = await getPexelsImageWithCache({
+              prompt: imageRequest.prompt,
+              model: candidateModel,
+              aspectRatio: imageRequest.aspectRatio,
+              cacheId: imageRequest.cacheId,
+              semanticCacheId: imageRequest.semanticCacheId,
+              semanticMetadata: imageRequest.semanticMetadata,
+            });
+            if (pexelsImage) {
+              return res.status(200).json({
+                dataUrl: pexelsImage.dataUrl,
+                attribution: pexelsImage.attribution,
+                modelUsed: candidateModel,
+                provider: 'pexels',
+                cache: {
+                  hit: false,
+                  provider: pexelsImage.cacheProvider,
+                },
+              });
+            }
+
+            if (shouldSkipPaidImageGeneration(provider, imageRequest)) {
+              return sendPaidImageGenerationSkipped(res, candidateModel, provider);
+            }
+
+            const generatedImage = await generateReplicateImage(candidateModel, imageRequest);
+            const storedImage = await setCachedR2Image({
+              prompt: imageRequest.prompt,
+              model: candidateModel,
+              aspectRatio: imageRequest.aspectRatio,
+              cacheId: imageRequest.cacheId,
+              semanticCacheId: imageRequest.semanticCacheId,
+              semanticMetadata: imageRequest.semanticMetadata,
+            }, generatedImage.base64, generatedImage.mime);
+            console.info('Generated image cache write', {
+              imageProvider: 'replicate',
+              cacheProvider: storedImage ? 'r2' : 'none',
+              model: candidateModel,
+            });
+
+            return res.status(200).json({
+              dataUrl: `data:${generatedImage.mime};base64,${generatedImage.base64}`,
+              modelUsed: generatedImage.modelUsed,
+              provider: 'replicate',
+              cache: {
+                hit: false,
+                provider: storedImage ? 'r2' : 'none',
+              },
+            });
+          } catch (error) {
+            lastError = error;
+            lastErrorInfo = extractGeminiErrorInfo(error);
+            const shouldRetry = lastErrorInfo.retryable && attempt < maxAttemptsForModel;
+            if (shouldRetry) {
+              await sleep(getRetryDelayMs(attempt));
+              continue;
+            }
+          }
+        }
+      }
+
+      if (lastErrorInfo?.retryable && lastErrorInfo.status === 503) {
+        return res.status(503).json({
+          error: SERVICE_BUSY_ERROR,
+        });
+      }
+      throw lastError || new Error('All Replicate image generation candidates failed.');
     }
 
     if (task === 'image') {
