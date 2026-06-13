@@ -18,7 +18,7 @@ type GeminiProxyRequest = {
 };
 
 export const config = {
-  maxDuration: 60,
+  maxDuration: 300,
 };
 
 type GeminiErrorInfo = {
