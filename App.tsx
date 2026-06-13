@@ -96,7 +96,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v36';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v37';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -820,11 +820,36 @@ const getPlanUnitLabel = (blueprint: LessonBlueprint | null): string => (
   blueprint?.planUnitLabel?.trim() || DEFAULT_PLAN_UNIT_LABEL
 );
 
+const PLAN_UNIT_FOCUS_SCAFFOLD_SNIPPETS = [
+  'what task, activity',
+  'what task activity',
+  'what can we do together so that learners',
+  'assessment reveal',
+  'ways forward',
+  'meaningful learning can also happen',
+  'learning experience is like a thoughtfully designed journey',
+  'what can i do to make the objective',
+  'what learning resources',
+  'are there spaces to meaningfully integrate',
+  'think about what you need to adjust',
+  'what experiences outside the classroom',
+];
+
+const isPlanUnitFocusScaffoldText = (normalized: string): boolean => (
+  PLAN_UNIT_FOCUS_SCAFFOLD_SNIPPETS.some((snippet) => normalized.includes(snippet))
+  || (normalized.includes('formative assessment') && normalized.includes('what task'))
+  || (normalized.includes('learning resources') && normalized.includes('what learning resources'))
+  || (normalized.includes('opportunities for integration') && normalized.includes('are there spaces'))
+  || (normalized.includes('extended learning opportunities') && normalized.includes('what experiences'))
+  || (normalized.includes('reflections') && normalized.includes('think about what you need'))
+);
+
 const shouldShowPlanUnitFocus = (focus: string | undefined, unitLabel: string, dayNumber: number): boolean => {
   const normalized = (focus || '').replace(/\s+/g, ' ').trim().toLowerCase();
   if (!normalized) return false;
   const unit = unitLabel.trim().toLowerCase() || DEFAULT_PLAN_UNIT_LABEL.toLowerCase();
   return normalized !== `${unit} ${dayNumber}`
+    && !isPlanUnitFocusScaffoldText(normalized)
     && !normalized.includes('uploaded lesson plan')
     && !normalized.includes('provided lesson plan')
     && !normalized.includes('uploaded content')

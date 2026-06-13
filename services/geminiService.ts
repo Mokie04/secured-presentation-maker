@@ -413,10 +413,24 @@ const PLAN_UNIT_OBJECTIVE_HEADING_PATTERN = /\b(?:objectives?|learning\s+(?:obje
 const PLAN_UNIT_OBJECTIVE_ACTION_PATTERN = /\b(?:determine|identify|describe|explain|compare|classify|analy[sz]e|solve|compute|calculate|interpret|construct|represent|differentiate|evaluate|create|use|apply|measure|infer|predict|illustrate|define|recognize|read|write|discuss|relate|natutukoy|matukoy|tukuyin|nailalarawan|mailarawan|ilarawan|naipaliliwanag|maipaliwanag|ipaliwanag|naihahambing|maihambing|nasusuri|masuri|suriin|nakakalkula|makalkula|nakakuwenta|makuwenta|nalulutas|malutas|lutasin|naipakikita|maipakita|nagagamit|magamit|gamitin|nakabubuo|makabuo)\b/i;
 const PLAN_UNIT_OBJECTIVE_LEARNER_SIGNAL_PATTERN = /\b(?:(?:students?|learners?|pupils?)\s+(?:will|should|can|shall|must|are\s+able\s+to|be\s+able\s+to|are\s+expected\s+to(?:\s+be\s+able\s+to)?)|(?:mga\s+)?mag-aaral\s+(?:ay\s+)?(?:inaasahang|maaaring|makakaya(?:ng)?|dapat))\b/i;
 const PLAN_UNIT_STANDARD_LABEL_PATTERN = /\b(?:content\s+standard|performance\s+standard|pamantayang\s+pangnilalaman|pamantayan\s+sa\s+pagganap)\b/i;
+const PLAN_UNIT_FOCUS_SCAFFOLD_PATTERN = /\b(?:what\s+task,?\s+activity,?\s+or\s+questions\s+can\s+i\s+use|what\s+can\s+we\s+do\s+together\s+so\s+that\s+learners|what\s+kind\s+of\s+questions\s+will\s+check|assessment\s+reveal|ways\s+forward|meaningful\s+learning\s+can\s+also\s+happen|learning\s+experience\s+is\s+like\s+a\s+thoughtfully\s+designed\s+journey|what\s+can\s+i\s+do\s+to\s+make\s+the\s+objectives?\s+clear|what\s+learning\s+resources\s+(?:do|will)\s+i\s+need|are\s+there\s+spaces\s+to\s+meaningfully\s+integrate|think\s+about\s+what\s+you\s+need\s+to\s+adjust|what\s+experiences?\s+outside\s+the\s+classroom)\b/i;
+
+function isPlanUnitFocusScaffoldText(value: unknown): boolean {
+    const normalized = normalizeSourceText(typeof value === 'string' ? value : '');
+    if (!normalized) return false;
+
+    return PLAN_UNIT_FOCUS_SCAFFOLD_PATTERN.test(normalized)
+        || (normalized.includes('formative assessment') && normalized.includes('what task'))
+        || (normalized.includes('learning resources') && normalized.includes('what learning resources'))
+        || (normalized.includes('opportunities for integration') && normalized.includes('are there spaces'))
+        || (normalized.includes('extended learning opportunities') && normalized.includes('what experiences'))
+        || (normalized.includes('reflections') && normalized.includes('think about what you need'));
+}
 
 function isGenericPlanUnitSummary(value: unknown, unitLabel: PlanUnitLabel, dayNumber: number): boolean {
     const normalized = normalizeSourceText(typeof value === 'string' ? value : '');
     if (!normalized) return true;
+    if (isPlanUnitFocusScaffoldText(normalized)) return true;
 
     const unit = unitLabel.toLowerCase();
     return normalized === `${unit} ${dayNumber}`
@@ -433,6 +447,7 @@ function cleanPlanUnitFocusCandidateLine(line: string, unitLabel: PlanUnitLabel,
         .replace(/\|/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
+    if (isPlanUnitFocusScaffoldText(cleaned)) return '';
 
     cleaned = cleaned
         .replace(planUnitMarkerRegex(unitLabel, dayNumber, 'i'), '')
@@ -449,6 +464,11 @@ function cleanPlanUnitFocusCandidateLine(line: string, unitLabel: PlanUnitLabel,
 function normalizeObjectiveFocusText(value: string, unitLabel: PlanUnitLabel, dayNumber: number): string {
     let cleaned = cleanPlanUnitFocusCandidateLine(value, unitLabel, dayNumber);
     if (!cleaned) return '';
+
+    const learnerSignalClause = cleaned.match(/\b(?:(?:students?|learners?|pupils?)\s+(?:will|should|can|shall|must|are\s+able\s+to|be\s+able\s+to|are\s+expected\s+to(?:\s+be\s+able\s+to)?)|(?:mga\s+)?mag-aaral\s+(?:ay\s+)?(?:inaasahang|maaaring|makakaya(?:ng)?|dapat))\s+(.+)$/i);
+    if (learnerSignalClause?.[1]) {
+        cleaned = learnerSignalClause[1].trim();
+    }
 
     cleaned = cleaned
         .replace(/^(?:(?:at|by)\s+the\s+end\s+of\s+(?:the\s+)?(?:lesson|session|period|discussion|activity|week),?\s*)/i, '')
@@ -471,6 +491,7 @@ function extractPlanUnitObjectiveFocus(sourceText: string, unitLabel: PlanUnitLa
     sourceText.split(/\r?\n/).forEach((line, index) => {
         const raw = line.replace(/\s+/g, ' ').trim();
         if (!raw) return;
+        if (isPlanUnitFocusScaffoldText(raw)) return;
 
         const hasObjectiveHeading = PLAN_UNIT_OBJECTIVE_HEADING_PATTERN.test(raw);
         const hasLearnerSignal = PLAN_UNIT_OBJECTIVE_LEARNER_SIGNAL_PATTERN.test(raw);
