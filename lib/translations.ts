@@ -34,7 +34,14 @@ export const translations = {
         collegeObjectivesPlaceholder: "- Explain the principles of quantum superposition.\n- Analyze the threat of Shor's algorithm.\n- Evaluate post-quantum cryptographic methods.",
         generateCollegeButton: 'Generate Lecture Presentation',
         generateK12Button: 'Create Lesson Plan',
-        generateSingleLessonButton: 'Generate Lesson Slides'
+        generateSingleLessonButton: 'Generate Lesson Slides',
+        presentationLanguageTitle: 'Presentation language',
+        presentationLanguageDescription: 'Slides and speaker notes will be generated in {language}.',
+        presentationLanguageEnglish: 'English',
+        presentationLanguageFilipino: 'Filipino',
+        presentationLanguageAutoDetected: 'Detected from your lesson plan.',
+        presentationLanguageFollowsInterface: 'Following the header language.',
+        presentationLanguageManual: 'Manually selected.'
     },
     presentation: {
         weeklyBlueprintTitle: 'Your Weekly Lesson Blueprint',
@@ -133,7 +140,14 @@ export const translations = {
         collegeObjectivesPlaceholder: "- Ipaliwanag ang mga prinsipyo ng quantum superposition.\n- Suriin ang banta ng Shor's algorithm.\n- Tayahin ang mga paraan ng post-quantum cryptography.",
         generateCollegeButton: 'Bumuo ng Presentasyon ng Lektura',
         generateK12Button: 'Gumawa ng Lesson Plan',
-        generateSingleLessonButton: 'Bumuo ng mga Slide ng Aralin'
+        generateSingleLessonButton: 'Bumuo ng mga Slide ng Aralin',
+        presentationLanguageTitle: 'Wika ng presentasyon',
+        presentationLanguageDescription: 'Bubuuin ang mga slide at tala sa {language}.',
+        presentationLanguageEnglish: 'Ingles',
+        presentationLanguageFilipino: 'Filipino',
+        presentationLanguageAutoDetected: 'Natukoy mula sa iyong lesson plan.',
+        presentationLanguageFollowsInterface: 'Sumusunod sa wika sa header.',
+        presentationLanguageManual: 'Manu-manong pinili.'
     },
     presentation: {
         weeklyBlueprintTitle: 'Ang Iyong Lingguhang Balangkas ng Aralin',

@@ -20,6 +20,7 @@ type TransitionDirection = 'next' | 'prev' | null;
 type TeachingLevel = 'K-12' | 'College';
 type DepEdMode = 'weekly' | 'single';
 type AppLanguage = 'EN' | 'FIL';
+type PresentationLanguageSource = 'interface' | 'auto' | 'manual';
 type AuthState = 'checking' | 'authorized' | 'unauthorized';
 type LoadingProgressSetter = React.Dispatch<React.SetStateAction<number | null>>;
 type PptxExportImageFormat = 'image/png' | 'image/jpeg';
@@ -115,15 +116,23 @@ const UPLOADED_FILIPINO_STRONG_SUBJECT_PATTERNS = [
   /\bsubject\s*[:\-]?\s*(?:filipino|araling\s+panlipunan|aral\s*[- ]?\s*pan)\b/,
 ];
 const UPLOADED_FILIPINO_LANGUAGE_PATTERNS: Array<[RegExp, number]> = [
+  [/\bfilipino\b/, 2],
   [/\bfilipino\s+(?:sa|baitang|grade|quarter|kuwarter|markahan)\b/, 3],
+  [/\b(?:baitang|grade)\s*\d{1,2}\s*(?:filipino|araling\s+panlipunan|aral\s*[- ]?\s*pan)\b/, 3],
+  [/\b(?:unang|ikalawang|ikatlong|ikaapat na?)\s+(?:markahan|kuwarter)\b/, 2],
   [/\b(?:una|ikalawa|ikatlo|ikaapat|ikalima|ikaanim|ikapito|ikawalo|ikasiyam|ikasampu)ng\s+(?:araw|sesyon)\b/, 3],
   [/\b(?:araw|sesyon)\s*(?:blg\.?|bilang|numero|#|:|-)?\s*\d{1,2}\b/, 2],
   [/\bbilang\s+ng\s+(?:mga\s+)?(?:araw|sesyon)\b/, 2],
   [/\blayunin(?:g)?\b/, 2],
+  [/\bpamantayang\s+(?:pangnilalaman|pagganap)\b/, 3],
+  [/\b(?:nilalaman|kagamitan|sanggunian)\b/, 1],
   [/\bkasanayang\s+pampagkatuto\b/, 3],
   [/\bpinakamahalagang\s+kasanayan\b/, 3],
   [/\bpaksa\b/, 1],
+  [/\bpanuto\b/, 1],
   [/\bgawain\b/, 2],
+  [/\bpangkatang\s+gawain\b/, 2],
+  [/\btalakayan\b/, 1],
   [/\bpagtataya\b/, 2],
   [/\btakdang\s*[- ]?\s*aralin\b/, 2],
   [/\bpamamaraan\b/, 2],
@@ -131,6 +140,8 @@ const UPLOADED_FILIPINO_LANGUAGE_PATTERNS: Array<[RegExp, number]> = [
   [/\bpaglinang\b/, 2],
   [/\bpaglalahat\b/, 2],
   [/\bpaglalapat\b/, 2],
+  [/\bpagbati\b/, 1],
+  [/\bpanalangin\b/, 1],
   [/\bmga\s+(?:mag[- ]?aaral|kagamitan|layunin|gawain)\b/, 1],
 ];
 const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260604-week1-approved-v7';
@@ -423,6 +434,34 @@ const inferUploadedLessonLanguage = (content: string, uploadedFileName = ''): Ap
     ? 'FIL'
     : null;
 };
+
+const buildK12InitialSlides = (blueprint: LessonBlueprint, language: AppLanguage): Slide[] => (
+  language === 'FIL'
+    ? [
+        {
+          title: blueprint.mainTitle,
+          content: [`Asignatura: ${blueprint.subject}`, `Baitang: ${blueprint.gradeLevel}`, `Markahan: ${blueprint.quarter}`],
+          speakerNotes: 'Batiin ang klase at ipakilala nang maikli ang pangunahing paksa para sa linggo.',
+        },
+        {
+          title: 'Mga Layunin sa Pagkatuto',
+          content: blueprint.studentFacingObjectives,
+          speakerNotes: 'Basahin ang mga layunin. Ipaliwanag kung ano ang inaasahang magagawa ng mga mag-aaral sa pagtatapos ng aralin.',
+        },
+      ]
+    : [
+        {
+          title: blueprint.mainTitle,
+          content: [`Subject: ${blueprint.subject}`, `Grade Level: ${blueprint.gradeLevel}`, `Quarter: ${blueprint.quarter}`],
+          speakerNotes: 'Welcome the class and briefly introduce the main topic for the week.',
+        },
+        {
+          title: 'Learning Objectives',
+          content: blueprint.studentFacingObjectives,
+          speakerNotes: 'Read the objectives aloud. Explain what students will be able to do by the end of the week. These are the simplified goals. The full SMART objectives are in your lesson plan for reference.',
+        },
+      ]
+);
 const USER_IMAGE_LIMIT_PLACEHOLDER = 'limit_reached';
 const PROVIDER_IMAGE_LIMIT_PLACEHOLDER = 'provider_limit_reached';
 const IMAGE_SKIPPED_PLACEHOLDER = 'image_generation_skipped';
@@ -3002,7 +3041,9 @@ const App: React.FC = () => {
   const regeneratingImageIndexesRef = useRef<Set<number>>(new Set());
 
   const { theme } = useTheme();
-  const { language, setLanguage } = useLanguage();
+  const { language } = useLanguage();
+  const [presentationLanguage, setPresentationLanguage] = useState<AppLanguage>(language);
+  const [presentationLanguageSource, setPresentationLanguageSource] = useState<PresentationLanguageSource>('interface');
   const t = translations[language];
   const appStoreUrl = ((import.meta as ImportMeta & { env?: { VITE_APPSTORE_URL?: string } }).env?.VITE_APPSTORE_URL || '').trim();
   const {
@@ -3019,6 +3060,34 @@ const App: React.FC = () => {
   const adminUsageLimitBypassed = hasAdminUsageBypass(sessionUser);
   const adminGenerationLimitBypassed = adminUsageLimitBypassed;
   const adminImageLimitBypassed = adminUsageLimitBypassed;
+
+  useEffect(() => {
+    if (presentationLanguageSource === 'interface' && presentationLanguage !== language) {
+      setPresentationLanguage(language);
+    }
+  }, [language, presentationLanguage, presentationLanguageSource]);
+
+  const handlePresentationLanguageChange = useCallback((nextLanguage: AppLanguage) => {
+    setPresentationLanguage(nextLanguage);
+    setPresentationLanguageSource('manual');
+  }, []);
+
+  const getPresentationLanguageForGeneration = useCallback((content: string, uploadedFileName = fileName || ''): AppLanguage => {
+    const inferredLanguage = inferUploadedLessonLanguage(content, uploadedFileName);
+    if (inferredLanguage && presentationLanguageSource !== 'manual') {
+      setPresentationLanguage(inferredLanguage);
+      setPresentationLanguageSource('auto');
+      return inferredLanguage;
+    }
+
+    if (!inferredLanguage && presentationLanguageSource === 'auto') {
+      setPresentationLanguage(language);
+      setPresentationLanguageSource('interface');
+      return language;
+    }
+
+    return presentationLanguage;
+  }, [fileName, language, presentationLanguage, presentationLanguageSource]);
 
   useEffect(() => {
     updateCounts();
@@ -3524,6 +3593,7 @@ const App: React.FC = () => {
       return;
     }
 
+    const generationLanguage = getPresentationLanguageForGeneration(content);
     setIsLoading(true);
     let shouldRollbackGeneration = false;
 
@@ -3536,13 +3606,13 @@ const App: React.FC = () => {
               GENERATION_CACHE_VERSION,
               topicContext,
               objectivesContext,
-              language,
+              generationLanguage,
             ]);
             const imageSemanticScope = buildTopicImageSemanticScope('College', `${topicContext}\n${objectivesContext}`);
             const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
             if (cachedPresentation) {
               await waitForCacheHitLoading(setLoadingProgress);
-              const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, language, cacheKey, imageSemanticScope);
+              const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, generationLanguage, cacheKey, imageSemanticScope);
               setPresentation({ ...cachedPresentation, slides: refreshedSlides });
               setCurrentSlide(0);
               await finishLoadingProgress(setLoadingProgress);
@@ -3557,11 +3627,11 @@ const App: React.FC = () => {
               return;
             }
             shouldRollbackGeneration = !adminGenerationLimitBypassed;
-            const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, language, (msg) => setLoadingMessage(msg));
+            const fullPresentation = await generateCollegeLectureSlides(topicContext, objectivesContext, generationLanguage, (msg) => setLoadingMessage(msg));
             setLoadingMessage(t.presentation.loadingTables);
             const slidesWithTables = await processSlidesForTables(assertSlidesGenerated(fullPresentation.slides, 'College presentation'));
             const finalSlides = assertSlidesGenerated(
-              await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey, imageSemanticScope }),
+              await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope: cacheKey, imageSemanticScope }),
               'College presentation'
             );
             const finalPresentation = { ...fullPresentation, slides: finalSlides };
@@ -3582,13 +3652,13 @@ const App: React.FC = () => {
                   GENERATION_CACHE_VERSION,
                   content,
                   DEFAULT_LESSON_FORMAT,
-                  language,
+                  generationLanguage,
                 ]);
                 const imageSemanticScope = buildTopicImageSemanticScope('K-12', content, DEFAULT_LESSON_FORMAT);
                 const cachedPresentation = await getCachedGeneration<Presentation>(cacheKey);
                 if (cachedPresentation) {
                   await waitForCacheHitLoading(setLoadingProgress);
-                  const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, language, cacheKey, imageSemanticScope);
+                  const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, generationLanguage, cacheKey, imageSemanticScope);
                   setPresentation({ ...cachedPresentation, slides: refreshedSlides });
                   setCurrentSlide(0);
                   await finishLoadingProgress(setLoadingProgress);
@@ -3603,11 +3673,11 @@ const App: React.FC = () => {
                   return;
                 }
                 shouldRollbackGeneration = !adminGenerationLimitBypassed;
-                const fullPresentation = await generateK12SingleLessonSlides(content, DEFAULT_LESSON_FORMAT, language, (msg) => setLoadingMessage(msg));
+                const fullPresentation = await generateK12SingleLessonSlides(content, DEFAULT_LESSON_FORMAT, generationLanguage, (msg) => setLoadingMessage(msg));
                 setLoadingMessage(t.presentation.loadingTables);
                 const slidesWithTables = await processSlidesForTables(assertSlidesGenerated(fullPresentation.slides, 'Single lesson presentation'));
                 const finalSlides = assertSlidesGenerated(
-                  await processSlidesForImages(slidesWithTables, language, { imageCacheScope: cacheKey, imageSemanticScope }),
+                  await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope: cacheKey, imageSemanticScope }),
                   'Single lesson presentation'
                 );
                 const finalPresentation = { ...fullPresentation, slides: finalSlides };
@@ -3626,18 +3696,18 @@ const App: React.FC = () => {
                   GENERATION_CACHE_VERSION,
                   content,
                   DEFAULT_LESSON_FORMAT,
-                  language,
+                  generationLanguage,
                 ]);
 
                 const { getReusableK12LessonPlanSeed } = await loadReusableLessonSeeds();
-                const reusablePlan = getReusableK12LessonPlanSeed(content, language);
+                const reusablePlan = getReusableK12LessonPlanSeed(content, generationLanguage);
                 if (reusablePlan) {
                   const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
                   const imageSemanticScope = buildK12ImageSemanticScope(reusablePlan.blueprint);
                   const [processedInitialSlides] = await Promise.all([
                     processSlidesForImages(
                       reusablePlan.initialPresentation.slides,
-                      language,
+                      generationLanguage,
                       { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope }
                     ),
                     waitForReusableGenerationLoading(setLoadingProgress),
@@ -3664,7 +3734,7 @@ const App: React.FC = () => {
                 if (cachedPlan) {
                   await waitForCacheHitLoading(setLoadingProgress);
                   const imageSemanticScope = buildK12ImageSemanticScope(cachedPlan.blueprint);
-                  const refreshedInitialSlides = await refreshSlidesWithCachedImages(cachedPlan.initialPresentation.slides, language, cacheKey, imageSemanticScope);
+                  const refreshedInitialSlides = await refreshSlidesWithCachedImages(cachedPlan.initialPresentation.slides, generationLanguage, cacheKey, imageSemanticScope);
                   const shouldTreatAsComplete = cachedPlan.blueprint.days.every((day) => day.generationStatus === 'done')
                     && refreshedInitialSlides.length > 2;
                   setLessonBlueprint(shouldTreatAsComplete ? completeBlueprintStatus(cachedPlan.blueprint) : resetBlueprintStatus(cachedPlan.blueprint));
@@ -3675,25 +3745,14 @@ const App: React.FC = () => {
                   return;
                 }
 
-                const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, language);
+                const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, generationLanguage);
                 const blueprintWithStatus = resetBlueprintStatus(blueprint);
                 const imageSemanticScope = buildK12ImageSemanticScope(blueprint);
                 setLessonBlueprint(blueprintWithStatus);
                 
-                const initialSlides = [
-                    {
-                        title: blueprint.mainTitle,
-                        content: [`Subject: ${blueprint.subject}`, `Grade Level: ${blueprint.gradeLevel}`, `Quarter: ${blueprint.quarter}`],
-                        speakerNotes: "Welcome the class and briefly introduce the main topic for the week."
-                    },
-                    {
-                        title: "Learning Objectives",
-                        content: blueprint.studentFacingObjectives,
-                        speakerNotes: "Read the objectives aloud. Explain what students will be able to do by the end of the week. These are the simplified goals. The full SMART objectives are in your lesson plan for reference."
-                    }
-                ];
+                const initialSlides = buildK12InitialSlides(blueprint, generationLanguage);
 
-                const processedInitialSlides = await processSlidesForImages(initialSlides, language, { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope });
+                const processedInitialSlides = await processSlidesForImages(initialSlides, generationLanguage, { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope });
                 const initialPresentation = {
                     title: blueprint.mainTitle,
                     slides: processedInitialSlides
@@ -3717,7 +3776,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, language, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages]);
+  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
 
   const handleGenerateDailySlides = useCallback(async (dayIndex: number) => {
     if (!lessonBlueprint) return;
@@ -3739,11 +3798,12 @@ const App: React.FC = () => {
         const isStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
         const planUnitPresentationTitle = buildPlanUnitPresentationTitle(lessonBlueprint, dayToGenerate);
         const content = dllContent.trim() || topicContext.trim();
+        const generationLanguage = getPresentationLanguageForGeneration(content);
         const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
           GENERATION_CACHE_VERSION,
           content,
           DEFAULT_LESSON_FORMAT,
-          language,
+          generationLanguage,
           unitLabel,
           {
             dayNumber: dayToGenerate.dayNumber,
@@ -3757,7 +3817,7 @@ const App: React.FC = () => {
           GENERATION_CACHE_VERSION,
           content,
           DEFAULT_LESSON_FORMAT,
-          language,
+          generationLanguage,
           unitLabel,
           dayToGenerate.dayNumber,
         ]);
@@ -3787,7 +3847,7 @@ const App: React.FC = () => {
 
         if (cachedSlides && cachedSlides.length > 0) {
             await waitForCacheHitLoading(setLoadingProgress);
-            const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, language, imageCacheScope, imageSemanticScope);
+            const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, generationLanguage, imageCacheScope, imageSemanticScope);
             setGeneratedPlanUnitSlidesByDay(prev => ({
                 ...prev,
                 [dayToGenerate.dayNumber]: refreshedSlides,
@@ -3812,13 +3872,13 @@ const App: React.FC = () => {
         }
 
         const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
-        const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, language);
+        const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, generationLanguage);
         if (reusableSlides && reusableSlides.length > 0) {
             await waitForReusableGenerationLoading(setLoadingProgress);
             setLoadingMessage(t.presentation.loadingTables);
             const slidesWithTables = await processSlidesForTables(reusableSlides);
             const finalSlides = assertSlidesGenerated(
-                await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope }),
+                await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope }),
                 `${unitLabel} ${dayToGenerate.dayNumber}`
             );
 
@@ -3847,7 +3907,7 @@ const App: React.FC = () => {
         }
 
         const dailySlides = assertSlidesGenerated(
-            await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, language),
+            await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, generationLanguage),
             `${unitLabel} ${dayToGenerate.dayNumber}`
         );
         
@@ -3855,7 +3915,7 @@ const App: React.FC = () => {
         const slidesWithTables = await processSlidesForTables(dailySlides);
         
         const finalSlides = assertSlidesGenerated(
-            await processSlidesForImages(slidesWithTables, language, { imageCacheScope, imageSemanticScope }),
+            await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope }),
             `${unitLabel} ${dayToGenerate.dayNumber}`
         );
 
@@ -3896,7 +3956,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, language, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages]);
+  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
 
   const handleGenerateAllDailySlides = useCallback(async () => {
     if (!lessonBlueprint || isLoading) return;
@@ -3988,6 +4048,10 @@ const App: React.FC = () => {
     setObjectivesContext('');
     setAppStep('input');
     setIsFullScreen(false);
+    if (presentationLanguageSource === 'auto') {
+        setPresentationLanguage(language);
+        setPresentationLanguageSource('interface');
+    }
     if (fileInputRef.current) {
         fileInputRef.current.value = '';
     }
@@ -4049,10 +4113,7 @@ const App: React.FC = () => {
             setDllContent('');
             return;
         }
-        const inferredLanguage = inferUploadedLessonLanguage(text, file.name);
-        if (inferredLanguage && inferredLanguage !== language) {
-            setLanguage(inferredLanguage);
-        }
+        getPresentationLanguageForGeneration(text, file.name);
         setDllContent(text);
     } catch (err) {
         console.error("Error parsing file:", err);
@@ -4554,7 +4615,7 @@ const App: React.FC = () => {
             const cachedImage = await getCachedImageResultForPrompt(
                 trimmedPrompt,
                 originalSlideStyle,
-                language,
+                presentationLanguage,
                 originalSlide.imageCacheId,
                 originalSlide.imageSemanticCacheId,
                 originalSlide.imageSemanticMetadata
@@ -4586,7 +4647,7 @@ const App: React.FC = () => {
         const generateImage = () => generateImageResultFromPrompt(
             trimmedPrompt,
             originalSlideStyle,
-            language,
+            presentationLanguage,
             originalSlide.imageCacheId,
             originalSlide.imageSemanticCacheId,
             originalSlide.imageSemanticMetadata,
@@ -4634,7 +4695,7 @@ const App: React.FC = () => {
     } finally {
         regeneratingImageIndexesRef.current.delete(slideIndex);
     }
-  }, [presentation, adminImageLimitBypassed, canGenerateImage, incrementCount, limits.images, t, language]);
+  }, [presentation, adminImageLimitBypassed, canGenerateImage, incrementCount, limits.images, t, presentationLanguage]);
 
   const handleUploadImage = useCallback((slideIndex: number, file: File) => {
     const slideForCache = presentation?.slides[slideIndex];
@@ -4658,7 +4719,7 @@ const App: React.FC = () => {
         });
 
         if (promptForCache) {
-            cacheUploadedImageForPrompt(promptForCache, imageUrl, styleForCache, language, imageCacheId, imageSemanticCacheId, imageSemanticMetadata).then((cached) => {
+            cacheUploadedImageForPrompt(promptForCache, imageUrl, styleForCache, presentationLanguage, imageCacheId, imageSemanticCacheId, imageSemanticMetadata).then((cached) => {
                 if (!cached) {
                     console.warn('Uploaded image was not saved for reuse.');
                     setError('The uploaded image was applied to this slide, but it could not be saved for reuse. Please try a smaller PNG, JPEG, or WebP file.');
@@ -4671,7 +4732,7 @@ const App: React.FC = () => {
     }).catch(() => {
         setError('The uploaded image could not be read. Please use a PNG, JPEG, or WebP file.');
     });
-  }, [buildFallbackImagePrompt, language, presentation]);
+  }, [buildFallbackImagePrompt, presentationLanguage, presentation]);
 
   const renderWeeklyBlueprintView = () => {
     if (!lessonBlueprint) return null;
@@ -4897,6 +4958,14 @@ const App: React.FC = () => {
 
   const renderInputView = () => {
     const shouldRequireGenerationQuota = !adminGenerationLimitBypassed && (teachingLevel === 'College' || depEdMode === 'single');
+    const presentationLanguageName = presentationLanguage === 'FIL'
+      ? t.main.presentationLanguageFilipino
+      : t.main.presentationLanguageEnglish;
+    const presentationLanguageStatus = presentationLanguageSource === 'auto'
+      ? t.main.presentationLanguageAutoDetected
+      : presentationLanguageSource === 'manual'
+        ? t.main.presentationLanguageManual
+        : t.main.presentationLanguageFollowsInterface;
 
     const renderDepEdInputs = () => (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-start">
@@ -5073,6 +5142,37 @@ const App: React.FC = () => {
                 )}
                 
                 {error && <p className="text-center text-red-500 bg-red-500/10 p-3 rounded-lg mt-6">{error}</p>}
+
+                <div className="mt-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between rounded-2xl bg-surface shadow-neumorphic-inset border border-themed px-4 py-3">
+                    <div>
+                        <p className="text-sm font-bold text-primary">{t.main.presentationLanguageTitle}</p>
+                        <p className="text-xs text-secondary">
+                            {t.main.presentationLanguageDescription.replace('{language}', presentationLanguageName)} {presentationLanguageStatus}
+                        </p>
+                    </div>
+                    <div className="flex rounded-full p-1 bg-surface shadow-neumorphic-inset space-x-1 self-start md:self-center">
+                        <button
+                            type="button"
+                            aria-pressed={presentationLanguage === 'EN'}
+                            onClick={() => handlePresentationLanguageChange('EN')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
+                                presentationLanguage === 'EN' ? 'shadow-neumorphic-outset-sm text-brand' : 'text-secondary'
+                            }`}
+                        >
+                            {t.main.presentationLanguageEnglish}
+                        </button>
+                        <button
+                            type="button"
+                            aria-pressed={presentationLanguage === 'FIL'}
+                            onClick={() => handlePresentationLanguageChange('FIL')}
+                            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200 ${
+                                presentationLanguage === 'FIL' ? 'shadow-neumorphic-outset-sm text-brand' : 'text-secondary'
+                            }`}
+                        >
+                            {t.main.presentationLanguageFilipino}
+                        </button>
+                    </div>
+                </div>
 
                 {/* Generate Button */}
                 <div className="mt-8 text-center">
