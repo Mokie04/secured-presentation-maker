@@ -26,6 +26,6 @@ export function buildFinalImagePrompt(
       break;
   }
 
-  const relevanceGuard = 'Keep the content tightly on-topic to the described subject and make it a slide-specific evidence visual, not a reusable generic background. Do NOT add any extra objects or unrelated scenes. No text, labels, numbers, watermarks, signatures, or UI chrome.';
+  const relevanceGuard = 'Keep the content tightly on-topic to the described subject and make it a slide-specific evidence visual, not a reusable generic background. If the subject is a classroom activity, show the actual subject-specific materials, tool, output, specimen, process, or setting from the slide; do not substitute a generic teacher, student group, whiteboard, or classroom scene. Do NOT add any extra objects or unrelated scenes. No text, labels, numbers, watermarks, signatures, or UI chrome.';
   return `${styleInstructions} ${relevanceGuard} The image should depict: "${prompt}"`;
 }

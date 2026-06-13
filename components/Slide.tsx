@@ -263,7 +263,6 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
   const imagePanelWidthClass = isEvidenceLayout ? 'w-[62%]' : 'w-[48%]';
   const textPanelWidthClass = isEvidenceLayout ? 'w-[38%]' : (hasImageLayout ? 'w-[52%]' : 'w-full');
   const imageObjectFitClass = isEvidenceLayout ? 'object-contain' : 'object-cover';
-  const imageAttribution = slide.imageAttribution?.provider === 'pexels' ? slide.imageAttribution : undefined;
 
   const parseMarkdown = (text: string) => {
     const parts = text.split(/(\*\*.*?\*\*)/g).filter(Boolean);
@@ -352,17 +351,6 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
                   draggable={false}
                 />
               )}
-              {renderableImage && imageAttribution && (
-                <a
-                  href={imageAttribution.sourceUrl || 'https://www.pexels.com'}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="absolute bottom-3 left-3 max-w-[68%] truncate rounded bg-black/60 px-2 py-1 text-[10px] leading-none text-white/90 shadow-sm pointer-events-auto"
-                >
-                  {imageAttribution.label || 'Photo provided by Pexels'}
-                </a>
-              )}
-
               {(isEditingLabels ? draftOverlays : (slide.imageOverlays || []).map(normalizeOverlay)).map((overlay) => {
                 const isSelected = isEditingLabels && selectedOverlayId === overlay.id;
                 const isInlineEditing = isEditingLabels && editingOverlayId === overlay.id;

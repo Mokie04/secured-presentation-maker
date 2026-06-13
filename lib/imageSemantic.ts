@@ -1,7 +1,7 @@
 import type { ImageSemanticMetadata } from '../types';
 import { buildGenerationCacheKey } from './generationCache.ts';
 
-export const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v25';
+export const IMAGE_SEMANTIC_CACHE_VERSION = 'image-semantic-cache-v26';
 
 export const normalizeImageSemanticText = (value: string | undefined): string => (
   (value || '').replace(/\s+/g, ' ').trim().toLowerCase()

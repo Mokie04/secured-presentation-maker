@@ -38,11 +38,38 @@ type PexelsSearchResponse = {
   photos?: PexelsPhoto[];
 };
 
+type PexelsSearchPlan = {
+  query: string;
+  requiredTerms: string[];
+  selectionSeed: string;
+};
+
 const PEXELS_SEARCH_URL = 'https://api.pexels.com/v1/search';
 const PEXELS_MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const PEXELS_SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PEXELS_TIMEOUT_MS = 8_000;
-const PEXELS_CACHE_VERSION = 'pexels-selection-v2';
+const PEXELS_CACHE_VERSION = 'pexels-selection-v3';
+const PEXELS_SEARCH_TERM_STOPWORDS = new Set([
+  'able', 'about', 'accurate', 'activity', 'against', 'artifact', 'background', 'class', 'classroom',
+  'area', 'areas', 'clear', 'concept', 'content', 'criteria', 'criterion', 'decorative', 'depict',
+  'draft', 'education', 'educational', 'evidence', 'example', 'focus', 'generic', 'grade', 'group',
+  'groups', 'high', 'image', 'instructional', 'key',
+  'lesson', 'learning', 'learners', 'material', 'materials', 'notebook', 'output', 'photo',
+  'photorealistic', 'picture', 'professional', 'question', 'questions', 'realistic', 'resolution',
+  'school', 'session', 'slide', 'specific', 'student', 'students', 'subject', 'teacher', 'teaching',
+  'work', 'worksheet', 'worksheets', 'write', 'writing',
+]);
+const PEXELS_TERM_SYNONYMS: Record<string, string[]> = {
+  equipment: ['equipment', 'tool', 'tools', 'gear'],
+  facility: ['facility', 'facilities', 'building', 'workshop', 'farm'],
+  facilities: ['facility', 'facilities', 'building', 'workshop', 'farm'],
+  house: ['house', 'housing', 'shed', 'shelter', 'coop'],
+  housing: ['housing', 'house', 'shed', 'shelter', 'coop'],
+  maintenance: ['maintenance', 'cleaning', 'repair', 'inspection'],
+  poultry: ['poultry', 'chicken', 'chickens', 'hen', 'hens', 'coop', 'farm'],
+  procedure: ['procedure', 'process', 'steps', 'sequence'],
+  tools: ['tool', 'tools', 'equipment'],
+};
 
 function pexelsApiKey(): string {
   return process.env.PEXELS_API_KEY?.trim() || '';
@@ -60,6 +87,30 @@ function normalizeText(value: string | undefined): string {
     .replace(/\bweek\s*\d+\b/gi, ' ')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function normalizeSearchText(value: string | undefined): string {
+  return normalizeText(value)
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function extractSpecificSearchTerms(value: string | undefined, maxTerms = 12): string[] {
+  const seen = new Set<string>();
+  const normalized = normalizeSearchText(value).replace(/[^a-z0-9\s]+/g, ' ');
+  const terms: string[] = [];
+
+  normalized.split(/\s+/).forEach((rawToken) => {
+    const token = rawToken.replace(/^-+|-+$/g, '');
+    if (token.length < 4 || /^\d+$/.test(token) || PEXELS_SEARCH_TERM_STOPWORDS.has(token)) return;
+    const canonical = token.endsWith('s') && token.length > 5 ? token.slice(0, -1) : token;
+    if (PEXELS_SEARCH_TERM_STOPWORDS.has(canonical) || seen.has(canonical)) return;
+    seen.add(canonical);
+    terms.push(canonical);
+  });
+
+  return terms.slice(0, maxTerms);
 }
 
 function extractDepictedSubject(prompt: string): string {
@@ -85,7 +136,7 @@ function roleSearchTerm(role: string): string {
 
 function shouldUsePexels(metadata: ImageSemanticMetadata | undefined): boolean {
   const style = normalizeText(metadata?.style).toLowerCase();
-  if (style === 'none' || style === 'diagram' || style === 'infographic') return false;
+  if (style === 'none' || style === 'diagram' || style === 'infographic' || style === 'historical photo') return false;
 
   const role = normalizeText(metadata?.slideTemplate || metadata?.visualRole).toLowerCase();
   if (role.includes('diagram') || role.includes('infographic')) return false;
@@ -93,20 +144,51 @@ function shouldUsePexels(metadata: ImageSemanticMetadata | undefined): boolean {
   return true;
 }
 
-function buildPexelsQuery(prompt: string, metadata: ImageSemanticMetadata | undefined): string {
+function buildPexelsSearchPlan(prompt: string, metadata: ImageSemanticMetadata | undefined): PexelsSearchPlan | null {
   const anchor = normalizeText(metadata?.semanticAnchor);
   const topic = normalizeText(metadata?.topic);
   const subject = normalizeText(metadata?.subject);
+  const competency = normalizeText(metadata?.learningCompetency);
+  const planUnitTitle = normalizeText(metadata?.planUnitTitle);
   const promptSubject = extractDepictedSubject(prompt);
   const roleTerm = roleSearchTerm(metadata?.slideTemplate || metadata?.visualRole || '');
+  const specificTerms = extractSpecificSearchTerms([
+    promptSubject,
+    anchor,
+    planUnitTitle,
+    topic,
+    competency,
+    subject,
+  ].filter(Boolean).join(' '), 10);
 
-  const primary = promptSubject || anchor || topic;
-  return [primary, topic && topic !== primary ? topic : '', subject, roleTerm]
+  if (specificTerms.length < 2) return null;
+
+  const isGenericRoleTerm = /\b(?:classroom|students?|teacher|education|school|books?)\b/i.test(roleTerm);
+  const query = [
+    specificTerms.slice(0, 8).join(' '),
+    !isGenericRoleTerm ? roleTerm : '',
+  ]
     .filter(Boolean)
     .join(' ')
     .replace(/\s+/g, ' ')
     .slice(0, 96)
     .trim();
+
+  if (!query) return null;
+
+  return {
+    query,
+    requiredTerms: specificTerms.slice(0, 6),
+    selectionSeed: [
+      query,
+      promptSubject,
+      anchor,
+      planUnitTitle,
+      topic,
+      subject,
+      normalizeText(metadata?.slideTemplate || metadata?.visualRole),
+    ].filter(Boolean).join('\n'),
+  };
 }
 
 function contentTypeFromResponse(value: string | null): string | null {
@@ -137,12 +219,42 @@ function hashString(value: string): number {
   return Math.abs(hash);
 }
 
-function pickPhoto(photos: PexelsPhoto[], seed: string): PexelsPhoto | null {
+function expandPhotoMatchTerms(term: string): string[] {
+  const synonyms = PEXELS_TERM_SYNONYMS[term] || [];
+  const plural = term.endsWith('s') ? term.slice(0, -1) : `${term}s`;
+  return Array.from(new Set([term, plural, ...synonyms].filter((candidate) => candidate.length >= 4)));
+}
+
+function scorePhotoSubjectMatch(photo: PexelsPhoto, requiredTerms: string[]): number {
+  const haystack = normalizeSearchText(`${photo.alt || ''} ${photo.url || ''}`);
+  if (!haystack) return 0;
+
+  return requiredTerms.reduce((score, term) => {
+    const matchesTerm = expandPhotoMatchTerms(term).some((candidate) => haystack.includes(candidate));
+    return score + (matchesTerm ? 1 : 0);
+  }, 0);
+}
+
+function pickPhoto(photos: PexelsPhoto[], plan: PexelsSearchPlan): PexelsPhoto | null {
   const candidates = photos.filter((photo) => photo.src?.large && photo.width >= photo.height);
   if (candidates.length === 0) return null;
 
-  const relevantCandidates = candidates.slice(0, Math.min(candidates.length, 8));
-  return relevantCandidates[hashString(seed) % relevantCandidates.length] || relevantCandidates[0] || null;
+  const scoredCandidates = candidates
+    .map((photo) => ({
+      photo,
+      score: scorePhotoSubjectMatch(photo, plan.requiredTerms),
+    }))
+    .filter((candidate) => candidate.score > 0)
+    .sort((a, b) => b.score - a.score || b.photo.width - a.photo.width);
+
+  if (scoredCandidates.length === 0) return null;
+
+  const bestScore = scoredCandidates[0].score;
+  const relevantCandidates = scoredCandidates
+    .filter((candidate) => candidate.score === bestScore)
+    .slice(0, Math.min(scoredCandidates.length, 8));
+  const selected = relevantCandidates[hashString(plan.selectionSeed) % relevantCandidates.length];
+  return selected?.photo || relevantCandidates[0]?.photo || null;
 }
 
 export async function getPexelsImageForPrompt(input: {
@@ -154,11 +266,11 @@ export async function getPexelsImageForPrompt(input: {
     return null;
   }
 
-  const query = buildPexelsQuery(input.prompt, input.semanticMetadata);
-  if (!query) return null;
+  const searchPlan = buildPexelsSearchPlan(input.prompt, input.semanticMetadata);
+  if (!searchPlan) return null;
 
   const searchUrl = new URL(PEXELS_SEARCH_URL);
-  searchUrl.searchParams.set('query', query);
+  searchUrl.searchParams.set('query', searchPlan.query);
   searchUrl.searchParams.set('orientation', 'landscape');
   searchUrl.searchParams.set('size', 'large');
   searchUrl.searchParams.set('per_page', '12');
@@ -177,13 +289,7 @@ export async function getPexelsImageForPrompt(input: {
     }
 
     const payload = await searchResponse.json() as PexelsSearchResponse;
-    const selectionSeed = [
-      query,
-      extractDepictedSubject(input.prompt),
-      normalizeText(input.semanticMetadata?.semanticAnchor),
-      normalizeText(input.semanticMetadata?.slideTemplate || input.semanticMetadata?.visualRole),
-    ].filter(Boolean).join('\n');
-    const photo = pickPhoto(Array.isArray(payload.photos) ? payload.photos : [], selectionSeed);
+    const photo = pickPhoto(Array.isArray(payload.photos) ? payload.photos : [], searchPlan);
     const imageUrl = photo?.src?.large;
     if (!photo || !imageUrl) return null;
 
@@ -227,7 +333,7 @@ export async function getPexelsImageForPrompt(input: {
       base64,
       mime,
       attribution,
-      query,
+      query: searchPlan.query,
     };
   } catch (error) {
     console.warn('Pexels image fallback failed.');

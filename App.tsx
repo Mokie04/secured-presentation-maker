@@ -96,7 +96,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v37';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v38';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -3118,6 +3118,38 @@ function processTextForPptx(text: string): { text: string; sub: boolean }[] {
     return parts;
 }
 
+const getPptxVisibleTextMetrics = (slide: Slide) => {
+    const content = Array.isArray(slide.content) ? slide.content.filter((point) => point.trim()) : [];
+    return {
+        bulletCount: content.length,
+        totalLength: [slide.title, ...content].join(' ').length,
+        longestItemLength: Math.max(0, ...content.map((point) => point.length)),
+    };
+};
+
+const getPptxContentTypography = (slide: Slide, hasImage: boolean, isEvidenceLayout: boolean) => {
+    const { bulletCount, totalLength, longestItemLength } = getPptxVisibleTextMetrics(slide);
+    if (hasImage) {
+        const dense = bulletCount > 5 || totalLength > 420 || longestItemLength > 140;
+        const fontSize = dense
+            ? 16
+            : isEvidenceLayout
+                ? (bulletCount > 4 ? 20 : 22)
+                : (bulletCount > 4 ? 18 : 21);
+        return {
+            fontSize,
+            lineSpacing: Math.round(fontSize * (dense ? 1.18 : 1.24)),
+        };
+    }
+
+    const dense = bulletCount > 6 || totalLength > 640 || longestItemLength > 170;
+    const fontSize = dense ? 19 : (bulletCount > 5 ? 22 : bulletCount > 3 ? 24 : 26);
+    return {
+        fontSize,
+        lineSpacing: Math.round(fontSize * (dense ? 1.18 : 1.26)),
+    };
+};
+
 
 const App: React.FC = () => {
   const [dllContent, setDllContent] = useState<string>('');
@@ -4598,24 +4630,6 @@ const App: React.FC = () => {
                     }
                     slide.addImage({ data: exportImageData, x: imageX, y: imageY, w: imageW, h: imageH });
                     imageAdded = true;
-                    if (slideData.imageAttribution?.provider === 'pexels') {
-                        const attributionText = slideData.imageAttribution.label || 'Photo provided by Pexels';
-                        slide.addText(attributionText, {
-                            x: imageX + 0.08,
-                            y: imageY + imageH - 0.24,
-                            w: Math.min(imageW - 0.16, 3.8),
-                            h: 0.16,
-                            fontSize: 5.5,
-                            color: 'FFFFFF',
-                            fontFace: 'Poppins',
-                            fit: 'shrink',
-                            fill: { color: '111827', transparency: 25 },
-                            margin: 0.03,
-                            ...(slideData.imageAttribution.sourceUrl
-                                ? { hyperlink: { url: slideData.imageAttribution.sourceUrl } }
-                                : {}),
-                        } as any);
-                    }
                 } catch (e) {
                     console.error("Failed to add image to PPTX slide:", e);
                     slide.addText('Image could not be loaded.', { x: imageX, y: imageY, w: imageW, h: imageH, color: 'FF0000', align: 'center', valign: 'middle' });
@@ -4672,20 +4686,15 @@ const App: React.FC = () => {
                 });
 
                 if(hasContent) {
-                    const bulletCount = slideData.content.filter((point) => point.trim()).length;
                     const isEvidenceLayout = slideData.visualLayout === 'evidence';
-                    const contentFontSize = isEvidenceLayout
-                        ? (bulletCount > 5 ? 20 : bulletCount > 4 ? 22 : 24)
-                        : (bulletCount > 5 ? 18 : bulletCount > 3 ? 20 : 22);
+                    const contentTypography = getPptxContentTypography(slideData, true, isEvidenceLayout);
                     slide.addText(contentForPptx, {
                         x: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_X : PPTX_CONTENT_X,
                         y: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_Y : PPTX_CONTENT_Y,
                         w: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_W : PPTX_CONTENT_W,
                         h: isEvidenceLayout ? PPTX_EVIDENCE_CONTENT_H : PPTX_CONTENT_H,
-                        color: textColor, valign: 'top', fontSize: contentFontSize,
-                        lineSpacing: isEvidenceLayout
-                            ? (contentFontSize >= 24 ? 31 : contentFontSize >= 22 ? 29 : 27)
-                            : (contentFontSize >= 22 ? 30 : contentFontSize === 20 ? 27 : 25),
+                        color: textColor, valign: 'top', fontSize: contentTypography.fontSize,
+                        lineSpacing: contentTypography.lineSpacing,
                         fit: 'shrink',
                         breakLine: false,
                     });
@@ -4703,13 +4712,12 @@ const App: React.FC = () => {
                 });
 
                 if (hasContent) {
-                    const bulletCount = slideData.content.filter((point) => point.trim()).length;
-                    const contentFontSize = bulletCount > 6 ? 22 : bulletCount > 4 ? 24 : 26;
+                    const contentTypography = getPptxContentTypography(slideData, false, false);
                     slide.addText(contentForPptx, {
                         x: PPTX_TEXT_ONLY_X, y: PPTX_TEXT_ONLY_Y, w: PPTX_TEXT_ONLY_W, h: PPTX_TEXT_ONLY_H,
                         color: textColor, valign: 'top',
-                        fontSize: contentFontSize,
-                        lineSpacing: contentFontSize >= 26 ? 35 : contentFontSize === 24 ? 32 : 29,
+                        fontSize: contentTypography.fontSize,
+                        lineSpacing: contentTypography.lineSpacing,
                         fit: 'shrink',
                         breakLine: false,
                     });
