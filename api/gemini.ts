@@ -563,6 +563,29 @@ function normalizeReplicateImageModels(model: string | string[] | undefined): st
   return Array.from(new Set(models));
 }
 
+function isFluxSchnellModel(model: string): boolean {
+  return normalizeReplicateModelName(model).toLowerCase() === DEFAULT_REPLICATE_IMAGE_MODEL;
+}
+
+function buildFluxSchnellPrompt(imageRequest: ImageRequestDetails): string {
+  const prompt = imageRequest.prompt.replace(/\s+/g, ' ').trim();
+  const style = (imageRequest.semanticMetadata?.style || '').toLowerCase();
+  const promptSuggestsDiagram = /\b(diagram|infographic|chart|process map|flowchart|particle diagram|force diagram|relationship diagram)\b/i.test(prompt);
+  const isDiagram = style === 'diagram' || style === 'infographic' || promptSuggestsDiagram;
+  const sceneInstruction = isDiagram
+    ? 'Create one clean raster educational visual with simple shapes, precise spacing, and a clear single focus.'
+    : 'Create one realistic classroom evidence photograph with natural lighting, accurate scale, sharp focus, and real material textures.';
+
+  return [
+    prompt,
+    'FLUX Schnell quality constraints:',
+    sceneInstruction,
+    'Use a simple 16:9 slide composition with one main subject, uncluttered background, and enough empty space for editable slide overlays.',
+    'If worksheets, cards, tables, posters, screens, or boards appear, keep them blank or unreadable; do not render actual words, labels, letters, numbers, formulas, captions, logos, UI, signatures, or watermarks.',
+    'Do not create a collage, split panel, contact sheet, decorative stock background, cartoon, flat vector icon set, or 3D render unless the original prompt explicitly requires a diagram.',
+  ].join(' ');
+}
+
 function buildChatMessages(contents: unknown): Array<{ role: 'user'; content: string }> {
   const content =
     typeof contents === 'string'
@@ -1071,6 +1094,9 @@ async function generateReplicateImage(
 
   const deadline = Date.now() + getReplicateImageTimeoutMs();
   let payload: ReplicatePredictionResponse | null = null;
+  const prompt = isFluxSchnellModel(candidateModel)
+    ? buildFluxSchnellPrompt(imageRequest)
+    : imageRequest.prompt;
 
   for (let attempt = 1; attempt <= REPLICATE_CREATE_MAX_ATTEMPTS; attempt += 1) {
     const response = await fetchWithDeadline(buildReplicatePredictionUrl(candidateModel), {
@@ -1082,7 +1108,7 @@ async function generateReplicateImage(
       },
       body: JSON.stringify({
         input: {
-          prompt: imageRequest.prompt,
+          prompt,
           aspect_ratio: imageRequest.aspectRatio || '16:9',
           num_outputs: 1,
           output_format: 'webp',
