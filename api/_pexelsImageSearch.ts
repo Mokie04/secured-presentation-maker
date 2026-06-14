@@ -57,7 +57,7 @@ const PEXELS_SEARCH_URL = 'https://api.pexels.com/v1/search';
 const PEXELS_MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const PEXELS_SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PEXELS_TIMEOUT_MS = 8_000;
-const PEXELS_CACHE_VERSION = 'pexels-selection-v5';
+const PEXELS_CACHE_VERSION = 'pexels-selection-v6';
 const PEXELS_SEARCH_TERM_STOPWORDS = new Set([
     'able', 'about', 'accurate', 'activity', 'against', 'artifact', 'background', 'class', 'classroom',
     'area', 'areas', 'clear', 'concept', 'content', 'criteria', 'criterion', 'decorative', 'depict',
@@ -296,6 +296,7 @@ function hasEnoughPhotoSubjectEvidence(score: PexelsPhotoScore, plan: PexelsSear
   const subjectTerms = matchedTerms.filter((term) => !PEXELS_ARTIFACT_ONLY_TERMS.has(term));
   if (subjectTerms.length === 0) return false;
 
+  if (score.matchedAnchorTerms.some((term) => subjectTerms.includes(term))) return true;
   if (score.matchedAnchorTerms.length >= 2) return true;
   if (score.matchedAnchorTerms.length >= 1 && score.matchedSupportTerms.length >= 1) return true;
 

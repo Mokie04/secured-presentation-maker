@@ -1,6 +1,6 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel, ImageSemanticMetadata } from './types';
+import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel, ImageSemanticMetadata, ImageStyle } from './types';
 import { IMAGES_DISABLED, cacheUploadedImageForPrompt, createK12LessonBlueprint, generateK12SlidesForDay, generateImageResultFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, getCachedImageResultForPrompt } from './services/geminiService';
 import type { K12SessionGenerationMilestone } from './services/geminiService';
 import SlideComponent from './components/Slide';
@@ -2931,6 +2931,8 @@ const REQUIRED_INSTRUCTIONAL_IMAGE_TEMPLATES = new Set([
 ]);
 
 const REQUIRED_INSTRUCTIONAL_IMAGE_PATTERN = /\b(?:diagram|model|layout|parts?|components?|structure|process|cycle|steps?|sequence|timeline|map|compare|comparison|before|after|sort|classify|classification|demonstration|demo|experiment|investigation|observe|observation|evidence|specimen|materials?|tools?|equipment|facility|facilities|house|setup|worksheet|output|sample|graph|chart|table|plot|measure|measuring|draw|drawing|construct|construction)\b/i;
+const REAL_WORLD_INSTRUCTIONAL_SUBJECT_PATTERN = /\b(?:poultry|chickens?|hens?|coop|coops|feeders?|drinkers?|waterers?|brooder|brooding|ventilation|lighting|nest(?:ing)?\s*boxes?|fencing|drainage|storage|roofing|tools?|equipment|facilit(?:y|ies)|workstation|maintenance|repair|inspection|safety|quality|farm|laboratory|beaker|microscope|specimen|rocks?|minerals?|plants?|soil|machine|device|apparatus|materials?)\b/i;
+const DERIVED_IMAGE_BLOCKED_TEMPLATE_PATTERN = /^(?:overview|objectives|success-criteria|review|summary|generalization|assignment)$/;
 
 const isTextOnlyImageTemplate = (template: string, role: string): boolean => (
   TEXT_ONLY_IMAGE_TEMPLATES.has(template) || TEXT_ONLY_IMAGE_TEMPLATES.has(role)
@@ -2956,6 +2958,65 @@ const shouldRequireInstructionalImage = (slide: Slide): boolean => {
   ].filter(Boolean).join(' ');
 
   return REQUIRED_INSTRUCTIONAL_IMAGE_PATTERN.test(slideText);
+};
+
+const getSlideInstructionalText = (slide: Slide): string => [
+  slide.title,
+  ...(Array.isArray(slide.content) ? slide.content : []),
+  slide.speakerNotes,
+  slide.sourceEvidence?.join(' '),
+  slide.sourceRefs?.join(' '),
+  slide.imageSemanticMetadata?.semanticAnchor,
+  slide.imageSemanticMetadata?.topic,
+  slide.imageSemanticMetadata?.learningCompetency,
+  slide.imageSemanticMetadata?.planUnitTitle,
+].filter(Boolean).join(' ');
+
+const hasRealWorldInstructionalSubject = (slide: Slide): boolean => (
+  REAL_WORLD_INSTRUCTIONAL_SUBJECT_PATTERN.test(getSlideInstructionalText(slide))
+);
+
+const buildDerivedInstructionalImagePrompt = (slide: Slide): string => {
+  const template = slide.imageSemanticMetadata?.slideTemplate || getSlideImageTemplateKey(slide);
+  const role = slide.imageSemanticMetadata?.visualRole || getSlideImageRole(slide);
+  if (DERIVED_IMAGE_BLOCKED_TEMPLATE_PATTERN.test(template) || DERIVED_IMAGE_BLOCKED_TEMPLATE_PATTERN.test(role)) {
+    return '';
+  }
+  if (!hasRealWorldInstructionalSubject(slide)) return '';
+
+  const subjectContext = [
+    slide.imageSemanticMetadata?.topic,
+    slide.imageSemanticMetadata?.learningCompetency,
+    slide.imageSemanticMetadata?.planUnitTitle,
+    slide.title,
+  ].filter(Boolean).join('. ');
+  const slideContext = [
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.sourceEvidence?.join('. '),
+  ].filter(Boolean).join('. ');
+  const subjectPhrase = (subjectContext || slideContext)
+    .replace(/\s+/g, ' ')
+    .slice(0, 220)
+    .trim();
+  const focusPhrase = slideContext
+    .replace(/\s+/g, ' ')
+    .slice(0, 260)
+    .trim();
+
+  if (!subjectPhrase || !focusPhrase) return '';
+
+  return [
+    `A real-world instructional photograph for ${subjectPhrase}.`,
+    `Show the actual subject-specific tools, equipment, facility, materials, process, or safety/quality condition connected to: ${focusPhrase}.`,
+    'No classroom filler, no generic students or teacher, no worksheet/card/table close-up, no readable text, no labels, no logos.',
+  ].join(' ');
+};
+
+const getImageStyleForPrompt = (slide: Slide, prompt: string): ImageStyle => {
+  if (!prompt) return slide.imageStyle;
+  if (slide.imageStyle !== 'none') return slide.imageStyle;
+  return 'photorealistic';
 };
 
 const getSlideImageSemanticAnchor = (slide: Slide, prompt: string): string => {
@@ -3656,18 +3717,13 @@ const App: React.FC = () => {
   }, []);
 
   const buildImagePromptCandidates = useCallback((slide: Slide): string[] => {
-    if (slide.imageStyle === 'none') {
-      return [];
+    const primary = (slide.imagePrompt || '').trim();
+    if (primary && slide.imageStyle !== 'none' && !shouldBlockClassroomArtifactImage(slide) && !isWeakGenericClassroomImagePrompt(slide)) {
+      return [primary];
     }
 
-    const primary = (slide.imagePrompt || '').trim();
-    if (primary && shouldBlockClassroomArtifactImage(slide)) {
-      return [];
-    }
-    if (primary && isWeakGenericClassroomImagePrompt(slide)) {
-      return [];
-    }
-    return primary ? [primary] : [];
+    const derivedPrompt = buildDerivedInstructionalImagePrompt(slide);
+    return derivedPrompt ? [derivedPrompt] : [];
   }, []);
 
   const buildImageSemanticCacheId = useCallback(async (
@@ -3731,8 +3787,10 @@ const App: React.FC = () => {
     const progressEnd = options?.progressEnd ?? 100;
     const progressFreeEnd = progressStart + ((progressEnd - progressStart) * 0.55);
     const attachImageCacheIds = async (slide: Slide, slideIndex: number): Promise<Slide> => {
-        const imagePrompt = slide.imageStyle === 'none' ? '' : (slide.imagePrompt || '').trim();
-        const slideWithPrompt = { ...slide, imagePrompt };
+        const promptCandidates = buildImagePromptCandidates(slide);
+        const imagePrompt = promptCandidates[0] || '';
+        const imageStyle = getImageStyleForPrompt(slide, imagePrompt);
+        const slideWithPrompt = { ...slide, imagePrompt, imageStyle };
         const imageSemanticMetadata = slide.imageSemanticMetadata || buildSlideImageSemanticMetadata(
           slideWithPrompt,
           imagePrompt || buildFallbackImagePrompt(slideWithPrompt),
@@ -3777,6 +3835,7 @@ const App: React.FC = () => {
             if (!newSlide.imagePrompt || !newSlide.imagePrompt.trim()) {
                 newSlide.imagePrompt = promptForGeneration;
             }
+            newSlide.imageStyle = getImageStyleForPrompt(newSlide, promptForGeneration);
 
             try {
                 const cachedImage = await getCachedImageResultForPrompt(
@@ -3831,6 +3890,7 @@ const App: React.FC = () => {
     };
 
     const freeImageCandidates = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0 && !s.imageUrl);
+    const initialImageCandidateCount = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0).length;
     let freeImagesResolvedCounter = 0;
     if (!muteProgress && freeImageCandidates.length > 0) {
       setLoadingProgress(progressStart);
@@ -3848,6 +3908,7 @@ const App: React.FC = () => {
         }
         return resolvedSlide;
     });
+    const freeResolvedCount = slidesAfterFreeSources.filter((slide, slideIndex) => !slidesWithPrompts[slideIndex]?.imageUrl && Boolean(slide.imageUrl)).length;
 
     const unresolvedPaidCandidates = slidesAfterFreeSources
       .map((slide, slideIndex) => ({
@@ -3871,6 +3932,20 @@ const App: React.FC = () => {
     const paidImageCandidates = unresolvedPaidCandidates.slice(0, paidImageAttemptsAllowed);
     const paidCandidateIndexes = new Set(paidImageCandidates.map(({ slideIndex }) => slideIndex));
     const finalSlides = [...slidesAfterFreeSources];
+
+    console.info('Slide image pipeline candidate summary.', {
+      slideCount: slidesWithPrompts.length,
+      initialImageCandidateCount,
+      freeImageCandidateCount: freeImageCandidates.length,
+      freeResolvedCount,
+      unresolvedPaidCandidateCount: unresolvedPaidCandidates.length,
+      paidImageAttemptsAllowed,
+      paidImageCandidateCount: paidImageCandidates.length,
+      paidImagesLeftToday,
+      adminImageLimitBypassed,
+      imageLimit: limits.images,
+      imageUsage: images,
+    });
 
     if (!muteProgress && freeImageCandidates.length > 0 && paidImageCandidates.length === 0) {
       setLoadingProgress(progressEnd);
@@ -3930,6 +4005,20 @@ const App: React.FC = () => {
                 finalSlides[slideIndex] = { ...slide, imageUrl: undefined, imageAttribution: undefined };
             }
         }
+    }
+
+    const paidResolvedCount = finalSlides.filter((slide, slideIndex) => (
+      paidCandidateIndexes.has(slideIndex)
+      && !slidesAfterFreeSources[slideIndex]?.imageUrl
+      && Boolean(slide.imageUrl)
+    )).length;
+    if (paidImageCandidates.length > 0 || unresolvedPaidCandidates.length > 0) {
+      console.info('Slide paid image generation summary.', {
+        paidCandidateCount: paidImageCandidates.length,
+        paidAttemptedCount: paidImagesAttemptedCounter,
+        paidResolvedCount,
+        rateLimitWasHit,
+      });
     }
 
     return finalSlides.map((slide, slideIndex) => {
