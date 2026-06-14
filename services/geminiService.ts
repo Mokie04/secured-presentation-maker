@@ -320,6 +320,12 @@ const TEACHER_ONLY_VISIBLE_PATTERN = /\b(?:teachers?\s+(?:checks?|models?|circul
 const GENERIC_SUCCESS_CRITERION_PATTERN = /\b(?:identify\s+the\s+session\s+target\s+in\s+context|justify\s+one\s+claim\s+using\s+evidence|produce\s+one\s+accurate\s+session\s+artifact)\b/i;
 const GENERIC_TITLE_PATTERN = /\b(?:session\s+lesson\s+plan|single\s+lesson\s+presentation|uploaded\s+lesson\s+plan|lesson\s+plan\s+content|source\s+material)\b/i;
 const BAD_FOCUS_LINE_PATTERN = /\bfocus\s*:\s*(?:formative\s+assessment|assessment\s*&?|procedure\s+mapping)\b/i;
+const UNKNOWN_METADATA_VALUE_PATTERN = /^(?:not\s+specified|not\s+provided|not\s+available|unknown|uploaded\s+lesson\s+plan|source\s+material|lesson\s+plan\s+content|n\/?a|none|null|undefined)$/i;
+const TITLE_SOURCE_LEAK_PATTERN = /\b(?:formative\s+assessment|formatibong\s+pagtataya|ebidensiyang\s+pormatibo|evidence\s+of\s+learning|what\s+task,\s*activity|what\s+can\s+we\s+do\s+together|bumuo\s+ng\s+(?:gawain|tanong)|pagtataya\s+sa\s+pagkatuto|uploaded\s+lesson\s+plan|source\s+extract|source\s+material|lesson\s+blueprint)\b/i;
+const CLASSROOM_ARTIFACT_PATTERN = /\b(?:answer\s+frame|body[-\s]?signal\s+chart|card\s+sort|checklist|concept\s+map|criteria|decision\s+board|draft\s+artifact|emotion\s+cards?|evidence\s+(?:organizer|table|map|chart)|exit\s+ticket|flow\s+map|graphic\s+organizer|organizer|private\s+self[-\s]?rating|rating\s+slip|reflection\s+(?:card|frame)|rubric|scenario\s+card|scenario[-\s]?analysis\s+table|self[-\s]?rating\s+slip|sentence\s+frame|situation\s+card|task\s+card|worksheet|chart|table|kard|mapa|organisador|pamantayan|rubriko|sitwasyon)\b/i;
+const GEOGRAPHIC_MAP_PATTERN = /\b(?:philippine|philippines|world|country|province|region|city|municipality|community|geographic|geography|location|route|topographic|territory|mapang\s+pisikal|mapang\s+politikal)\b/i;
+const GENERIC_CLASSROOM_PROMPT_PATTERN = /\b(?:teacher|teachers|student|students|learner|learners|classroom|school|education|group\s+work|writing|worksheet|notebook|board|discussion|lecture)\b/i;
+const GENERIC_VISUAL_TERM_PATTERN = /^(?:classroom|school|education|student|students|learner|learners|teacher|teachers|group|writing|worksheet|notebook|board|discussion|activity|lesson|slide|presentation)$/i;
 
 function cleanVisibleSlideItem(item: string): string {
     return item
@@ -334,6 +340,131 @@ function isTeacherOnlyVisibleItem(item: string): boolean {
 
 function isGenericSuccessCriterion(item: string): boolean {
     return GENERIC_SUCCESS_CRITERION_PATTERN.test(item);
+}
+
+function isUnknownMetadataValue(value: string | undefined): boolean {
+    const normalized = normalizeSourceText(value);
+    return !normalized || UNKNOWN_METADATA_VALUE_PATTERN.test(normalized);
+}
+
+function normalizeMetadataString(value: unknown, fallback = ''): string {
+    const normalized = normalizeGeneratedString(value);
+    return isUnknownMetadataValue(normalized) ? fallback : normalized;
+}
+
+function isBadTitleSourceCandidate(value: string | undefined): boolean {
+    const normalized = normalizeGeneratedString(value);
+    if (!normalized) return true;
+    return TITLE_SOURCE_LEAK_PATTERN.test(normalized)
+        || BAD_FOCUS_LINE_PATTERN.test(normalized)
+        || (normalized.length > 130 && /\?/.test(normalized));
+}
+
+function extractSourceGradeLevel(sourceContent: string | undefined): string {
+    const lines = (sourceContent || '').split(/\r?\n/).slice(0, 160);
+    const patterns = [
+        /\b(?:grade\s*level|grade|baitang(?:\s+at\s+seksyon)?|antas\s+ng\s+baitang)\s*(?:[:|,\-–—]|\s)\s*(?:grade\s*)?(\d{1,2})\b/i,
+        /\b(?:grade|baitang)\s*(\d{1,2})\b/i,
+    ];
+
+    for (const line of lines) {
+        if (!/\b(?:grade|baitang)\b/i.test(line)) continue;
+        for (const pattern of patterns) {
+            const match = line.match(pattern);
+            const grade = match ? Number.parseInt(match[1], 10) : NaN;
+            if (Number.isFinite(grade) && grade >= 1 && grade <= 12) {
+                return `Grade ${grade}`;
+            }
+        }
+    }
+
+    return '';
+}
+
+function extractSourceSubject(sourceContent: string | undefined): string {
+    const lines = (sourceContent || '').split(/\r?\n/).slice(0, 160);
+    const patterns = [
+        /\b(?:learning\s+area|subject|asignatura|larangan\s+ng\s+pagkatuto)\s*(?:[:|,\-–—])\s*([^|\n]{2,80})/i,
+        /\b(?:learning\s+area|subject|asignatura)\b\s+([^|\n]{2,80})/i,
+    ];
+
+    for (const line of lines) {
+        for (const pattern of patterns) {
+            const match = line.match(pattern);
+            const subject = cleanCandidateTopicTitle(match?.[1] || '');
+            if (
+                subject
+                && subject.length <= 60
+                && !/\b(?:grade|baitang|quarter|markahan|week|linggo|session|day)\b/i.test(subject)
+                && !isBadTitleSourceCandidate(subject)
+            ) {
+                return subject;
+            }
+        }
+    }
+
+    return '';
+}
+
+function isEditableClassroomArtifactSlide(slide: Slide): boolean {
+    const text = [
+        slide.title,
+        ...(Array.isArray(slide.content) ? slide.content : []),
+        slide.speakerNotes,
+    ].filter(Boolean).join(' ');
+    const hasArtifact = CLASSROOM_ARTIFACT_PATTERN.test(text);
+    const hasNonGeographicMap = /\b(?:map|mapa)\b/i.test(text) && !GEOGRAPHIC_MAP_PATTERN.test(text);
+    return hasArtifact || hasNonGeographicMap;
+}
+
+function hasEditableArtifactStructure(slide: Slide): boolean {
+    const content = Array.isArray(slide.content) ? slide.content : [];
+    const fieldLikeItems = content.filter((item) => /[:：]/.test(item) || /\b(?:criterion|criteria|step|hakbang|pamantayan|ebidensiya|evidence|scenario|sitwasyon|tanong|question)\b/i.test(item));
+    return fieldLikeItems.length >= 2 || content.length >= 4;
+}
+
+function isGenericClassroomImagePrompt(slide: Slide): boolean {
+    const prompt = normalizeGeneratedString(slide.imagePrompt);
+    if (!prompt || !GENERIC_CLASSROOM_PROMPT_PATTERN.test(prompt)) return false;
+
+    const promptTerms = extractImportantTerms(prompt, 10)
+        .filter((term) => !GENERIC_VISUAL_TERM_PATTERN.test(term));
+    const slideTerms = extractImportantTerms([
+        slide.title,
+        ...(Array.isArray(slide.content) ? slide.content : []),
+        slide.speakerNotes,
+    ].filter(Boolean).join(' '), 12);
+    const normalizedPrompt = normalizeSourceText(prompt);
+    const matchedSlideTerms = slideTerms.filter((term) => normalizedPrompt.includes(term));
+
+    return promptTerms.length < 4 || matchedSlideTerms.length < 2;
+}
+
+function repairSlideVisualDecision(slide: Slide): Slide {
+    const prompt = normalizeGeneratedString(slide.imagePrompt);
+    if (!prompt || slide.imageStyle === 'none') return slide;
+
+    if (isEditableClassroomArtifactSlide(slide)) {
+        return {
+            ...slide,
+            imagePrompt: '',
+            imageStyle: 'none',
+            imageUrl: undefined,
+            imageAttribution: undefined,
+        };
+    }
+
+    if (isGenericClassroomImagePrompt(slide)) {
+        return {
+            ...slide,
+            imagePrompt: '',
+            imageStyle: 'none',
+            imageUrl: undefined,
+            imageAttribution: undefined,
+        };
+    }
+
+    return slide;
 }
 
 function cleanSlideItemsForDisplay(content: unknown): { content: string[]; movedToNotes: string[] } {
@@ -376,7 +507,7 @@ function cleanCandidateTopicTitle(value: string): string {
 
 function extractSourceTopicTitle(sourceText: string | undefined, fallback = ''): string {
     const fallbackTitle = cleanCandidateTopicTitle(fallback);
-    if (fallbackTitle && !isGenericDeckTitle(fallbackTitle)) return fallbackTitle;
+    if (fallbackTitle && !isGenericDeckTitle(fallbackTitle) && !isBadTitleSourceCandidate(fallbackTitle)) return fallbackTitle;
 
     const candidates = (sourceText || '')
         .split(/\r?\n/)
@@ -393,6 +524,7 @@ function extractSourceTopicTitle(sourceText: string | undefined, fallback = ''):
                 && !normalized.startsWith('table ')
                 && !normalized.includes('learning session')
                 && !normalized.includes('formative assessment')
+                && !isBadTitleSourceCandidate(line)
                 && !PLAN_UNIT_OBJECTIVE_HEADING_PATTERN.test(line)
                 && !isPlanUnitFocusScaffoldText(line)
                 && !isGenericDeckTitle(line);
@@ -412,7 +544,7 @@ function getBestFocusText(context: SlideRepairContext): string {
     const focus = normalizeGeneratedString(context.focus);
     if (focus && !isGenericPlanUnitSummary(focus, normalizePlanUnitLabel(context.unitLabel, 'Session'), context.dayNumber || 1)
         && !BAD_FOCUS_LINE_PATTERN.test(`Focus: ${focus}`)
-        && !/\bformative\s+assessment\b/i.test(focus)) {
+        && !isBadTitleSourceCandidate(focus)) {
         return focus;
     }
     return '';
@@ -420,9 +552,18 @@ function getBestFocusText(context: SlideRepairContext): string {
 
 function repairTitleSlide(slide: Slide, context: SlideRepairContext): Slide {
     const topicTitle = normalizeGeneratedString(context.topicTitle);
-    const title = topicTitle && (isGenericDeckTitle(slide.title) || /^session\s+\d+\s*:/i.test(slide.title) || slide.title.length < topicTitle.length)
+    const rawTitle = normalizeGeneratedString(slide.title);
+    const titleCandidate = topicTitle && (
+        isGenericDeckTitle(rawTitle)
+        || isBadTitleSourceCandidate(rawTitle)
+        || /^session\s+\d+\s*:/i.test(rawTitle)
+        || rawTitle.length < topicTitle.length
+    )
         ? topicTitle
-        : normalizeGeneratedString(slide.title, topicTitle || 'Lesson Presentation');
+        : normalizeGeneratedString(rawTitle, topicTitle || 'Lesson Presentation');
+    const title = isBadTitleSourceCandidate(titleCandidate)
+        ? topicTitle || 'Lesson Presentation'
+        : titleCandidate;
     const focus = getBestFocusText(context);
     const unitContext = context.unitLabel && context.dayNumber
         ? `${context.unitLabel} ${context.dayNumber}${focus ? `: ${focus}` : ''}`
@@ -430,13 +571,16 @@ function repairTitleSlide(slide: Slide, context: SlideRepairContext): Slide {
     const { content } = cleanSlideItemsForDisplay(slide.content);
     const filteredContent = content.filter((item) => (
         !BAD_FOCUS_LINE_PATTERN.test(item)
-        && !/\bformative\s+assessment\b/i.test(item)
+        && !isBadTitleSourceCandidate(item)
         && !isGenericPlanUnitSummary(item, normalizePlanUnitLabel(context.unitLabel, 'Session'), context.dayNumber || 1)
+        && !/^grade\s+level\s*:\s*(?:not\s+specified|unknown|n\/?a|none)$/i.test(item)
     ));
+    const subject = normalizeMetadataString(context.subject);
+    const gradeLevel = normalizeMetadataString(context.gradeLevel);
     const contextLines = [
         unitContext,
-        context.subject ? `Subject: ${context.subject}` : '',
-        context.gradeLevel ? `Grade Level: ${context.gradeLevel}` : '',
+        subject ? `Subject: ${subject}` : '',
+        gradeLevel ? `Grade Level: ${gradeLevel}` : '',
     ].filter(Boolean);
     const mergedContent = Array.from(new Set([
         ...contextLines,
@@ -466,7 +610,8 @@ function repairGeneratedSlidesForClassroomUse(slides: Slide[], context: SlideRep
             speakerNotes,
         };
 
-        return index === 0 ? repairTitleSlide(repairedSlide, context) : repairedSlide;
+        const repairedVisualSlide = repairSlideVisualDecision(repairedSlide);
+        return index === 0 ? repairTitleSlide(repairedVisualSlide, context) : repairedVisualSlide;
     });
 }
 
@@ -920,9 +1065,11 @@ const normalizeLessonBlueprintUnits = (
     language: 'EN' | 'FIL' = 'EN',
 ): LessonBlueprint => {
     const planUnitLabel = normalizePlanUnitLabel(blueprint.planUnitLabel, inferred.label || 'Day');
-    const subject = normalizeGeneratedString(blueprint.subject, 'Uploaded lesson plan');
-    const gradeLevel = normalizeGeneratedString(blueprint.gradeLevel, 'Not specified');
-    const quarter = normalizeGeneratedString(blueprint.quarter, 'Not specified');
+    const sourceSubject = extractSourceSubject(sourceContent);
+    const sourceGradeLevel = extractSourceGradeLevel(sourceContent);
+    const subject = normalizeMetadataString(blueprint.subject, sourceSubject) || sourceSubject;
+    const gradeLevel = normalizeMetadataString(blueprint.gradeLevel, sourceGradeLevel) || sourceGradeLevel;
+    const quarter = normalizeMetadataString(blueprint.quarter);
     const learningCompetency = normalizeGeneratedString(
         blueprint.learningCompetency,
         'Learning competency from the uploaded lesson plan'
@@ -1437,10 +1584,16 @@ function validateGeneratedSlideQuality(slides: Slide[], context: SlideRepairCont
     const firstSlide = slides[0];
     if (firstSlide) {
         const firstSlideText = [firstSlide.title, ...(firstSlide.content || [])].join(' ');
-        if (isGenericDeckTitle(firstSlide.title) || BAD_FOCUS_LINE_PATTERN.test(firstSlideText) || /\bformative\s+assessment\b/i.test(firstSlideText)) {
+        if (isGenericDeckTitle(firstSlide.title) || isBadTitleSourceCandidate(firstSlide.title) || BAD_FOCUS_LINE_PATTERN.test(firstSlideText) || TITLE_SOURCE_LEAK_PATTERN.test(firstSlideText)) {
             issues.push({
                 code: 'weak_title_slide',
                 message: 'The first slide still uses a generic title or a planning/assessment phrase instead of the lesson topic plus session focus.',
+            });
+        }
+        if ((firstSlide.content || []).some((item) => /^grade\s+level\s*:\s*(?:not\s+specified|unknown|n\/?a|none)$/i.test(item.trim()))) {
+            issues.push({
+                code: 'unknown_title_metadata',
+                message: 'The first slide shows unknown metadata instead of omitting it or extracting it from the source.',
             });
         }
         if (context.unitLabel && context.dayNumber) {
@@ -1475,6 +1628,20 @@ function validateGeneratedSlideQuality(slides: Slide[], context: SlideRepairCont
             issues.push({
                 code: 'generic_success_criteria',
                 message: `Slide ${index + 1} uses generic success criteria instead of source-specific learning evidence.`,
+            });
+        }
+
+        if (isGenericClassroomImagePrompt(slide)) {
+            issues.push({
+                code: 'generic_visual_prompt',
+                message: `Slide ${index + 1} asks for a generic classroom image instead of a source-specific instructional visual or text-only slide.`,
+            });
+        }
+
+        if (isEditableClassroomArtifactSlide(slide) && !hasEditableArtifactStructure(slide)) {
+            issues.push({
+                code: 'artifact_without_editable_structure',
+                message: `Slide ${index + 1} names a card, organizer, checklist, map, chart, or table but does not show enough editable learner-facing structure.`,
             });
         }
 
@@ -1558,7 +1725,7 @@ function alignmentRepairInstruction(issues: SessionAlignmentIssue[]): string {
         ${issues.map((issue) => `- ${issue.code}: ${issue.message}`).join('\n')}
 
         Regenerate the deck so every slide clearly belongs to the selected session/day source extract. Remove any slide title that points to a different session/day. Preserve source-specific materials, activity steps, expected output, assessment, and assignment details from the selected source extract.
-        Also fix any slide-quality failures: visible slide content must be student-facing, teacher actions belong in speaker notes, numbered lists must have no blank items, title slides must show the lesson topic plus session/day context, and dense slides must be split or shortened instead of overflowing.
+        Also fix any slide-quality failures: visible slide content must be student-facing, teacher actions belong in speaker notes, numbered lists must have no blank items, title slides must show the lesson topic plus session/day context, dense slides must be split or shortened instead of overflowing, generic classroom photo prompts must be removed, and named cards, organizers, checklists, maps, charts, or tables must appear as editable learner-facing slide structure instead of vague bullets.
     `;
 }
 
@@ -1750,6 +1917,8 @@ async function createK12PresentationOutline(params: {
         - Make \`keyPoints\` concise. They are planning notes, not final slide bullets.
         - Make \`teacherMove\`, \`studentAction\`, and \`assessmentCue\` practical enough for speaker notes.
         - Make \`visualIntent\` concrete and source-specific. Name the exact object, material, setup, process, expected output, misconception, or real-world setting the image should show.
+        - If the source names a card, slip, organizer, checklist, board, map, chart, table, sentence frame, answer frame, or reflection frame, plan it as an editable classroom artifact in slide content first. Its \`visualIntent\` must be "No visual needed" unless the lesson requires a real subject/process photo rather than the classroom material itself.
+        - If the source mentions fictional situations, scenario cards, or task cards but does not provide the full text, create short safe classroom examples that directly match the session focus and list them in sourceEvidence/keyPoints so the final deck is usable.
         - If the best visual would only be a teacher, students, group work, writing, worksheet, or classroom board, set \`visualIntent\` to "No visual needed" instead of describing a generic classroom photo.
         - Clean awkward source wording into natural classroom language, but keep the meaning and required task intact.
 
@@ -1900,19 +2069,20 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
         - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
         - **No Visual:** For text-only slides, title-only slides, agenda slides, objective/goal slides, transition slides, summary slides, or slides where a visual would be decorative, optional, or merely nice-to-have, you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not create an image prompt just to fill a layout.
-    5.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
-    6.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
+    5.  **TEACHER-READY MATERIALS CONTRACT:** If the source names a situation card, task card, self-rating slip, organizer, checklist, decision board, rubric, map, chart, table, sentence frame, answer frame, reflection card, reflection frame, or output template, make that material visible as editable slide content and set \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not search for or generate a photo of the classroom material itself. If a fictional situation or classroom example is required but missing from the source, create a short, safe, grade-appropriate example that directly matches the session focus.
+    6.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
+    7.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
         - **Visible vs Notes:** The \`content\` array is for learner-facing slide text only: what students see, answer, sort, build, check, revise, or submit. Teacher-only directions such as "Teacher checks draft artifact against criteria", "Teacher models...", "circulate", "collect", or "sort support needs" must go in \`speakerNotes\`, not visible slide bullets.
-    7.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
-    8.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
-    9.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
-    10. **CONTENT & CLARITY (CRITICAL):**
+    8.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
+    9.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
+    10. **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
+    11. **CONTENT & CLARITY (CRITICAL):**
         - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
         - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of volcanoes), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
         - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs.
         - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
         - **Complete Lists:** Never output an empty numbered item, empty answer option, or placeholder-only bullet. If the source has only three assessment items, show three items and do not write "4.".
-    11. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the selected lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
+    12. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the selected lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
     `;
     
     const flowReference = getK12FlowReference(format);
@@ -2154,19 +2324,20 @@ export async function generateK12SingleLessonSlides(content: string, format: str
             - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
             - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
             - **No Visual:** For text-only slides, title-only slides, agenda slides, objective/goal slides, transition slides, summary slides, or slides where a visual would be decorative, optional, or merely nice-to-have, you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not create an image prompt just to fill a layout.
-        5.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
-        6.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
+        5.  **TEACHER-READY MATERIALS CONTRACT:** If the source names a situation card, task card, self-rating slip, organizer, checklist, decision board, rubric, map, chart, table, sentence frame, answer frame, reflection card, reflection frame, or output template, make that material visible as editable slide content and set \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not search for or generate a photo of the classroom material itself. If a fictional situation or classroom example is required but missing from the source, create a short, safe, grade-appropriate example that directly matches the lesson focus.
+        6.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
+        7.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
             - **Visible vs Notes:** The \`content\` array is for learner-facing slide text only: what students see, answer, sort, build, check, revise, or submit. Teacher-only directions such as "Teacher checks draft artifact against criteria", "Teacher models...", "circulate", "collect", or "sort support needs" must go in \`speakerNotes\`, not visible slide bullets.
-        7.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
-        8.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
-        9.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
-        10. **CONTENT & CLARITY (CRITICAL):**
+        8.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
+        9.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
+        10. **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
+        11. **CONTENT & CLARITY (CRITICAL):**
             - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
             - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of rocks), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
             - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs. Use markdown bolding (\`**term**\`) for key terminology.
             - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
             - **Complete Lists:** Never output an empty numbered item, empty answer option, or placeholder-only bullet. If the source has only three assessment items, show three items and do not write "4.".
-        11. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
+        12. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
 
         **OUTPUT (JSON FORMAT ONLY):**
         Return a single JSON object. Do not add any extra text.
@@ -2215,6 +2386,8 @@ export async function generateK12SingleLessonSlides(content: string, format: str
         topicTitle,
         unitLabel: 'Lesson',
         dayNumber: 1,
+        subject: extractSourceSubject(sourceText),
+        gradeLevel: extractSourceGradeLevel(sourceText),
     });
     appendGroundingSources(slides, response.groundingChunks);
 

@@ -949,6 +949,63 @@ const normalizeImageSemanticText = (value: string | undefined): string => (
   (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
 );
 
+const WEAK_CLASSROOM_IMAGE_PROMPT_PATTERN = /\b(?:teacher|teachers|student|students|learner|learners|classroom|school|education|group\s+work|writing|worksheet|notebook|board|discussion|lecture)\b/i;
+const CLASSROOM_ARTIFACT_IMAGE_BLOCK_PATTERN = /\b(?:answer\s+frame|body[-\s]?signal\s+chart|card\s+sort|checklist|concept\s+map|criteria|decision\s+board|draft\s+artifact|emotion\s+cards?|evidence\s+(?:organizer|table|map|chart)|exit\s+ticket|flow\s+map|graphic\s+organizer|organizer|private\s+self[-\s]?rating|rating\s+slip|reflection\s+(?:card|frame)|rubric|scenario\s+card|scenario[-\s]?analysis\s+table|self[-\s]?rating\s+slip|sentence\s+frame|situation\s+card|task\s+card|worksheet|chart|table|kard|mapa|organisador|pamantayan|rubriko|sitwasyon)\b/i;
+const GEOGRAPHIC_MAP_IMAGE_PATTERN = /\b(?:philippine|philippines|world|country|province|region|city|municipality|community|geographic|geography|location|route|topographic|territory|mapang\s+pisikal|mapang\s+politikal)\b/i;
+const WEAK_IMAGE_PROMPT_STOPWORDS = new Set([
+  'activity', 'classroom', 'education', 'educational', 'generic', 'grade', 'group',
+  'high', 'image', 'instructional', 'learner', 'learners', 'lesson', 'photo',
+  'photorealistic', 'realistic', 'resolution', 'school', 'session', 'slide',
+  'student', 'students', 'teacher', 'teachers', 'worksheet', 'worksheets',
+  'writing',
+]);
+
+const extractImagePromptTerms = (value: string | undefined, maxTerms = 12): string[] => {
+  const seen = new Set<string>();
+  const normalized = normalizeImageSemanticText(value)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]+/g, ' ');
+  const terms: string[] = [];
+
+  normalized.split(/\s+/).forEach((rawToken) => {
+    const token = rawToken.replace(/^-+|-+$/g, '');
+    if (token.length < 4 || /^\d+$/.test(token) || WEAK_IMAGE_PROMPT_STOPWORDS.has(token) || seen.has(token)) return;
+    seen.add(token);
+    terms.push(token);
+  });
+
+  return terms.slice(0, maxTerms);
+};
+
+const isWeakGenericClassroomImagePrompt = (slide: Slide): boolean => {
+  const prompt = (slide.imagePrompt || '').trim();
+  if (!prompt || !WEAK_CLASSROOM_IMAGE_PROMPT_PATTERN.test(prompt)) return false;
+
+  const promptTerms = extractImagePromptTerms(prompt, 10);
+  const slideTerms = extractImagePromptTerms([
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.speakerNotes,
+  ].filter(Boolean).join(' '), 12);
+  const normalizedPrompt = normalizeImageSemanticText(prompt);
+  const matchedSlideTerms = slideTerms.filter((term) => normalizedPrompt.includes(term));
+
+  return promptTerms.length < 4 || matchedSlideTerms.length < 2;
+};
+
+const shouldBlockClassroomArtifactImage = (slide: Slide): boolean => {
+  const text = [
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.speakerNotes,
+    slide.imagePrompt,
+  ].filter(Boolean).join(' ');
+  const hasArtifact = CLASSROOM_ARTIFACT_IMAGE_BLOCK_PATTERN.test(text);
+  const hasNonGeographicMap = /\b(?:map|mapa)\b/i.test(text) && !GEOGRAPHIC_MAP_IMAGE_PATTERN.test(text);
+  return hasArtifact || hasNonGeographicMap;
+};
+
 const slugifyImageSemanticText = (value: string | undefined): string => (
   normalizeImageSemanticText(value)
     .normalize('NFKD')
@@ -3581,6 +3638,12 @@ const App: React.FC = () => {
     }
 
     const primary = (slide.imagePrompt || '').trim();
+    if (primary && shouldBlockClassroomArtifactImage(slide)) {
+      return [];
+    }
+    if (primary && isWeakGenericClassroomImagePrompt(slide)) {
+      return [];
+    }
     return primary ? [primary] : [];
   }, []);
 
