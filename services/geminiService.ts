@@ -1859,8 +1859,22 @@ export async function createK12LessonBlueprint(content: string, format: string, 
 }
 
 
+export type K12SessionGenerationMilestone =
+    | 'outline-start'
+    | 'outline-draft-ready'
+    | 'outline-repair-start'
+    | 'outline-ready'
+    | 'slides-start'
+    | 'slides-draft-ready'
+    | 'slides-repair-start'
+    | 'slides-ready';
+
+type K12SessionGenerationOptions = {
+    onMilestone?: (milestone: K12SessionGenerationMilestone) => void;
+};
+
 // PHASE 2: SLIDE GENERATION (PER DAY)
-export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL'): Promise<Slide[]> {
+export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL', options: K12SessionGenerationOptions = {}): Promise<Slide[]> {
     const blueprintForGeneration = normalizeLessonBlueprintUnits(blueprint, inferPlanUnitInfo(originalContent), originalContent, language);
     const dayForGeneration = blueprintForGeneration.days.find((candidateDay) => candidateDay.dayNumber === day.dayNumber) || day;
     const unitLabel = getPlanUnitLabel(blueprintForGeneration);
@@ -1906,6 +1920,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
     let presentationOutline: PresentationOutline | null = null;
 
     for (let attempt = 0; attempt <= MAX_ALIGNMENT_REPAIR_ATTEMPTS; attempt += 1) {
+        options.onMilestone?.(attempt === 0 ? 'outline-start' : 'outline-repair-start');
         presentationOutline = await createK12PresentationOutline({
             sourceLabel: `${unitLabel} ${day.dayNumber} source extract`,
             sourceText: sourceBlock.text,
@@ -1921,6 +1936,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
             day: dayForGeneration,
             alignmentIssues: outlineIssues,
         });
+        options.onMilestone?.('outline-draft-ready');
         outlineIssues = validatePresentationOutlineAlignment(presentationOutline, sourceBlock, normalizedUnitLabel, dayForGeneration);
 
         if (outlineIssues.length === 0 || attempt === MAX_ALIGNMENT_REPAIR_ATTEMPTS) {
@@ -1931,6 +1947,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                     issues: outlineIssues,
                 });
             }
+            options.onMilestone?.('outline-ready');
             break;
         }
     }
@@ -2052,7 +2069,9 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         let alignmentIssues: SessionAlignmentIssue[] = [];
 
         for (let attempt = 0; attempt <= MAX_ALIGNMENT_REPAIR_ATTEMPTS; attempt += 1) {
+            options.onMilestone?.(attempt === 0 ? 'slides-start' : 'slides-repair-start');
             const { slides, groundingChunks } = await requestSlides(buildPrompt(alignmentIssues));
+            options.onMilestone?.('slides-draft-ready');
             alignmentIssues = validateGeneratedSessionAlignment(slides, sourceBlock, normalizedUnitLabel, dayForGeneration, boundPresentationOutline);
 
             if (alignmentIssues.length === 0 || attempt === MAX_ALIGNMENT_REPAIR_ATTEMPTS) {
@@ -2064,6 +2083,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                     });
                 }
                 appendGroundingSources(slides, groundingChunks);
+                options.onMilestone?.('slides-ready');
                 return slides;
             }
         }

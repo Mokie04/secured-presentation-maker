@@ -2,6 +2,7 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel, ImageSemanticMetadata } from './types';
 import { IMAGES_DISABLED, cacheUploadedImageForPrompt, createK12LessonBlueprint, generateK12SlidesForDay, generateImageResultFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, getCachedImageResultForPrompt } from './services/geminiService';
+import type { K12SessionGenerationMilestone } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
@@ -3637,9 +3638,12 @@ const App: React.FC = () => {
   const processSlidesForImages = async (
     slidesWithPrompts: Slide[],
     language: 'EN' | 'FIL',
-    options?: { muteProgress?: boolean; imageCacheScope?: string; imageSemanticScope?: unknown }
+    options?: { muteProgress?: boolean; imageCacheScope?: string; imageSemanticScope?: unknown; progressStart?: number; progressEnd?: number }
   ): Promise<Slide[]> => {
     const muteProgress = options?.muteProgress === true;
+    const progressStart = options?.progressStart ?? 0;
+    const progressEnd = options?.progressEnd ?? 100;
+    const progressFreeEnd = progressStart + ((progressEnd - progressStart) * 0.55);
     const attachImageCacheIds = async (slide: Slide, slideIndex: number): Promise<Slide> => {
         const imagePrompt = slide.imageStyle === 'none' ? '' : (slide.imagePrompt || '').trim();
         const slideWithPrompt = { ...slide, imagePrompt };
@@ -3743,7 +3747,7 @@ const App: React.FC = () => {
     const freeImageCandidates = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0 && !s.imageUrl);
     let freeImagesResolvedCounter = 0;
     if (!muteProgress && freeImageCandidates.length > 0) {
-      setLoadingProgress(0);
+      setLoadingProgress(progressStart);
     }
 
     const slidesAfterFreeSources = await mapWithConcurrency(slidesWithPrompts, IMAGE_PROCESSING_CONCURRENCY, async (slide, slideIndex) => {
@@ -3753,7 +3757,7 @@ const App: React.FC = () => {
             freeImagesResolvedCounter++;
             if (!muteProgress) {
               setLoadingMessage(t.presentation.loadingImages.replace('{current}', freeImagesResolvedCounter.toString()).replace('{total}', freeImageCandidates.length.toString()));
-              setLoadingProgress((freeImagesResolvedCounter / freeImageCandidates.length) * 50);
+              setLoadingProgress(progressStart + ((freeImagesResolvedCounter / freeImageCandidates.length) * (progressFreeEnd - progressStart)));
             }
         }
         return resolvedSlide;
@@ -3783,7 +3787,7 @@ const App: React.FC = () => {
     const finalSlides = [...slidesAfterFreeSources];
 
     if (!muteProgress && freeImageCandidates.length > 0 && paidImageCandidates.length === 0) {
-      setLoadingProgress(100);
+      setLoadingProgress(progressEnd);
     }
 
     let paidImagesAttemptedCounter = 0;
@@ -3803,7 +3807,7 @@ const App: React.FC = () => {
         paidImagesAttemptedCounter++;
         if (!muteProgress && paidImageCandidates.length > 0) {
           setLoadingMessage(t.presentation.loadingImages.replace('{current}', paidImagesAttemptedCounter.toString()).replace('{total}', paidImageCandidates.length.toString()));
-          setLoadingProgress(50 + ((paidImagesAttemptedCounter / paidImageCandidates.length) * 50));
+          setLoadingProgress(progressFreeEnd + ((paidImagesAttemptedCounter / paidImageCandidates.length) * (progressEnd - progressFreeEnd)));
         }
 
         try {
@@ -4153,9 +4157,29 @@ const App: React.FC = () => {
 	    try {
 	        const dayToGenerate = lessonBlueprint.days[dayIndex];
 	        const unitLabel = getPlanUnitLabel(lessonBlueprint);
+	        const advanceSessionProgress = (progress: number) => {
+	          setLoadingProgress((current) => Math.max(current ?? 0, progress));
+	        };
 	        const setSessionLoadingStage = (template: string, progress: number) => {
 	          setLoadingMessage(formatPlanUnitLoadingMessage(template, unitLabel, dayToGenerate.dayNumber));
-	          setLoadingProgress(progress);
+	          advanceSessionProgress(progress);
+	        };
+	        const handleSessionGenerationMilestone = (milestone: K12SessionGenerationMilestone) => {
+	          const milestoneProgress: Record<K12SessionGenerationMilestone, number> = {
+	            'outline-start': 18,
+	            'outline-draft-ready': 30,
+	            'outline-repair-start': 34,
+	            'outline-ready': 42,
+	            'slides-start': 48,
+	            'slides-draft-ready': 60,
+	            'slides-repair-start': 62,
+	            'slides-ready': 68,
+	          };
+	          const progress = milestoneProgress[milestone];
+	          const template = milestone.startsWith('outline')
+	            ? t.presentation.loadingSessionFlow
+	            : t.presentation.loadingSessionDesign;
+	          setSessionLoadingStage(template, progress);
 	        };
 	        const isStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
 	        const planUnitPresentationTitle = buildPlanUnitPresentationTitle(lessonBlueprint, dayToGenerate);
@@ -4204,8 +4228,7 @@ const App: React.FC = () => {
         const slideIndexOfNewDay = isStandalonePlanUnitDeck ? 0 : (presentation?.slides.length ?? 0);
 
 	        if (cachedSlides && cachedSlides.length > 0) {
-	            setSessionLoadingStage(t.presentation.loadingSessionFinalizing, 76);
-	            await waitWithLoadingProgress(setLoadingProgress, CACHE_HIT_LOADING_DELAY_MS, 76, 92);
+	            setSessionLoadingStage(t.presentation.loadingSessionFinalizing, 82);
 	            const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, generationLanguage, imageCacheScope, imageSemanticScope);
             setGeneratedPlanUnitSlidesByDay(prev => ({
                 ...prev,
@@ -4233,13 +4256,11 @@ const App: React.FC = () => {
 	        const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
 	        const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, generationLanguage);
 	        if (reusableSlides && reusableSlides.length > 0) {
-	            setSessionLoadingStage(t.presentation.loadingSessionDesign, 32);
-	            await waitWithLoadingProgress(setLoadingProgress, REUSABLE_GENERATION_LOADING_DELAY_MS, 32, 58);
-	            setSessionLoadingStage(t.presentation.loadingSessionFinalizing, 64);
+	            setSessionLoadingStage(t.presentation.loadingSessionDesign, 48);
 	            const slidesWithTables = await processSlidesForTables(reusableSlides);
 	            setSessionLoadingStage(t.presentation.loadingSessionImages, 72);
 	            const finalSlides = assertSlidesGenerated(
-	                await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope }),
+	                await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope, progressStart: 72, progressEnd: 92 }),
 	                `${unitLabel} ${dayToGenerate.dayNumber}`
             );
 
@@ -4269,16 +4290,18 @@ const App: React.FC = () => {
 
 	        setSessionLoadingStage(t.presentation.loadingSessionFlow, 18);
 	        const dailySlides = assertSlidesGenerated(
-	            await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, generationLanguage),
+	            await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, generationLanguage, {
+	              onMilestone: handleSessionGenerationMilestone,
+	            }),
 	            `${unitLabel} ${dayToGenerate.dayNumber}`
 	        );
 
-	        setSessionLoadingStage(t.presentation.loadingSessionDesign, 58);
+	        setSessionLoadingStage(t.presentation.loadingSessionDesign, 70);
 	        const slidesWithTables = await processSlidesForTables(dailySlides);
 
-	        setSessionLoadingStage(t.presentation.loadingSessionImages, 68);
+	        setSessionLoadingStage(t.presentation.loadingSessionImages, 74);
 	        const finalSlides = assertSlidesGenerated(
-	            await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope }),
+	            await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope, progressStart: 74, progressEnd: 92 }),
 	            `${unitLabel} ${dayToGenerate.dayNumber}`
 	        );
 
