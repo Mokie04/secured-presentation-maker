@@ -1,6 +1,16 @@
 
 export type ImageStyle = 'photorealistic' | 'illustration' | 'infographic' | 'diagram' | 'historical photo' | 'none';
 export type SlideVisualLayout = 'standard' | 'evidence';
+export type LessonArtifactType =
+  | 'none'
+  | 'route_map'
+  | 'self_check_slip'
+  | 'scenario_card'
+  | 'response_table'
+  | 'decision_board'
+  | 'reflection_card'
+  | 'rubric_checklist'
+  | 'source_step';
 export type TeachingLevel = 'K-12' | 'College';
 
 export interface ImageOverlayLabel {
@@ -51,6 +61,9 @@ export interface Slide {
   imageSemanticMetadata?: ImageSemanticMetadata; // Structured semantic cache metadata for cross-lesson reuse.
   imageOverlays?: ImageOverlayLabel[]; // Manual label overlays rendered above the image.
   visualLayout?: SlideVisualLayout; // Optional layout hint for image-led classroom evidence slides.
+  sourceEvidence?: string[]; // Source-derived lesson-plan evidence backing this slide.
+  sourceRefs?: string[]; // Human-readable references to the source-derived outline step(s).
+  lessonArtifactType?: LessonArtifactType; // Optional classroom artifact/layout intent.
   speakerNotes: string; // Notes for the teacher presenting the slide.
 }
 

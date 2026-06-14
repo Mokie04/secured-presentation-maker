@@ -1,5 +1,5 @@
 
-import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata, ImageAttribution } from '../types';
+import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata, ImageAttribution, LessonArtifactType } from '../types';
 import { K12_ADAPTIVE_PRESENTATION_STANDARD } from '../lib/presentationStandards';
 import { buildFinalImagePrompt } from '../lib/imagePrompting';
 
@@ -356,6 +356,12 @@ function normalizeGeneratedSlidesPayload(payload: unknown, label: string): Slide
         const slide = (slideLike && typeof slideLike === 'object')
             ? slideLike as Partial<Slide> & Record<string, unknown>
             : {};
+        const slideText = [
+            slide.title,
+            ...(Array.isArray(slide.content) ? slide.content : []),
+            slide.speakerNotes,
+            slide.imagePrompt,
+        ].filter(Boolean).join(' ');
         return {
             ...slide,
             title: normalizeGeneratedString(slide.title, `Slide ${index + 1}`),
@@ -363,6 +369,9 @@ function normalizeGeneratedSlidesPayload(payload: unknown, label: string): Slide
             speakerNotes: normalizeGeneratedString(slide.speakerNotes),
             imagePrompt: normalizeGeneratedString(slide.imagePrompt),
             imageStyle: normalizeGeneratedImageStyle(slide.imageStyle),
+            sourceEvidence: mergeUniqueStrings(slide.sourceEvidence).slice(0, 6),
+            sourceRefs: mergeUniqueStrings(slide.sourceRefs).slice(0, 4),
+            lessonArtifactType: normalizeLessonArtifactType(slide.lessonArtifactType ?? slide.artifactType, slideText),
         };
     });
 }
@@ -386,6 +395,48 @@ const CLASSROOM_ARTIFACT_PATTERN = /\b(?:answer\s+frame|body[-\s]?signal\s+chart
 const GEOGRAPHIC_MAP_PATTERN = /\b(?:philippine|philippines|world|country|province|region|city|municipality|community|geographic|geography|location|route|topographic|territory|mapang\s+pisikal|mapang\s+politikal)\b/i;
 const GENERIC_CLASSROOM_PROMPT_PATTERN = /\b(?:teacher|teachers|student|students|learner|learners|classroom|school|education|group\s+work|writing|worksheet|notebook|board|discussion|lecture)\b/i;
 const GENERIC_VISUAL_TERM_PATTERN = /^(?:classroom|school|education|student|students|learner|learners|teacher|teachers|group|writing|worksheet|notebook|board|discussion|activity|lesson|slide|presentation)$/i;
+const LESSON_ARTIFACT_TYPES: LessonArtifactType[] = [
+    'none',
+    'route_map',
+    'self_check_slip',
+    'scenario_card',
+    'response_table',
+    'decision_board',
+    'reflection_card',
+    'rubric_checklist',
+    'source_step',
+];
+
+function classifyLessonArtifactType(text: string): LessonArtifactType {
+    if (/\b(?:route\s*map|roadmap|flight\s*plan|session\s+flow|lesson\s+flow|learning\s+sequence|sequence\s+map|workflow)\b/i.test(text)) return 'route_map';
+    if (/\b(?:self[-\s]?check|self[-\s]?rating|private\s+self|rating\s+slip|baseline\s+privately)\b/i.test(text)) return 'self_check_slip';
+    if (/\b(?:response\s+table|scenario[-\s]?analysis\s+table|evidence\s+table|analysis\s+table|matrix)\b/i.test(text)) return 'response_table';
+    if (/\b(?:decision\s+board|choice\s+board|responsible\s+decision)\b/i.test(text)) return 'decision_board';
+    if (/\b(?:reflection\s+(?:card|frame|exit)|exit\s+ticket|evidence\s+reflection)\b/i.test(text)) return 'reflection_card';
+    if (/\b(?:rubric|criteria|checklist|success\s+criteria|pamantayan)\b/i.test(text)) return 'rubric_checklist';
+    if (/\b(?:scenario|situation|case)\s+(?:card|prompt|evidence)|\b(?:scenario|situation|case)\b/i.test(text)) return 'scenario_card';
+    if (CLASSROOM_ARTIFACT_PATTERN.test(text)) return 'source_step';
+    return 'none';
+}
+
+function normalizeLessonArtifactType(value: unknown, fallbackText = ''): LessonArtifactType {
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_') as LessonArtifactType;
+        if (LESSON_ARTIFACT_TYPES.includes(normalized)) return normalized;
+    }
+    return classifyLessonArtifactType(fallbackText);
+}
+
+function mergeUniqueStrings(...groups: Array<unknown>): string[] {
+    const values = groups.flatMap((group) => normalizeGeneratedStringList(group));
+    const seen = new Set<string>();
+    return values.filter((value) => {
+        const key = normalizeSourceText(value);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
 
 function cleanVisibleSlideItem(item: string): string {
     return item
@@ -1568,6 +1619,8 @@ function validateGeneratedSessionAlignment(
         slide.title,
         ...(Array.isArray(slide.content) ? slide.content : []),
         slide.speakerNotes,
+        ...(slide.sourceEvidence || []),
+        ...(slide.sourceRefs || []),
     ].filter(Boolean).join(' ')).join(' '));
 
     const wrongTitleUnits = findWrongUnitTitleReferences(slides, unitLabel, day.dayNumber);
@@ -1620,6 +1673,32 @@ function validateGeneratedSessionAlignment(
                 message: `Slides do not preserve enough details from the presentation outline. Missing outline terms: ${outlineTerms.filter((term) => !outlineHits.includes(term)).slice(0, 6).join(', ')}.`,
             });
         }
+
+        const instructionalSteps = getInstructionalOutlineSteps(outline);
+        const hasRouteMap = instructionalSteps.length < 2 || slides.some((slide) => (
+            normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)) === 'route_map'
+        ));
+        if (!hasRouteMap) {
+            issues.push({
+                code: 'missing_source_route_map',
+                message: `Slides should include a source-derived ${unitLabel.toLowerCase()} route map before activity slides.`,
+            });
+        }
+    }
+
+    const slidesMissingEvidence = slides
+        .map((slide, index) => ({ slide, index }))
+        .filter(({ slide, index }) => (
+            index > 0
+            && !/^sources?$/i.test(slide.title.trim())
+            && normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)) !== 'route_map'
+            && mergeUniqueStrings(slide.sourceEvidence, slide.sourceRefs).length === 0
+        ));
+    if (slidesMissingEvidence.length > 0) {
+        issues.push({
+            code: 'missing_slide_source_evidence',
+            message: `Slides ${slidesMissingEvidence.map(({ index }) => index + 1).join(', ')} do not carry source evidence from the uploaded lesson plan.`,
+        });
     }
 
     return [
@@ -1902,6 +1981,175 @@ function buildSlidesFromPresentationOutlineFallback(outline: PresentationOutline
         });
 
     return [titleSlide, ...flowSlides];
+}
+
+function isOutlineTitleContextStep(step: PresentationOutlineStep, index: number): boolean {
+    if (index !== 0) return false;
+    const text = `${step.section} ${step.slideTitle} ${step.slidePurpose}`;
+    return /\b(?:title|context)\b/i.test(text);
+}
+
+function getInstructionalOutlineSteps(outline: PresentationOutline): PresentationOutlineStep[] {
+    return outline.flow.filter((step, index) => !isOutlineTitleContextStep(step, index));
+}
+
+function getOutlineStepSourceRef(step: PresentationOutlineStep, index: number): string {
+    const section = normalizeGeneratedString(step.section, `Step ${index + 1}`);
+    const title = normalizeGeneratedString(step.slideTitle);
+    return title && normalizeSourceText(title) !== normalizeSourceText(section)
+        ? `${index + 1}. ${section}: ${title}`
+        : `${index + 1}. ${section}`;
+}
+
+function getOutlineStepEvidence(step: PresentationOutlineStep): string[] {
+    return mergeUniqueStrings(
+        step.sourceEvidence,
+        step.keyPoints,
+        step.slideTitle,
+        step.slidePurpose,
+    ).slice(0, 6);
+}
+
+function buildSourceRouteMapSlide(outline: PresentationOutline, context: SlideRepairContext = {}): Slide | null {
+    const steps = getInstructionalOutlineSteps(outline).slice(0, 8);
+    if (steps.length < 2) return null;
+
+    const unitLabel = normalizeGeneratedString(context.unitLabel, outline.unitLabel || 'Session');
+    const unitNumber = context.dayNumber || outline.unitNumber || 1;
+    const content = steps.map((step, index) => `${index + 1}. ${normalizeGeneratedString(step.slideTitle, step.section)}`);
+    const refs = steps.map(getOutlineStepSourceRef);
+
+    return {
+        title: `${unitLabel} ${unitNumber} Route Map`,
+        content,
+        speakerNotes: [
+            'Use this route map to preview the exact sequence extracted from the uploaded lesson plan.',
+            `Source-backed flow: ${refs.join(' | ')}`,
+        ].join('\n'),
+        imagePrompt: '',
+        imageStyle: 'none',
+        sourceEvidence: mergeUniqueStrings(outline.sourceSummary, ...steps.flatMap(getOutlineStepEvidence)).slice(0, 8),
+        sourceRefs: refs,
+        lessonArtifactType: 'route_map',
+    };
+}
+
+function slideTextForSourceMatching(slide: Slide): string {
+    return [
+        slide.title,
+        ...(Array.isArray(slide.content) ? slide.content : []),
+        slide.speakerNotes,
+        ...(slide.sourceEvidence || []),
+        ...(slide.sourceRefs || []),
+    ].filter(Boolean).join(' ');
+}
+
+function findBestOutlineStepForSlide(
+    slide: Slide,
+    steps: PresentationOutlineStep[],
+    usedStepIndexes: Set<number>,
+): { step: PresentationOutlineStep; index: number } | null {
+    const slideText = normalizeSourceText(slideTextForSourceMatching(slide));
+    const scored = steps
+        .map((step, index) => {
+            if (usedStepIndexes.has(index)) return null;
+            const stepText = [
+                step.section,
+                step.slideTitle,
+                step.slidePurpose,
+                ...step.sourceEvidence,
+                ...step.keyPoints,
+            ].join(' ');
+            const terms = extractImportantTerms(stepText, 8);
+            const hits = terms.filter((term) => slideText.includes(term)).length;
+            const titleHit = normalizeSourceText(step.slideTitle)
+                ? slideText.includes(normalizeSourceText(step.slideTitle)) ? 2 : 0
+                : 0;
+            return { step, index, score: hits + titleHit };
+        })
+        .filter((value): value is { step: PresentationOutlineStep; index: number; score: number } => Boolean(value))
+        .sort((a, b) => b.score - a.score);
+
+    return scored[0] && scored[0].score >= 2
+        ? { step: scored[0].step, index: scored[0].index }
+        : null;
+}
+
+function bindSlidesToPresentationOutline(slides: Slide[], outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
+    const steps = getInstructionalOutlineSteps(outline);
+    const usedStepIndexes = new Set<number>();
+    let sequentialStepIndex = 0;
+
+    return slides.map((slide, slideIndex) => {
+        if (slideIndex === 0) {
+            const sourceEvidence = mergeUniqueStrings(slide.sourceEvidence, outline.learningTarget, outline.sourceSummary).slice(0, 6);
+            return {
+                ...slide,
+                sourceEvidence,
+                sourceRefs: mergeUniqueStrings(slide.sourceRefs, `${outline.unitLabel || context.unitLabel || 'Session'} ${outline.unitNumber || context.dayNumber || 1} title/context`).slice(0, 4),
+                lessonArtifactType: normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)),
+            };
+        }
+
+        const slideText = slideTextForSourceMatching(slide);
+        const isRouteMap = normalizeLessonArtifactType(slide.lessonArtifactType, slideText) === 'route_map';
+        if (isRouteMap) {
+            return {
+                ...slide,
+                sourceEvidence: mergeUniqueStrings(slide.sourceEvidence, outline.sourceSummary, ...steps.flatMap(getOutlineStepEvidence)).slice(0, 8),
+                sourceRefs: mergeUniqueStrings(slide.sourceRefs, steps.map(getOutlineStepSourceRef)).slice(0, 10),
+                lessonArtifactType: 'route_map',
+                imagePrompt: '',
+                imageStyle: 'none',
+            };
+        }
+
+        const matched = findBestOutlineStepForSlide(slide, steps, usedStepIndexes)
+            || (sequentialStepIndex < steps.length
+                ? { step: steps[sequentialStepIndex], index: sequentialStepIndex }
+                : null);
+        if (matched) {
+            usedStepIndexes.add(matched.index);
+            sequentialStepIndex = Math.max(sequentialStepIndex, matched.index + 1);
+        }
+
+        const matchedEvidence = matched ? getOutlineStepEvidence(matched.step) : [];
+        const matchedRefs = matched ? [getOutlineStepSourceRef(matched.step, matched.index)] : [];
+        const sourceEvidence = mergeUniqueStrings(slide.sourceEvidence, matchedEvidence).slice(0, 6);
+        const sourceRefs = mergeUniqueStrings(slide.sourceRefs, matchedRefs).slice(0, 4);
+        const artifactText = [
+            slideText,
+            ...sourceEvidence,
+            ...sourceRefs,
+        ].join(' ');
+
+        return {
+            ...slide,
+            sourceEvidence,
+            sourceRefs,
+            lessonArtifactType: normalizeLessonArtifactType(slide.lessonArtifactType, artifactText),
+        };
+    });
+}
+
+function ensureSourceRouteMapSlide(slides: Slide[], outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
+    const routeMap = buildSourceRouteMapSlide(outline, context);
+    if (!routeMap || slides.length === 0) return slides;
+
+    const hasRouteMap = slides.slice(0, 4).some((slide) => (
+        normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)) === 'route_map'
+    ));
+    if (hasRouteMap) return slides;
+
+    return [slides[0], routeMap, ...slides.slice(1)];
+}
+
+function prepareSourceAlignedSlides(slides: Slide[], outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
+    return bindSlidesToPresentationOutline(
+        ensureSourceRouteMapSlide(slides, outline, context),
+        outline,
+        context,
+    );
 }
 
 const PRESENTATION_OUTLINE_RESPONSE_SCHEMA = {
@@ -2193,14 +2441,15 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - **Visible vs Notes:** The \`content\` array is for learner-facing slide text only: what students see, answer, sort, build, check, revise, or submit. Teacher-only directions such as "Teacher checks draft artifact against criteria", "Teacher models...", "circulate", "collect", or "sort support needs" must go in \`speakerNotes\`, not visible slide bullets.
     8.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
     9.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
-    10. **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
-    11. **CONTENT & CLARITY (CRITICAL):**
+    10. **SOURCE TRACEABILITY (MANDATORY):** Every slide after the title/context slide must include \`sourceEvidence\`: 1-4 short strings copied or tightly paraphrased from the matching presentation outline/source extract. If the slide is a classroom artifact, include \`artifactType\` using one of: "self_check_slip", "scenario_card", "response_table", "decision_board", "reflection_card", "rubric_checklist", "source_step", or "none".
+    11. **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
+    12. **CONTENT & CLARITY (CRITICAL):**
         - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
         - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of volcanoes), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
         - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs.
         - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
         - **Complete Lists:** Never output an empty numbered item, empty answer option, or placeholder-only bullet. If the source has only three assessment items, show three items and do not write "4.".
-    12. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the selected lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
+    13. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the selected lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
     `;
     
     const flowReference = getK12FlowReference(format);
@@ -2316,7 +2565,9 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                         content: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
                         speakerNotes: { type: JSON_SCHEMA.STRING },
                         imagePrompt: { type: JSON_SCHEMA.STRING },
-                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] }
+                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] },
+                        sourceEvidence: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                        artifactType: { type: JSON_SCHEMA.STRING }
                     },
                     required: ["title", "content", "speakerNotes", "imagePrompt", "imageStyle"] 
                 }
@@ -2347,12 +2598,13 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
             gradeLevel: blueprintForGeneration.gradeLevel,
         };
         const generatedSlides = normalizeGeneratedSlidesPayload(data, `day ${day.dayNumber} slide generation`);
-        const slides = repairGeneratedSlidesForClassroomUse(
+        const repairedSlides = repairGeneratedSlidesForClassroomUse(
             generatedSlides.length > 0
                 ? generatedSlides
                 : buildSlidesFromPresentationOutlineFallback(boundPresentationOutline, repairContext),
             repairContext,
         );
+        const slides = prepareSourceAlignedSlides(repairedSlides, boundPresentationOutline, repairContext);
 
         return { slides, groundingChunks: response.groundingChunks };
     };
@@ -2452,14 +2704,15 @@ export async function generateK12SingleLessonSlides(content: string, format: str
             - **Visible vs Notes:** The \`content\` array is for learner-facing slide text only: what students see, answer, sort, build, check, revise, or submit. Teacher-only directions such as "Teacher checks draft artifact against criteria", "Teacher models...", "circulate", "collect", or "sort support needs" must go in \`speakerNotes\`, not visible slide bullets.
         8.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
         9.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
-        10. **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
-        11. **CONTENT & CLARITY (CRITICAL):**
+        10. **SOURCE TRACEABILITY (MANDATORY):** Every slide after the title/context slide must include \`sourceEvidence\`: 1-4 short strings copied or tightly paraphrased from the matching presentation outline/source extract. If the slide is a classroom artifact, include \`artifactType\` using one of: "self_check_slip", "scenario_card", "response_table", "decision_board", "reflection_card", "rubric_checklist", "source_step", or "none".
+        11. **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
+        12. **CONTENT & CLARITY (CRITICAL):**
             - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
             - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of rocks), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
             - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs. Use markdown bolding (\`**term**\`) for key terminology.
             - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
             - **Complete Lists:** Never output an empty numbered item, empty answer option, or placeholder-only bullet. If the source has only three assessment items, show three items and do not write "4.".
-        12. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
+        13. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
 
         **OUTPUT (JSON FORMAT ONLY):**
         Return a single JSON object. Do not add any extra text.
@@ -2478,7 +2731,9 @@ export async function generateK12SingleLessonSlides(content: string, format: str
                         content: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
                         speakerNotes: { type: JSON_SCHEMA.STRING },
                         imagePrompt: { type: JSON_SCHEMA.STRING },
-                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] }
+                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] },
+                        sourceEvidence: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                        artifactType: { type: JSON_SCHEMA.STRING }
                     },
                     required: ["title", "content", "speakerNotes", "imagePrompt", "imageStyle"]
                 }
@@ -2510,12 +2765,13 @@ export async function generateK12SingleLessonSlides(content: string, format: str
         gradeLevel: extractSourceGradeLevel(sourceText),
     };
     const generatedSlides = normalizeGeneratedSlidesPayload(data, 'single lesson generation');
-    const slides = repairGeneratedSlidesForClassroomUse(
+    const repairedSlides = repairGeneratedSlidesForClassroomUse(
         generatedSlides.length > 0
             ? generatedSlides
             : buildSlidesFromPresentationOutlineFallback(presentationOutline, repairContext),
         repairContext,
     );
+    const slides = prepareSourceAlignedSlides(repairedSlides, presentationOutline, repairContext);
     appendGroundingSources(slides, response.groundingChunks);
 
     return {

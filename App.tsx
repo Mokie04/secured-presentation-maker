@@ -98,7 +98,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v39';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v40';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -3230,6 +3230,20 @@ const getPptxContentTypography = (slide: Slide, hasImage: boolean, isEvidenceLay
 
 const stripPptxMarkdown = (value: string): string => value.replace(/\*\*/g, '').trim();
 
+const getPptxSlideNotes = (slideData: Slide): string => {
+    const sourceLines = [
+        ...(slideData.sourceRefs || []),
+        ...(slideData.sourceEvidence || []),
+    ]
+        .map(stripPptxMarkdown)
+        .filter(Boolean)
+        .slice(0, 8);
+    const sourceNote = sourceLines.length > 0
+        ? ['Lesson-plan source alignment:', ...sourceLines.map((line) => `- ${line}`)].join('\n')
+        : '';
+    return [slideData.speakerNotes, sourceNote].filter(Boolean).join('\n\n');
+};
+
 const titleSlidePptxFontSize = (title: string): number => {
     if (title.length > 82) return 31;
     if (title.length > 58) return 36;
@@ -4964,7 +4978,7 @@ const App: React.FC = () => {
                 }
             }
 
-            const slideNotes = slideData.speakerNotes;
+            const slideNotes = getPptxSlideNotes(slideData);
             if (slideNotes) {
                 slide.addNotes(slideNotes);
             }
