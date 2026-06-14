@@ -4964,14 +4964,7 @@ const App: React.FC = () => {
                 }
             }
 
-            const imageCreditNote = slideData.imageAttribution?.provider === 'pexels'
-                ? [
-                    'Image credit:',
-                    slideData.imageAttribution.label || 'Photo provided by Pexels',
-                    slideData.imageAttribution.sourceUrl || '',
-                  ].filter(Boolean).join(' ')
-                : '';
-            const slideNotes = [slideData.speakerNotes, imageCreditNote].filter(Boolean).join('\n\n');
+            const slideNotes = slideData.speakerNotes;
             if (slideNotes) {
                 slide.addNotes(slideNotes);
             }

@@ -315,6 +315,66 @@ function cleanSlideContent(content: unknown): string[] {
     return cleaned;
 }
 
+const GENERATED_IMAGE_STYLES: ImageStyle[] = [
+    'photorealistic',
+    'illustration',
+    'infographic',
+    'diagram',
+    'historical photo',
+    'none',
+];
+
+function normalizeGeneratedImageStyle(value: unknown, fallback: ImageStyle = 'none'): ImageStyle {
+    return GENERATED_IMAGE_STYLES.includes(value as ImageStyle) ? value as ImageStyle : fallback;
+}
+
+function extractGeneratedSlidesArray(payload: unknown): unknown[] {
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== 'object') return [];
+
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.slides)) return record.slides;
+
+    for (const key of ['presentation', 'data', 'deck']) {
+        const nested = record[key];
+        if (nested && typeof nested === 'object' && Array.isArray((nested as Record<string, unknown>).slides)) {
+            return (nested as Record<string, unknown>).slides as unknown[];
+        }
+    }
+
+    return [];
+}
+
+function normalizeGeneratedSlidesPayload(payload: unknown, label: string): Slide[] {
+    const rawSlides = extractGeneratedSlidesArray(payload);
+    if (rawSlides.length === 0) {
+        console.warn('Generated slide payload did not include a usable slides array.', { label });
+        return [];
+    }
+
+    return rawSlides.map((slideLike, index) => {
+        const slide = (slideLike && typeof slideLike === 'object')
+            ? slideLike as Partial<Slide> & Record<string, unknown>
+            : {};
+        return {
+            ...slide,
+            title: normalizeGeneratedString(slide.title, `Slide ${index + 1}`),
+            content: cleanSlideContent(slide.content),
+            speakerNotes: normalizeGeneratedString(slide.speakerNotes),
+            imagePrompt: normalizeGeneratedString(slide.imagePrompt),
+            imageStyle: normalizeGeneratedImageStyle(slide.imageStyle),
+        };
+    });
+}
+
+function requireGeneratedSlides(payload: unknown, label: string): Slide[] {
+    const slides = normalizeGeneratedSlidesPayload(payload, label);
+    if (slides.length === 0) {
+        throw new Error(`${label} did not return any slides.`);
+    }
+    return slides;
+}
+
 const EMPTY_VISIBLE_ITEM_PATTERN = /^(?:[-•*]|\d+\.|[A-E]\.)\s*$/i;
 const TEACHER_ONLY_VISIBLE_PATTERN = /\b(?:teachers?\s+(?:checks?|models?|circulates?|collects?|distributes?|asks?|uses?|notes?|facilitates?|reminds?|explains?|shows?|guides?)|circulate\s+and\s+ask|collect\s+(?:responses|exit|slips?)|sort\s+support\s+needs?|use\s+(?:this|results?)\s+to\s+(?:sort|plan)|check\s+attendance|read\s+the\s+(?:learner-friendly\s+)?objective|facilitate\s+(?:pair|group|class)|distribute\s+(?:cards?|slips?|materials?))\b/i;
 const GENERIC_SUCCESS_CRITERION_PATTERN = /\b(?:identify\s+the\s+session\s+target\s+in\s+context|justify\s+one\s+claim\s+using\s+evidence|produce\s+one\s+accurate\s+session\s+artifact)\b/i;
@@ -1786,6 +1846,64 @@ function normalizePresentationOutline(
     };
 }
 
+function buildSlidesFromPresentationOutlineFallback(outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
+    const unitLabel = normalizeGeneratedString(context.unitLabel, outline.unitLabel || 'Session');
+    const unitNumber = context.dayNumber || outline.unitNumber || 1;
+    const focus = normalizeGeneratedString(context.focus || outline.learningTarget);
+    const unitContext = unitLabel && unitNumber
+        ? `${unitLabel} ${unitNumber}${focus ? `: ${focus}` : ''}`
+        : focus;
+    const title = normalizeGeneratedString(outline.title, 'Lesson Presentation');
+    const titleContent = [
+        unitContext,
+        context.subject ? `Subject: ${context.subject}` : '',
+        context.gradeLevel ? `Grade Level: ${context.gradeLevel}` : '',
+        outline.sourceSummary && normalizeSourceText(outline.sourceSummary) !== normalizeSourceText(title)
+            ? outline.sourceSummary
+            : '',
+    ].filter(Boolean).slice(0, 4);
+
+    const titleSlide: Slide = {
+        title,
+        content: titleContent,
+        speakerNotes: outline.sourceSummary || 'Introduce the source-aligned lesson flow.',
+        imagePrompt: '',
+        imageStyle: 'none',
+    };
+
+    const flowSlides = outline.flow
+        .filter((step, index) => {
+            if (index !== 0) return true;
+            const text = `${step.section} ${step.slideTitle} ${step.slidePurpose}`;
+            return !/\b(?:title|context)\b/i.test(text);
+        })
+        .slice(0, 14)
+        .map((step, index): Slide => {
+            const content = cleanSlideContent([
+                ...step.sourceEvidence,
+                ...step.keyPoints,
+            ]);
+            const fallbackContent = cleanSlideContent([
+                step.slidePurpose,
+                step.studentAction,
+            ]);
+
+            return {
+                title: normalizeGeneratedString(step.slideTitle, `Lesson Step ${index + 1}`),
+                content: (content.length > 0 ? content : fallbackContent).slice(0, 6),
+                speakerNotes: [
+                    step.teacherMove,
+                    step.studentAction,
+                    step.assessmentCue,
+                ].filter(Boolean).join('\n'),
+                imagePrompt: '',
+                imageStyle: 'none',
+            };
+        });
+
+    return [titleSlide, ...flowSlides];
+}
+
 const PRESENTATION_OUTLINE_RESPONSE_SCHEMA = {
     type: JSON_SCHEMA.OBJECT,
     properties: {
@@ -2219,18 +2337,22 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                 // Removed tools because Gemini does not support tool use with JSON mime responses
             },
         });
-        const data = parseJsonModelResponse<{ slides: Slide[] }>(response.text, `day ${day.dayNumber} slide generation`);
-        const slides = repairGeneratedSlidesForClassroomUse(data.slides.map((s: any) => ({
-            ...s,
-            content: cleanSlideContent(s.content),
-        })), {
+        const data = parseJsonModelResponse<unknown>(response.text, `day ${day.dayNumber} slide generation`);
+        const repairContext = {
             topicTitle,
             unitLabel,
             dayNumber: day.dayNumber,
             focus: dayForGeneration.focus || dayForGeneration.title,
             subject: blueprintForGeneration.subject,
             gradeLevel: blueprintForGeneration.gradeLevel,
-        });
+        };
+        const generatedSlides = normalizeGeneratedSlidesPayload(data, `day ${day.dayNumber} slide generation`);
+        const slides = repairGeneratedSlidesForClassroomUse(
+            generatedSlides.length > 0
+                ? generatedSlides
+                : buildSlidesFromPresentationOutlineFallback(boundPresentationOutline, repairContext),
+            repairContext,
+        );
 
         return { slides, groundingChunks: response.groundingChunks };
     };
@@ -2377,22 +2499,27 @@ export async function generateK12SingleLessonSlides(content: string, format: str
             // No tools when using JSON mime; tools cause unsupported mime errors
         },
     });
-    const data = parseJsonModelResponse<{ title: string; slides: Slide[] }>(response.text, 'single lesson generation');
-    const topicTitle = extractSourceTopicTitle(sourceText, data.title || presentationOutline.title);
-    const slides = repairGeneratedSlidesForClassroomUse(data.slides.map((s: any) => ({
-         ...s,
-         content: cleanSlideContent(s.content),
-    })), {
+    const data = parseJsonModelResponse<Record<string, unknown>>(response.text, 'single lesson generation');
+    const dataTitle = normalizeGeneratedString(data.title, presentationOutline.title);
+    const topicTitle = extractSourceTopicTitle(sourceText, dataTitle || presentationOutline.title);
+    const repairContext = {
         topicTitle,
         unitLabel: 'Lesson',
         dayNumber: 1,
         subject: extractSourceSubject(sourceText),
         gradeLevel: extractSourceGradeLevel(sourceText),
-    });
+    };
+    const generatedSlides = normalizeGeneratedSlidesPayload(data, 'single lesson generation');
+    const slides = repairGeneratedSlidesForClassroomUse(
+        generatedSlides.length > 0
+            ? generatedSlides
+            : buildSlidesFromPresentationOutlineFallback(presentationOutline, repairContext),
+        repairContext,
+    );
     appendGroundingSources(slides, response.groundingChunks);
 
     return {
-        title: topicTitle || data.title,
+        title: topicTitle || dataTitle,
         slides: slides
     };
 }
@@ -2481,15 +2608,12 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
             // Removed tools because Gemini does not support tool use with JSON mime responses
         },
     });
-    const data = parseJsonModelResponse<{ title: string; slides: Slide[] }>(response.text, 'college lecture generation');
-    const slides = data.slides.map((s: any) => ({
-         ...s,
-         content: cleanSlideContent(s.content),
-    }));
+    const data = parseJsonModelResponse<Record<string, unknown>>(response.text, 'college lecture generation');
+    const slides = requireGeneratedSlides(data, 'college lecture generation');
     appendGroundingSources(slides, response.groundingChunks);
 
     return {
-        title: data.title,
+        title: normalizeGeneratedString(data.title, topic),
         slides: slides
     };
 }
