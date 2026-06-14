@@ -57,16 +57,17 @@ const PEXELS_SEARCH_URL = 'https://api.pexels.com/v1/search';
 const PEXELS_MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const PEXELS_SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PEXELS_TIMEOUT_MS = 8_000;
-const PEXELS_CACHE_VERSION = 'pexels-selection-v4';
+const PEXELS_CACHE_VERSION = 'pexels-selection-v5';
 const PEXELS_SEARCH_TERM_STOPWORDS = new Set([
-  'able', 'about', 'accurate', 'activity', 'against', 'artifact', 'background', 'class', 'classroom',
-  'area', 'areas', 'clear', 'concept', 'content', 'criteria', 'criterion', 'decorative', 'depict',
-  'draft', 'education', 'educational', 'evidence', 'example', 'focus', 'generic', 'grade', 'group',
-  'environment', 'environmental', 'focused', 'groups', 'high', 'image', 'instructional', 'key',
-  'lesson', 'learning', 'learners', 'material', 'materials', 'notebook', 'output', 'photo',
-  'photorealistic', 'picture', 'professional', 'quality', 'question', 'questions', 'realistic', 'resolution',
-  'school', 'session', 'slide', 'specific', 'student', 'students', 'subject', 'teacher', 'teaching',
-  'management', 'work', 'worksheet', 'worksheets', 'write', 'writing',
+    'able', 'about', 'accurate', 'activity', 'against', 'artifact', 'background', 'class', 'classroom',
+    'area', 'areas', 'clear', 'concept', 'content', 'criteria', 'criterion', 'decorative', 'depict',
+    'card', 'cards', 'draft', 'education', 'educational', 'evidence', 'example', 'focus', 'generic', 'grade', 'group',
+    'environment', 'environmental', 'focused', 'groups', 'high', 'image', 'instructional', 'key',
+    'lesson', 'learning', 'learners', 'material', 'materials', 'notebook', 'output', 'photo',
+    'photorealistic', 'picture', 'professional', 'quality', 'question', 'questions', 'realistic', 'resolution',
+    'role', 'roles', 'school', 'session', 'sheet', 'sheets', 'slide', 'specific', 'student', 'students',
+    'subject', 'table', 'tables', 'teacher', 'teaching',
+    'management', 'work', 'worksheet', 'worksheets', 'write', 'writing',
 ]);
 const PEXELS_TERM_SYNONYMS: Record<string, string[]> = {
   brooder: ['brooder', 'brooding', 'heat lamp', 'chick brooder'],
@@ -98,6 +99,11 @@ const PEXELS_TERM_SYNONYMS: Record<string, string[]> = {
   walls: ['wall', 'walls'],
 };
 const PEXELS_GENERIC_CLASSROOM_PATTERN = /\b(?:classroom|teacher|teachers|student|students|school|education|books|notebook|writing|lecture|seminar)\b/i;
+const PEXELS_ARTIFACT_ONLY_TERMS = new Set([
+  'activity', 'card', 'cards', 'checklist', 'criteria', 'evidence', 'group', 'groups', 'material',
+  'materials', 'output', 'procedure', 'quality', 'role', 'roles', 'sheet', 'sheets', 'table',
+  'tables', 'task', 'worksheet', 'worksheets',
+]);
 
 function pexelsApiKey(): string {
   return process.env.PEXELS_API_KEY?.trim() || '';
@@ -282,6 +288,14 @@ function matchedPhotoTerms(haystack: string, terms: string[]): string[] {
 }
 
 function hasEnoughPhotoSubjectEvidence(score: PexelsPhotoScore, plan: PexelsSearchPlan): boolean {
+  const matchedTerms = uniqueTerms(
+    score.matchedAnchorTerms,
+    score.matchedSupportTerms,
+    score.matchedRequiredTerms,
+  );
+  const subjectTerms = matchedTerms.filter((term) => !PEXELS_ARTIFACT_ONLY_TERMS.has(term));
+  if (subjectTerms.length === 0) return false;
+
   if (score.matchedAnchorTerms.length >= 2) return true;
   if (score.matchedAnchorTerms.length >= 1 && score.matchedSupportTerms.length >= 1) return true;
 

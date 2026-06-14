@@ -67,7 +67,7 @@ const SEMANTIC_IMAGE_ALIAS_VERSION = 'image-semantic-alias-v1';
 const UPLOADED_IMAGE_ALIAS_VERSION = 'image-uploaded-alias-v1';
 const SEMANTIC_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
 const SUPPORTED_IMAGE_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-const CURRENT_PEXELS_CACHE_VERSION = 'pexels-selection-v4';
+const CURRENT_PEXELS_CACHE_VERSION = 'pexels-selection-v5';
 
 let s3Client: S3Client | null = null;
 let s3ClientAccountId: string | null = null;

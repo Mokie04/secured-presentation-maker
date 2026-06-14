@@ -98,7 +98,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v40';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v41';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -3230,18 +3230,27 @@ const getPptxContentTypography = (slide: Slide, hasImage: boolean, isEvidenceLay
 
 const stripPptxMarkdown = (value: string): string => value.replace(/\*\*/g, '').trim();
 
+const stripPptxImageCreditLines = (value: string | undefined): string => (
+    (value || '')
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*(?:image\s+credit\s*:|photo\s+by\b.*\bon\s+pexels\b|source\s*:\s*.*pexels\.com)/i.test(line.trim()))
+        .join('\n')
+        .trim()
+);
+
 const getPptxSlideNotes = (slideData: Slide): string => {
     const sourceLines = [
         ...(slideData.sourceRefs || []),
         ...(slideData.sourceEvidence || []),
     ]
         .map(stripPptxMarkdown)
+        .map(stripPptxImageCreditLines)
         .filter(Boolean)
         .slice(0, 8);
     const sourceNote = sourceLines.length > 0
         ? ['Lesson-plan source alignment:', ...sourceLines.map((line) => `- ${line}`)].join('\n')
         : '';
-    return [slideData.speakerNotes, sourceNote].filter(Boolean).join('\n\n');
+    return [stripPptxImageCreditLines(slideData.speakerNotes), sourceNote].filter(Boolean).join('\n\n');
 };
 
 const titleSlidePptxFontSize = (title: string): number => {

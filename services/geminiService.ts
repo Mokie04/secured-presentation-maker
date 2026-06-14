@@ -390,7 +390,11 @@ const GENERIC_SUCCESS_CRITERION_PATTERN = /\b(?:identify\s+the\s+session\s+targe
 const GENERIC_TITLE_PATTERN = /\b(?:session\s+lesson\s+plan|single\s+lesson\s+presentation|uploaded\s+lesson\s+plan|lesson\s+plan\s+content|source\s+material)\b/i;
 const BAD_FOCUS_LINE_PATTERN = /\bfocus\s*:\s*(?:formative\s+assessment|assessment\s*&?|procedure\s+mapping)\b/i;
 const UNKNOWN_METADATA_VALUE_PATTERN = /^(?:not\s+specified|not\s+provided|not\s+available|unknown|uploaded\s+lesson\s+plan|source\s+material|lesson\s+plan\s+content|n\/?a|none|null|undefined)$/i;
+const SOURCE_METADATA_TITLE_PATTERN = /\b(?:week\s+and\s+dates?|no\.?\s+of\s+sessions?|number\s+of\s+sessions?|references?|declaration\s+of\s+ai\s+use|learning\s+area|designed\s+by|designed\s+for|grade\s+level|learner\s+context)\b/i;
 const TITLE_SOURCE_LEAK_PATTERN = /\b(?:formative\s+assessment|formatibong\s+pagtataya|ebidensiyang\s+pormatibo|evidence\s+of\s+learning|what\s+task,\s*activity|what\s+can\s+we\s+do\s+together|bumuo\s+ng\s+(?:gawain|tanong)|pagtataya\s+sa\s+pagkatuto|uploaded\s+lesson\s+plan|source\s+extract|source\s+material|lesson\s+blueprint)\b/i;
+const PLACEHOLDER_SLIDE_TITLE_PATTERN = /^(?:slide|page)\s*\d+$/i;
+const GENERIC_CONTENT_TITLE_PATTERN = /^(?:objectives?|learning\s+objectives?|lesson\s+objectives?|activity|discussion|content|assessment|evaluation|assignment|reflection|summary|introduction)$/i;
+const OBJECTIVE_INTRO_VISIBLE_PATTERN = /\bby\s+the\s+end\s+of\s+(?:this\s+)?(?:session|lesson|class),?\s+you\s+can\b/i;
 const CLASSROOM_ARTIFACT_PATTERN = /\b(?:answer\s+frame|body[-\s]?signal\s+chart|card\s+sort|checklist|concept\s+map|criteria|decision\s+board|draft\s+artifact|emotion\s+cards?|evidence\s+(?:organizer|table|map|chart)|exit\s+ticket|flow\s+map|graphic\s+organizer|organizer|private\s+self[-\s]?rating|rating\s+slip|reflection\s+(?:card|frame)|rubric|scenario\s+card|scenario[-\s]?analysis\s+table|self[-\s]?rating\s+slip|sentence\s+frame|situation\s+card|task\s+card|worksheet|chart|table|kard|mapa|organisador|pamantayan|rubriko|sitwasyon)\b/i;
 const GEOGRAPHIC_MAP_PATTERN = /\b(?:philippine|philippines|world|country|province|region|city|municipality|community|geographic|geography|location|route|topographic|territory|mapang\s+pisikal|mapang\s+politikal)\b/i;
 const GENERIC_CLASSROOM_PROMPT_PATTERN = /\b(?:teacher|teachers|student|students|learner|learners|classroom|school|education|group\s+work|writing|worksheet|notebook|board|discussion|lecture)\b/i;
@@ -467,6 +471,7 @@ function isBadTitleSourceCandidate(value: string | undefined): boolean {
     const normalized = normalizeGeneratedString(value);
     if (!normalized) return true;
     return TITLE_SOURCE_LEAK_PATTERN.test(normalized)
+        || SOURCE_METADATA_TITLE_PATTERN.test(normalized)
         || BAD_FOCUS_LINE_PATTERN.test(normalized)
         || (normalized.length > 130 && /\?/.test(normalized));
 }
@@ -607,17 +612,100 @@ function isGenericDeckTitle(value: string | undefined): boolean {
         || /^(?:session|day|lesson)\s*\d*$/i.test(normalized);
 }
 
-function cleanCandidateTopicTitle(value: string): string {
-    return value
-        .replace(/\|/g, ' ')
-        .replace(/^\s*(?:title|topic|lesson\s+title|week\s+topic|main\s+title|paksa|pamagat)\s*[:\-–—]\s*/i, '')
+function isPlaceholderSlideTitle(value: string | undefined): boolean {
+    const normalized = normalizeGeneratedString(value);
+    return PLACEHOLDER_SLIDE_TITLE_PATTERN.test(normalized)
+        || GENERIC_CONTENT_TITLE_PATTERN.test(normalized);
+}
+
+function polishCandidateTopicTitle(value: string): string {
+    let title = value
+        .replace(/^\s*grade\s*\d{1,2}\s+[^:]{2,90}:\s*/i, '')
+        .replace(/\bwork\s+on\s+discuss\s+the\s+procedures\s+in\s+maintaining\b/i, 'Work on Maintaining')
+        .replace(/\bdiscuss\s+the\s+procedures\s+in\s+maintaining\b/i, 'Maintaining')
+        .replace(/\baccording\s+to\s+industry(?:\s+standards?)?\b\.?/i, 'to Industry Standards')
         .replace(/\s+/g, ' ')
         .replace(/^[\s:;,\-–—]+|[\s:;,\-–—]+$/g, '')
         .trim();
+
+    if (title.length > 110 && title.includes(':')) {
+        title = title.split(':').slice(1).join(':').trim();
+    }
+
+    return title;
+}
+
+function cleanCandidateTopicTitle(value: string): string {
+    const cleaned = value
+        .replace(/\|/g, ' ')
+        .replace(/^\s*(?:name\s+of\s+lesson|lesson\s+name|title|topic|lesson\s+title|week\s+topic|main\s+title|paksa|pamagat)\s*[:\-–—]\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s:;,\-–—]+|[\s:;,\-–—]+$/g, '')
+        .trim();
+    return polishCandidateTopicTitle(cleaned);
+}
+
+function splitSourceCells(line: string): string[] {
+    return line
+        .split(/\s*\|\s*|\t+/)
+        .map((cell) => cell.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+}
+
+function isExplicitLessonTitleLabel(value: string): boolean {
+    return /^(?:name\s+of\s+lesson|lesson\s+name|lesson\s+title|week\s+topic|main\s+title|topic|paksa|pamagat)$/i.test(value.trim());
+}
+
+function isUsableTopicTitleCandidate(value: string): boolean {
+    const normalized = normalizeSourceText(value);
+    return value.length >= 18
+        && value.length <= 140
+        && !value.includes('?')
+        && !normalized.startsWith('table ')
+        && !normalized.includes('learning session')
+        && !normalized.includes('formative assessment')
+        && !SOURCE_METADATA_TITLE_PATTERN.test(value)
+        && !isBadTitleSourceCandidate(value)
+        && !PLAN_UNIT_OBJECTIVE_HEADING_PATTERN.test(value)
+        && !isPlanUnitFocusScaffoldText(value)
+        && !isGenericDeckTitle(value);
+}
+
+function extractExplicitSourceTopicCandidates(sourceText: string | undefined): string[] {
+    const seen = new Set<string>();
+    const candidates: string[] = [];
+
+    (sourceText || '').split(/\r?\n/).slice(0, 120).forEach((rawLine) => {
+        const cells = splitSourceCells(rawLine);
+        cells.forEach((cell, index) => {
+            if (!isExplicitLessonTitleLabel(cell)) return;
+            cells.slice(index + 1).forEach((candidateCell) => {
+                const candidate = cleanCandidateTopicTitle(candidateCell);
+                const key = normalizeSourceText(candidate);
+                if (!key || seen.has(key) || !isUsableTopicTitleCandidate(candidate)) return;
+                seen.add(key);
+                candidates.push(candidate);
+            });
+        });
+
+        const inlineMatch = rawLine.match(/\b(?:name\s+of\s+lesson|lesson\s+name|lesson\s+title|week\s+topic|main\s+title|topic|paksa|pamagat)\b\s*[:\-–—]\s*([^|\n]+)/i);
+        if (inlineMatch?.[1]) {
+            const candidate = cleanCandidateTopicTitle(inlineMatch[1]);
+            const key = normalizeSourceText(candidate);
+            if (key && !seen.has(key) && isUsableTopicTitleCandidate(candidate)) {
+                seen.add(key);
+                candidates.push(candidate);
+            }
+        }
+    });
+
+    return candidates.sort((a, b) => a.length - b.length);
 }
 
 function extractSourceTopicTitle(sourceText: string | undefined, fallback = ''): string {
     const fallbackTitle = cleanCandidateTopicTitle(fallback);
+    const explicitCandidates = extractExplicitSourceTopicCandidates(sourceText);
+    if (explicitCandidates.length > 0) return explicitCandidates[0];
     if (fallbackTitle && !isGenericDeckTitle(fallbackTitle) && !isBadTitleSourceCandidate(fallbackTitle)) return fallbackTitle;
 
     const candidates = (sourceText || '')
@@ -629,16 +717,7 @@ function extractSourceTopicTitle(sourceText: string | undefined, fallback = ''):
         }))
         .filter(({ line }) => {
             const normalized = normalizeSourceText(line);
-            return line.length >= 18
-                && line.length <= 120
-                && !line.includes('?')
-                && !normalized.startsWith('table ')
-                && !normalized.includes('learning session')
-                && !normalized.includes('formative assessment')
-                && !isBadTitleSourceCandidate(line)
-                && !PLAN_UNIT_OBJECTIVE_HEADING_PATTERN.test(line)
-                && !isPlanUnitFocusScaffoldText(line)
-                && !isGenericDeckTitle(line);
+            return isUsableTopicTitleCandidate(line);
         })
         .map(({ rawLine, line }, index) => {
             const explicitTitleScore = /\b(?:title|topic|paksa|pamagat)\b/i.test(rawLine) ? 200 : 0;
@@ -738,7 +817,7 @@ type InferredPlanUnitInfo = {
 type PlanUnitSourceBlock = {
     text: string;
     found: boolean;
-    strategy: 'marker' | 'focus' | 'full-plan';
+    strategy: 'table-column' | 'marker' | 'focus' | 'full-plan';
     keyTerms: string[];
 };
 
@@ -1493,6 +1572,48 @@ function combineMarkerBlockCandidates(candidates: PlanUnitMarkerBlockCandidate[]
     return truncateSourceText(blocks.join('\n\n---\n\n'));
 }
 
+function extractPlanUnitTableColumnBlock(
+    content: string,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+): string {
+    const lines = content.split(/\r?\n/);
+    const targetMarker = planUnitMarkerRegex(unitLabel, day.dayNumber);
+    let targetColumnIndex = -1;
+
+    for (const line of lines) {
+        const cells = splitSourceCells(line);
+        if (cells.length < 3) continue;
+        const markerIndex = cells.findIndex((cell, index) => index > 0 && targetMarker.test(cell));
+        if (markerIndex > 0) {
+            targetColumnIndex = markerIndex;
+            break;
+        }
+    }
+
+    if (targetColumnIndex < 1) return '';
+
+    const selectedRows: string[] = [];
+    const seen = new Set<string>();
+    for (const line of lines) {
+        const cells = splitSourceCells(line);
+        if (cells.length <= targetColumnIndex) continue;
+
+        const label = cleanPlanUnitSourceDetailLine(cells[0] || '', unitLabel, day.dayNumber);
+        const value = cleanPlanUnitSourceDetailLine(cells[targetColumnIndex] || '', unitLabel, day.dayNumber);
+        if (!value || normalizeSourceText(value) === normalizeSourceText(label)) continue;
+
+        const rowText = label ? `${label}: ${value}` : value;
+        const key = normalizeSourceText(rowText).slice(0, 260);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        selectedRows.push(rowText);
+    }
+
+    const block = selectedRows.join('\n');
+    return block.length >= 300 ? truncateSourceText(block) : '';
+}
+
 function extractPlanUnitSourceBlock(
     content: string,
     unitLabel: PlanUnitLabel,
@@ -1510,6 +1631,16 @@ function extractPlanUnitSourceBlock(
     ]));
 
     for (const label of labelsToTry) {
+        const tableColumnText = extractPlanUnitTableColumnBlock(normalizedContent, label, day);
+        if (tableColumnText) {
+            return {
+                text: tableColumnText,
+                found: true,
+                strategy: 'table-column',
+                keyTerms: extractImportantTerms(`${day.title} ${day.focus} ${tableColumnText}`),
+            };
+        }
+
         const markers = findPlanUnitMarkers(lines, label);
         const candidates = getMarkerBlockCandidates(lines, markers, label, day);
         if (candidates.length > 0) {
@@ -1748,6 +1879,20 @@ function validateGeneratedSlideQuality(slides: Slide[], context: SlideRepairCont
 
     slides.forEach((slide, index) => {
         const content = Array.isArray(slide.content) ? slide.content : [];
+        if (index > 0 && isPlaceholderSlideTitle(slide.title)) {
+            issues.push({
+                code: 'placeholder_slide_title',
+                message: `Slide ${index + 1} still uses a placeholder or generic title instead of a student-facing source-specific title.`,
+            });
+        }
+
+        if (content.some((item) => OBJECTIVE_INTRO_VISIBLE_PATTERN.test(item))) {
+            issues.push({
+                code: 'objective_intro_visible',
+                message: `Slide ${index + 1} shows boilerplate objective intro text instead of direct learner-facing targets.`,
+            });
+        }
+
         if (content.some((item) => EMPTY_VISIBLE_ITEM_PATTERN.test(item.trim()))) {
             issues.push({
                 code: 'empty_visible_item',
@@ -2034,6 +2179,202 @@ function buildSourceRouteMapSlide(outline: PresentationOutline, context: SlideRe
     };
 }
 
+function compactVisibleSlideItem(value: string, maxLength = 128): string {
+    const cleaned = cleanVisibleSlideItem(value)
+        .replace(/^(?:learner-friendly\s+objective|objective\s+checked|prompt\s+\d+|criteria|teacher\s+use|activity|learner\s+instructions|suggested\s+materials)\s*[:\-–—]\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned) return '';
+    return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 3).trim()}...` : cleaned;
+}
+
+function studentFacingContentFromItems(items: string[], maxItems = 5): string[] {
+    const seen = new Set<string>();
+    return cleanSlideContent(items)
+        .map((item) => compactVisibleSlideItem(item))
+        .filter((item) => (
+            item
+            && !EMPTY_VISIBLE_ITEM_PATTERN.test(item)
+            && !isTeacherOnlyVisibleItem(item)
+            && !isGenericSuccessCriterion(item)
+            && !OBJECTIVE_INTRO_VISIBLE_PATTERN.test(item)
+            && !isPlanUnitFocusScaffoldText(item)
+        ))
+        .filter((item) => {
+            const key = normalizeSourceText(item);
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        })
+        .slice(0, maxItems);
+}
+
+function conciseTopicPhrase(value: string | undefined, fallback = 'the session task'): string {
+    const cleaned = normalizeGeneratedString(value, fallback)
+        .replace(/^(?:learners?\s+(?:will|can|are\s+able\s+to)\s+|students?\s+(?:will|can|are\s+able\s+to)\s+)/i, '')
+        .replace(/^(?:identify|describe|explain|discuss|determine|apply|evaluate|synthesize|analy[sz]e|create|produce|use)\s+(?:and\s+\w+\s+)?/i, '')
+        .replace(/\baccording\s+to\s+industry(?:\s+standards?)?\b\.?/i, '')
+        .replace(/\busing\s+evidence\b.*$/i, '')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s:;,\-–—]+|[\s:;,\-–—.]+$/g, '')
+        .trim();
+    const phrase = cleaned || fallback;
+    return phrase.length > 82 ? `${phrase.slice(0, 79).trim()}...` : phrase;
+}
+
+function outlineStepText(step: PresentationOutlineStep): string {
+    return [
+        step.section,
+        step.slideTitle,
+        step.slidePurpose,
+        ...step.sourceEvidence,
+        ...step.keyPoints,
+        step.teacherMove,
+        step.studentAction,
+        step.assessmentCue,
+        step.visualIntent,
+    ].filter(Boolean).join(' ');
+}
+
+function isObjectiveOutlineStep(step: PresentationOutlineStep, text = outlineStepText(step)): boolean {
+    return /\b(?:objective|target|success\s+criteria|by\s+the\s+end|learner-friendly)\b/i.test(text);
+}
+
+function buildStudentFacingTitleForOutlineStep(
+    step: PresentationOutlineStep,
+    artifactType: LessonArtifactType,
+    context: SlideRepairContext = {},
+): string {
+    const stepText = outlineStepText(step);
+    const fallbackFocus = conciseTopicPhrase(context.focus || step.slideTitle || step.section);
+
+    if (artifactType === 'route_map') return `${context.unitLabel || 'Session'} ${context.dayNumber || ''} Learning Route`.replace(/\s+/g, ' ').trim();
+    if (isObjectiveOutlineStep(step, stepText)) return 'Session Target';
+    if (/\b(?:procedure\s+mapping|sequence\s+the\s+(?:required\s+)?procedure|prepare\s*->\s*perform|prepare\s+perform\s+inspect\s+improve)\b/i.test(stepText)) return 'Procedure Mapping Task';
+    if (/\b(?:checklist|safety|quality\s+checkpoint|criteria|rubric)\b/i.test(stepText)) return 'Safety and Quality Checklist';
+    if (/\b(?:exit\s+(?:check|ticket|slip)|short\s+mastery\s+check|formative\s+assessment|short\s+essay)\b/i.test(stepText)) return 'Exit Check';
+    if (/\b(?:home\s+reinforcement|extended\s+learning|assignment|support\s+option|enrichment\s+option)\b/i.test(stepText)) return 'Home Practice';
+    if (/\b(?:reflection|transfer|real-life|new\s+situation)\b/i.test(stepText)) return 'Transfer Reflection';
+    if (/\b(?:pair-share|prior\s+knowledge|daily-life\s+connection|engage)\b/i.test(stepText)) return 'Connect to Prior Knowledge';
+
+    const candidate = cleanCandidateTopicTitle(step.slideTitle || step.section || fallbackFocus);
+    return isPlaceholderSlideTitle(candidate) || isBadTitleSourceCandidate(candidate)
+        ? fallbackFocus
+        : candidate;
+}
+
+function buildStudentFacingContentForOutlineStep(
+    step: PresentationOutlineStep,
+    artifactType: LessonArtifactType,
+    context: SlideRepairContext = {},
+): string[] {
+    const stepText = outlineStepText(step);
+    const focus = conciseTopicPhrase(context.focus || step.slideTitle || step.sourceEvidence[0]);
+
+    if (isObjectiveOutlineStep(step, stepText)) {
+        const sourceItems = studentFacingContentFromItems([...step.sourceEvidence, ...step.keyPoints], 4);
+        const objectiveItems = sourceItems.filter((item) => !/^learners?\s+can\s*\(/i.test(item));
+        return Array.from(new Set([
+            objectiveItems[0] || `Work with ${focus}.`,
+            'Identify the required tools, materials, or steps.',
+            'Explain one safety or quality checkpoint.',
+            'Use evidence or criteria to justify your procedure.',
+        ])).slice(0, 4);
+    }
+
+    if (/\b(?:procedure\s+mapping|sequence\s+the\s+(?:required\s+)?procedure|prepare\s*->\s*perform|prepare\s+perform\s+inspect\s+improve)\b/i.test(stepText)) {
+        return [
+            'Prepare: identify the required steps.',
+            'Perform: sequence the procedure correctly.',
+            'Inspect: check safety and quality.',
+            'Improve: fix one risk or error.',
+        ];
+    }
+
+    if (artifactType === 'rubric_checklist' || /\b(?:checklist|criteria|rubric|quality\s+checkpoint)\b/i.test(stepText)) {
+        return [
+            'Correct procedure sequence',
+            'Safe and responsible tool use',
+            'Quality standards met',
+            'Troubleshooting evidence included',
+        ];
+    }
+
+    if (/\b(?:exit\s+(?:check|ticket|slip)|short\s+mastery\s+check|formative\s+assessment|short\s+essay)\b/i.test(stepText)) {
+        const sourceItems = studentFacingContentFromItems([...step.sourceEvidence, ...step.keyPoints], 4);
+        return sourceItems.length >= 3
+            ? sourceItems
+            : [
+                `Sequence key steps for ${focus}.`,
+                'Identify one common error or risk.',
+                'Explain how to prevent or troubleshoot it.',
+                'Use safety, quality, and evidence criteria.',
+            ];
+    }
+
+    if (/\b(?:home\s+reinforcement|extended\s+learning|assignment|support\s+option|enrichment\s+option)\b/i.test(stepText)) {
+        const sourceItems = studentFacingContentFromItems([...step.sourceEvidence, ...step.keyPoints], 5);
+        return sourceItems.length > 0
+            ? sourceItems
+            : [
+                'Collect two real-life examples.',
+                'Record evidence notes for each example.',
+                'Support: use the guided prompt card.',
+                'Enrichment: add one counterexample.',
+            ];
+    }
+
+    if (artifactType === 'reflection_card' || /\b(?:reflection|transfer|real-life|new\s+situation)\b/i.test(stepText)) {
+        return [
+            `Where can you use ${focus}?`,
+            'What evidence supports your answer?',
+            'What safety or quality rule matters?',
+            'What would you improve next time?',
+        ];
+    }
+
+    const sourceItems = studentFacingContentFromItems([
+        ...step.sourceEvidence,
+        ...step.keyPoints,
+        step.studentAction,
+    ], 5);
+    return sourceItems.length > 0 ? sourceItems : studentFacingContentFromItems([
+        step.slidePurpose,
+        step.studentAction,
+    ], 5);
+}
+
+function shouldReplaceWeakVisibleSlideContent(slide: Slide): boolean {
+    const content = Array.isArray(slide.content) ? slide.content : [];
+    if (isPlaceholderSlideTitle(slide.title) || isBadTitleSourceCandidate(slide.title)) return true;
+    if (content.some((item) => OBJECTIVE_INTRO_VISIBLE_PATTERN.test(item))) return true;
+    if (content.some(isGenericSuccessCriterion)) return true;
+    if (content.length <= 2 && content.join(' ').length < 220) return true;
+    return false;
+}
+
+function strengthenSlideWithOutlineStep(
+    slide: Slide,
+    step: PresentationOutlineStep | null,
+    artifactType: LessonArtifactType,
+    context: SlideRepairContext = {},
+): Slide {
+    if (!step) return slide;
+
+    const title = (isPlaceholderSlideTitle(slide.title) || isBadTitleSourceCandidate(slide.title))
+        ? buildStudentFacingTitleForOutlineStep(step, artifactType, context)
+        : slide.title;
+    const content = shouldReplaceWeakVisibleSlideContent(slide)
+        ? buildStudentFacingContentForOutlineStep(step, artifactType, context)
+        : studentFacingContentFromItems(slide.content || [], 6);
+
+    return {
+        ...slide,
+        title,
+        content: content.length > 0 ? content : slide.content,
+    };
+}
+
 function slideTextForSourceMatching(slide: Slide): string {
     return [
         slide.title,
@@ -2122,23 +2463,29 @@ function bindSlidesToPresentationOutline(slides: Slide[], outline: PresentationO
             ...sourceEvidence,
             ...sourceRefs,
         ].join(' ');
+        const lessonArtifactType = normalizeLessonArtifactType(slide.lessonArtifactType, artifactText);
 
-        return {
+        return strengthenSlideWithOutlineStep({
             ...slide,
             sourceEvidence,
             sourceRefs,
-            lessonArtifactType: normalizeLessonArtifactType(slide.lessonArtifactType, artifactText),
-        };
+            lessonArtifactType,
+        }, matched?.step || null, lessonArtifactType, context);
     });
+}
+
+function isSourceRouteMapSlide(slide: Slide): boolean {
+    const title = normalizeSourceText(slide.title);
+    return normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)) === 'route_map'
+        && /\b(?:route\s+map|learning\s+route|source\s+flow|lesson\s+flow|session\s+flow)\b/i.test(title)
+        && mergeUniqueStrings(slide.sourceRefs, slide.sourceEvidence).length >= 2;
 }
 
 function ensureSourceRouteMapSlide(slides: Slide[], outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
     const routeMap = buildSourceRouteMapSlide(outline, context);
     if (!routeMap || slides.length === 0) return slides;
 
-    const hasRouteMap = slides.slice(0, 4).some((slide) => (
-        normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)) === 'route_map'
-    ));
+    const hasRouteMap = slides.slice(0, 4).some(isSourceRouteMapSlide);
     if (hasRouteMap) return slides;
 
     return [slides[0], routeMap, ...slides.slice(1)];
