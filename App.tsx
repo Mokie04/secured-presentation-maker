@@ -1,7 +1,8 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
-import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel, ImageSemanticMetadata } from './types';
+import { Presentation, LessonBlueprint, DayPlan, Slide, ImageOverlayLabel, ImageSemanticMetadata, ImageStyle } from './types';
 import { IMAGES_DISABLED, cacheUploadedImageForPrompt, createK12LessonBlueprint, generateK12SlidesForDay, generateImageResultFromPrompt, generateCollegeLectureSlides, generateK12SingleLessonSlides, getCachedImageResultForPrompt } from './services/geminiService';
+import type { K12SessionGenerationMilestone } from './services/geminiService';
 import SlideComponent from './components/Slide';
 import Loader from './components/Loader';
 import { MagicWandIcon, ArrowLeftIcon, ArrowRightIcon, RefreshCwIcon, BookOpenIcon, UploadCloudIcon, DownloadIcon, FileTextIcon, XIcon, MaximizeIcon, MinimizeIcon, CheckCircle2Icon, CalendarDaysIcon, PresentationIcon, GraduationCapIcon } from './components/IconComponents';
@@ -14,6 +15,7 @@ import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
 import { IMAGE_SEMANTIC_CACHE_VERSION } from './lib/imageSemantic';
 import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from './lib/branding';
+import { getTitleSlideContext } from './lib/titleSlide';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -96,7 +98,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
-const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v38';
+const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v41';
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -857,6 +859,26 @@ const shouldShowPlanUnitFocus = (focus: string | undefined, unitLabel: string, d
     && !normalized.includes('source document');
 };
 
+const getPlanUnitDisplaySummary = (day: DayPlan, unitLabel: string): string => {
+  const candidates = [
+    day.sourceObjective,
+    day.sourceSummary,
+    day.focus,
+  ];
+
+  return candidates.find((candidate) => shouldShowPlanUnitFocus(candidate, unitLabel, day.dayNumber))?.trim() || '';
+};
+
+const formatPlanUnitLoadingMessage = (
+  template: string,
+  unitLabel: string,
+  dayNumber: number,
+): string => (
+  template
+    .replace('{unitLabel}', unitLabel)
+    .replace('{dayNumber}', dayNumber.toString())
+);
+
 const waitForDuration = (durationMs: number): Promise<void> => (
   new Promise((resolve) => setTimeout(resolve, durationMs))
 );
@@ -926,6 +948,63 @@ const buildSlideImageCacheId = (scope: string | undefined, slideIndex: number): 
 const normalizeImageSemanticText = (value: string | undefined): string => (
   (value || '').replace(/\s+/g, ' ').trim().toLowerCase()
 );
+
+const WEAK_CLASSROOM_IMAGE_PROMPT_PATTERN = /\b(?:teacher|teachers|student|students|learner|learners|classroom|school|education|group\s+work|writing|worksheet|notebook|board|discussion|lecture)\b/i;
+const CLASSROOM_ARTIFACT_IMAGE_BLOCK_PATTERN = /\b(?:answer\s+frame|body[-\s]?signal\s+chart|card\s+sort|checklist|concept\s+map|criteria|decision\s+board|draft\s+artifact|emotion\s+cards?|evidence\s+(?:organizer|table|map|chart)|exit\s+ticket|flow\s+map|graphic\s+organizer|organizer|private\s+self[-\s]?rating|rating\s+slip|reflection\s+(?:card|frame)|rubric|scenario\s+card|scenario[-\s]?analysis\s+table|self[-\s]?rating\s+slip|sentence\s+frame|situation\s+card|task\s+card|worksheet|chart|table|kard|mapa|organisador|pamantayan|rubriko|sitwasyon)\b/i;
+const GEOGRAPHIC_MAP_IMAGE_PATTERN = /\b(?:philippine|philippines|world|country|province|region|city|municipality|community|geographic|geography|location|route|topographic|territory|mapang\s+pisikal|mapang\s+politikal)\b/i;
+const WEAK_IMAGE_PROMPT_STOPWORDS = new Set([
+  'activity', 'classroom', 'education', 'educational', 'generic', 'grade', 'group',
+  'high', 'image', 'instructional', 'learner', 'learners', 'lesson', 'photo',
+  'photorealistic', 'realistic', 'resolution', 'school', 'session', 'slide',
+  'student', 'students', 'teacher', 'teachers', 'worksheet', 'worksheets',
+  'writing',
+]);
+
+const extractImagePromptTerms = (value: string | undefined, maxTerms = 12): string[] => {
+  const seen = new Set<string>();
+  const normalized = normalizeImageSemanticText(value)
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]+/g, ' ');
+  const terms: string[] = [];
+
+  normalized.split(/\s+/).forEach((rawToken) => {
+    const token = rawToken.replace(/^-+|-+$/g, '');
+    if (token.length < 4 || /^\d+$/.test(token) || WEAK_IMAGE_PROMPT_STOPWORDS.has(token) || seen.has(token)) return;
+    seen.add(token);
+    terms.push(token);
+  });
+
+  return terms.slice(0, maxTerms);
+};
+
+const isWeakGenericClassroomImagePrompt = (slide: Slide): boolean => {
+  const prompt = (slide.imagePrompt || '').trim();
+  if (!prompt || !WEAK_CLASSROOM_IMAGE_PROMPT_PATTERN.test(prompt)) return false;
+
+  const promptTerms = extractImagePromptTerms(prompt, 10);
+  const slideTerms = extractImagePromptTerms([
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.speakerNotes,
+  ].filter(Boolean).join(' '), 12);
+  const normalizedPrompt = normalizeImageSemanticText(prompt);
+  const matchedSlideTerms = slideTerms.filter((term) => normalizedPrompt.includes(term));
+
+  return promptTerms.length < 4 || matchedSlideTerms.length < 2;
+};
+
+const shouldBlockClassroomArtifactImage = (slide: Slide): boolean => {
+  const text = [
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.speakerNotes,
+    slide.imagePrompt,
+  ].filter(Boolean).join(' ');
+  const hasArtifact = CLASSROOM_ARTIFACT_IMAGE_BLOCK_PATTERN.test(text);
+  const hasNonGeographicMap = /\b(?:map|mapa)\b/i.test(text) && !GEOGRAPHIC_MAP_IMAGE_PATTERN.test(text);
+  return hasArtifact || hasNonGeographicMap;
+};
 
 const slugifyImageSemanticText = (value: string | undefined): string => (
   normalizeImageSemanticText(value)
@@ -2852,6 +2931,8 @@ const REQUIRED_INSTRUCTIONAL_IMAGE_TEMPLATES = new Set([
 ]);
 
 const REQUIRED_INSTRUCTIONAL_IMAGE_PATTERN = /\b(?:diagram|model|layout|parts?|components?|structure|process|cycle|steps?|sequence|timeline|map|compare|comparison|before|after|sort|classify|classification|demonstration|demo|experiment|investigation|observe|observation|evidence|specimen|materials?|tools?|equipment|facility|facilities|house|setup|worksheet|output|sample|graph|chart|table|plot|measure|measuring|draw|drawing|construct|construction)\b/i;
+const REAL_WORLD_INSTRUCTIONAL_SUBJECT_PATTERN = /\b(?:poultry|chickens?|hens?|coop|coops|feeders?|drinkers?|waterers?|brooder|brooding|ventilation|lighting|nest(?:ing)?\s*boxes?|fencing|drainage|storage|roofing|tools?|equipment|facilit(?:y|ies)|workstation|maintenance|repair|inspection|safety|quality|farm|laboratory|beaker|microscope|specimen|rocks?|minerals?|plants?|soil|machine|device|apparatus|materials?)\b/i;
+const DERIVED_IMAGE_BLOCKED_TEMPLATE_PATTERN = /^(?:overview|objectives|success-criteria|review|summary|generalization|assignment)$/;
 
 const isTextOnlyImageTemplate = (template: string, role: string): boolean => (
   TEXT_ONLY_IMAGE_TEMPLATES.has(template) || TEXT_ONLY_IMAGE_TEMPLATES.has(role)
@@ -2877,6 +2958,65 @@ const shouldRequireInstructionalImage = (slide: Slide): boolean => {
   ].filter(Boolean).join(' ');
 
   return REQUIRED_INSTRUCTIONAL_IMAGE_PATTERN.test(slideText);
+};
+
+const getSlideInstructionalText = (slide: Slide): string => [
+  slide.title,
+  ...(Array.isArray(slide.content) ? slide.content : []),
+  slide.speakerNotes,
+  slide.sourceEvidence?.join(' '),
+  slide.sourceRefs?.join(' '),
+  slide.imageSemanticMetadata?.semanticAnchor,
+  slide.imageSemanticMetadata?.topic,
+  slide.imageSemanticMetadata?.learningCompetency,
+  slide.imageSemanticMetadata?.planUnitTitle,
+].filter(Boolean).join(' ');
+
+const hasRealWorldInstructionalSubject = (slide: Slide): boolean => (
+  REAL_WORLD_INSTRUCTIONAL_SUBJECT_PATTERN.test(getSlideInstructionalText(slide))
+);
+
+const buildDerivedInstructionalImagePrompt = (slide: Slide): string => {
+  const template = slide.imageSemanticMetadata?.slideTemplate || getSlideImageTemplateKey(slide);
+  const role = slide.imageSemanticMetadata?.visualRole || getSlideImageRole(slide);
+  if (DERIVED_IMAGE_BLOCKED_TEMPLATE_PATTERN.test(template) || DERIVED_IMAGE_BLOCKED_TEMPLATE_PATTERN.test(role)) {
+    return '';
+  }
+  if (!hasRealWorldInstructionalSubject(slide)) return '';
+
+  const subjectContext = [
+    slide.imageSemanticMetadata?.topic,
+    slide.imageSemanticMetadata?.learningCompetency,
+    slide.imageSemanticMetadata?.planUnitTitle,
+    slide.title,
+  ].filter(Boolean).join('. ');
+  const slideContext = [
+    slide.title,
+    ...(Array.isArray(slide.content) ? slide.content : []),
+    slide.sourceEvidence?.join('. '),
+  ].filter(Boolean).join('. ');
+  const subjectPhrase = (subjectContext || slideContext)
+    .replace(/\s+/g, ' ')
+    .slice(0, 220)
+    .trim();
+  const focusPhrase = slideContext
+    .replace(/\s+/g, ' ')
+    .slice(0, 260)
+    .trim();
+
+  if (!subjectPhrase || !focusPhrase) return '';
+
+  return [
+    `A real-world instructional photograph for ${subjectPhrase}.`,
+    `Show the actual subject-specific tools, equipment, facility, materials, process, or safety/quality condition connected to: ${focusPhrase}.`,
+    'No classroom filler, no generic students or teacher, no worksheet/card/table close-up, no readable text, no labels, no logos.',
+  ].join(' ');
+};
+
+const getImageStyleForPrompt = (slide: Slide, prompt: string): ImageStyle => {
+  if (!prompt) return slide.imageStyle;
+  if (slide.imageStyle !== 'none') return slide.imageStyle;
+  return 'photorealistic';
 };
 
 const getSlideImageSemanticAnchor = (slide: Slide, prompt: string): string => {
@@ -3056,7 +3196,6 @@ const SERVICE_LIMIT_ERROR = 'A service limit or billing issue prevented this req
 const SERVICE_BUSY_ERROR = 'The service is temporarily busy. Please try again in about 1 minute.';
 const SERVER_CONFIG_ERROR = 'A required server configuration is missing or invalid. Please contact the administrator.';
 const IMAGE_LIMIT_ERROR = 'Image generation is temporarily unavailable. The slide can still be used without a generated image.';
-const IMAGE_LIMIT_BATCH_ERROR = 'Image generation is temporarily unavailable. Slides that do not require images will stay text-only.';
 
 const getErrorMessage = (error: unknown): string => (
   error instanceof Error ? error.message : String(error || '')
@@ -3148,6 +3287,174 @@ const getPptxContentTypography = (slide: Slide, hasImage: boolean, isEvidenceLay
         fontSize,
         lineSpacing: Math.round(fontSize * (dense ? 1.18 : 1.26)),
     };
+};
+
+const stripPptxMarkdown = (value: string): string => value.replace(/\*\*/g, '').trim();
+
+const stripPptxImageCreditLines = (value: string | undefined): string => (
+    (value || '')
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*(?:image\s+credit\s*:|photo\s+by\b.*\bon\s+pexels\b|source\s*:\s*.*pexels\.com)/i.test(line.trim()))
+        .join('\n')
+        .trim()
+);
+
+const getPptxSlideNotes = (slideData: Slide): string => {
+    const sourceLines = [
+        ...(slideData.sourceRefs || []),
+        ...(slideData.sourceEvidence || []),
+    ]
+        .map(stripPptxMarkdown)
+        .map(stripPptxImageCreditLines)
+        .filter(Boolean)
+        .slice(0, 8);
+    const sourceNote = sourceLines.length > 0
+        ? ['Lesson-plan source alignment:', ...sourceLines.map((line) => `- ${line}`)].join('\n')
+        : '';
+    return [stripPptxImageCreditLines(slideData.speakerNotes), sourceNote].filter(Boolean).join('\n\n');
+};
+
+const titleSlidePptxFontSize = (title: string): number => {
+    if (title.length > 82) return 31;
+    if (title.length > 58) return 36;
+    if (title.length > 38) return 41;
+    return 46;
+};
+
+const addPptxTitleSlideCover = (
+    slide: any,
+    pptx: any,
+    slideData: Slide,
+    brandColor: string,
+    textColor: string,
+) => {
+    const context = getTitleSlideContext(slideData);
+    const unitLabel = context.unitLabel || 'LESSON';
+    const unitNumber = context.unitNumber;
+    const unitBadge = unitNumber ? `${unitLabel} ${unitNumber}` : unitLabel;
+    const focus = stripPptxMarkdown(context.unitFocus);
+    const metadataItems = context.metadataItems.map(stripPptxMarkdown).filter(Boolean);
+
+    slide.background = { color: 'F8FAFC' };
+    slide.addShape(pptx.ShapeType.rect, {
+        x: 6.9, y: 0, w: 3.1, h: 5.625,
+        fill: { color: 'E0F2FE' },
+        line: { color: 'E0F2FE', transparency: 100 },
+    });
+    slide.addShape(pptx.ShapeType.rect, {
+        x: 6.82, y: 0, w: 0.08, h: 5.625,
+        fill: { color: brandColor },
+        line: { color: brandColor, transparency: 100 },
+    });
+    slide.addShape(pptx.ShapeType.rect, {
+        x: 0, y: 5.49, w: 6.9, h: 0.14,
+        fill: { color: '14B8A6' },
+        line: { color: '14B8A6', transparency: 100 },
+    });
+    slide.addShape(pptx.ShapeType.rect, {
+        x: 7.18, y: 0.58, w: 2.42, h: 0.07,
+        fill: { color: '14B8A6' },
+        line: { color: '14B8A6', transparency: 100 },
+    });
+
+    slide.addText(unitBadge, {
+        x: 0.78, y: 0.68, w: 2.4, h: 0.34,
+        fontSize: 13,
+        bold: true,
+        color: 'FFFFFF',
+        fontFace: 'Poppins',
+        align: 'center',
+        valign: 'middle',
+        fit: 'shrink',
+        fill: { color: brandColor },
+        line: { color: brandColor, transparency: 100 },
+        margin: 0.06,
+    });
+
+    if (metadataItems[0]) {
+        slide.addText(metadataItems[0], {
+            x: 3.35, y: 0.69, w: 3.0, h: 0.32,
+            fontSize: 11,
+            bold: true,
+            color: '475569',
+            fontFace: 'Poppins',
+            fit: 'shrink',
+            valign: 'middle',
+        });
+    }
+
+    slide.addText(stripPptxMarkdown(slideData.title), {
+        x: 0.78, y: 1.36, w: 5.75, h: 1.78,
+        fontSize: titleSlidePptxFontSize(slideData.title),
+        bold: true,
+        color: textColor,
+        fontFace: 'Poppins',
+        fit: 'shrink',
+        breakLine: false,
+        margin: 0,
+    });
+
+    slide.addShape(pptx.ShapeType.rect, {
+        x: 0.78, y: 3.32, w: 1.18, h: 0.07,
+        fill: { color: brandColor },
+        line: { color: brandColor, transparency: 100 },
+    });
+
+    if (focus) {
+        slide.addText(focus, {
+            x: 0.78, y: 3.62, w: 5.72, h: 0.62,
+            fontSize: focus.length > 92 ? 16 : 18,
+            bold: true,
+            color: '475569',
+            fontFace: 'Poppins',
+            fit: 'shrink',
+            breakLine: false,
+        });
+    }
+
+    metadataItems.slice(1, 3).forEach((item, index) => {
+        slide.addText(item, {
+            x: 0.78 + (index * 2.84),
+            y: 4.52,
+            w: 2.58,
+            h: 0.42,
+            fontSize: 10.5,
+            bold: true,
+            color: textColor,
+            fontFace: 'Poppins',
+            fit: 'shrink',
+            valign: 'middle',
+            fill: { color: 'FFFFFF', transparency: 5 },
+            line: { color: 'CBD5E1', transparency: 0 },
+            margin: 0.08,
+        });
+    });
+
+    slide.addText(unitLabel, {
+        x: 7.2, y: 1.68, w: 2.35, h: 0.34,
+        fontSize: 15,
+        bold: true,
+        color: '0F766E',
+        fontFace: 'Poppins',
+        align: 'center',
+        fit: 'shrink',
+    });
+    if (unitNumber) {
+        slide.addText(unitNumber, {
+            x: 7.18, y: 2.04, w: 2.42, h: 1.28,
+            fontSize: 88,
+            bold: true,
+            color: brandColor,
+            fontFace: 'Poppins',
+            align: 'center',
+            fit: 'shrink',
+            margin: 0,
+        });
+    }
+    slide.addShape(pptx.ShapeType.line, {
+        x: 7.25, y: 4.84, w: 2.25, h: 0,
+        line: { color: 'BAE6FD', width: 1 },
+    });
 };
 
 
@@ -3410,12 +3717,13 @@ const App: React.FC = () => {
   }, []);
 
   const buildImagePromptCandidates = useCallback((slide: Slide): string[] => {
-    if (slide.imageStyle === 'none') {
-      return [];
+    const primary = (slide.imagePrompt || '').trim();
+    if (primary && slide.imageStyle !== 'none' && !shouldBlockClassroomArtifactImage(slide) && !isWeakGenericClassroomImagePrompt(slide)) {
+      return [primary];
     }
 
-    const primary = (slide.imagePrompt || '').trim();
-    return primary ? [primary] : [];
+    const derivedPrompt = buildDerivedInstructionalImagePrompt(slide);
+    return derivedPrompt ? [derivedPrompt] : [];
   }, []);
 
   const buildImageSemanticCacheId = useCallback(async (
@@ -3472,12 +3780,17 @@ const App: React.FC = () => {
   const processSlidesForImages = async (
     slidesWithPrompts: Slide[],
     language: 'EN' | 'FIL',
-    options?: { muteProgress?: boolean; imageCacheScope?: string; imageSemanticScope?: unknown }
+    options?: { muteProgress?: boolean; imageCacheScope?: string; imageSemanticScope?: unknown; progressStart?: number; progressEnd?: number }
   ): Promise<Slide[]> => {
     const muteProgress = options?.muteProgress === true;
+    const progressStart = options?.progressStart ?? 0;
+    const progressEnd = options?.progressEnd ?? 100;
+    const progressFreeEnd = progressStart + ((progressEnd - progressStart) * 0.55);
     const attachImageCacheIds = async (slide: Slide, slideIndex: number): Promise<Slide> => {
-        const imagePrompt = slide.imageStyle === 'none' ? '' : (slide.imagePrompt || '').trim();
-        const slideWithPrompt = { ...slide, imagePrompt };
+        const promptCandidates = buildImagePromptCandidates(slide);
+        const imagePrompt = promptCandidates[0] || '';
+        const imageStyle = getImageStyleForPrompt(slide, imagePrompt);
+        const slideWithPrompt = { ...slide, imagePrompt, imageStyle };
         const imageSemanticMetadata = slide.imageSemanticMetadata || buildSlideImageSemanticMetadata(
           slideWithPrompt,
           imagePrompt || buildFallbackImagePrompt(slideWithPrompt),
@@ -3502,22 +3815,16 @@ const App: React.FC = () => {
         };
     };
 
-    if (IMAGES_DISABLED) {
-        return Promise.all(slidesWithPrompts.map(async (s, slideIndex) => {
-          const slideWithCacheIds = await attachImageCacheIds(s, slideIndex);
-          return buildImagePromptCandidates(slideWithCacheIds).length > 0
-            && shouldRequireInstructionalImage(slideWithCacheIds)
-            ? {
-                ...slideWithCacheIds,
-                imageUrl: IMAGE_SKIPPED_PLACEHOLDER,
-              }
-            : {
-                ...slideWithCacheIds,
-                imageUrl: undefined,
-                imageAttribution: undefined,
-              };
-        }));
-    }
+	    if (IMAGES_DISABLED) {
+	        return Promise.all(slidesWithPrompts.map(async (s, slideIndex) => {
+	          const slideWithCacheIds = await attachImageCacheIds(s, slideIndex);
+	          return {
+	            ...slideWithCacheIds,
+	            imageUrl: undefined,
+	            imageAttribution: undefined,
+	          };
+	        }));
+	    }
     let rateLimitWasHit = false;
 
     const resolveFreeSlideImage = async (slide: Slide, slideIndex: number): Promise<Slide> => {
@@ -3528,6 +3835,7 @@ const App: React.FC = () => {
             if (!newSlide.imagePrompt || !newSlide.imagePrompt.trim()) {
                 newSlide.imagePrompt = promptForGeneration;
             }
+            newSlide.imageStyle = getImageStyleForPrompt(newSlide, promptForGeneration);
 
             try {
                 const cachedImage = await getCachedImageResultForPrompt(
@@ -3582,9 +3890,10 @@ const App: React.FC = () => {
     };
 
     const freeImageCandidates = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0 && !s.imageUrl);
+    const initialImageCandidateCount = slidesWithPrompts.filter((s) => buildImagePromptCandidates(s).length > 0).length;
     let freeImagesResolvedCounter = 0;
     if (!muteProgress && freeImageCandidates.length > 0) {
-      setLoadingProgress(0);
+      setLoadingProgress(progressStart);
     }
 
     const slidesAfterFreeSources = await mapWithConcurrency(slidesWithPrompts, IMAGE_PROCESSING_CONCURRENCY, async (slide, slideIndex) => {
@@ -3594,11 +3903,12 @@ const App: React.FC = () => {
             freeImagesResolvedCounter++;
             if (!muteProgress) {
               setLoadingMessage(t.presentation.loadingImages.replace('{current}', freeImagesResolvedCounter.toString()).replace('{total}', freeImageCandidates.length.toString()));
-              setLoadingProgress((freeImagesResolvedCounter / freeImageCandidates.length) * 50);
+              setLoadingProgress(progressStart + ((freeImagesResolvedCounter / freeImageCandidates.length) * (progressFreeEnd - progressStart)));
             }
         }
         return resolvedSlide;
     });
+    const freeResolvedCount = slidesAfterFreeSources.filter((slide, slideIndex) => !slidesWithPrompts[slideIndex]?.imageUrl && Boolean(slide.imageUrl)).length;
 
     const unresolvedPaidCandidates = slidesAfterFreeSources
       .map((slide, slideIndex) => ({
@@ -3623,8 +3933,22 @@ const App: React.FC = () => {
     const paidCandidateIndexes = new Set(paidImageCandidates.map(({ slideIndex }) => slideIndex));
     const finalSlides = [...slidesAfterFreeSources];
 
+    console.info('Slide image pipeline candidate summary.', {
+      slideCount: slidesWithPrompts.length,
+      initialImageCandidateCount,
+      freeImageCandidateCount: freeImageCandidates.length,
+      freeResolvedCount,
+      unresolvedPaidCandidateCount: unresolvedPaidCandidates.length,
+      paidImageAttemptsAllowed,
+      paidImageCandidateCount: paidImageCandidates.length,
+      paidImagesLeftToday,
+      adminImageLimitBypassed,
+      imageLimit: limits.images,
+      imageUsage: images,
+    });
+
     if (!muteProgress && freeImageCandidates.length > 0 && paidImageCandidates.length === 0) {
-      setLoadingProgress(100);
+      setLoadingProgress(progressEnd);
     }
 
     let paidImagesAttemptedCounter = 0;
@@ -3633,18 +3957,18 @@ const App: React.FC = () => {
         const promptForGeneration = promptCandidates[0];
         if (!promptForGeneration) continue;
 
-        if (rateLimitWasHit) {
-            const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
-            finalSlides[slideIndex] = fallbackImageUrl
-              ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined }
-              : { ...slide, imageUrl: PROVIDER_IMAGE_LIMIT_PLACEHOLDER, imageAttribution: undefined };
-            continue;
-        }
+	        if (rateLimitWasHit) {
+	            const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
+	            finalSlides[slideIndex] = fallbackImageUrl
+	              ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined }
+	              : { ...slide, imageUrl: undefined, imageAttribution: undefined };
+	            continue;
+	        }
 
         paidImagesAttemptedCounter++;
         if (!muteProgress && paidImageCandidates.length > 0) {
           setLoadingMessage(t.presentation.loadingImages.replace('{current}', paidImagesAttemptedCounter.toString()).replace('{total}', paidImageCandidates.length.toString()));
-          setLoadingProgress(50 + ((paidImagesAttemptedCounter / paidImageCandidates.length) * 50));
+          setLoadingProgress(progressFreeEnd + ((paidImagesAttemptedCounter / paidImageCandidates.length) * (progressEnd - progressFreeEnd)));
         }
 
         try {
@@ -3662,7 +3986,7 @@ const App: React.FC = () => {
             }
             finalSlides[slideIndex] = {
               ...slide,
-              imageUrl: imageResult.dataUrl || IMAGE_SKIPPED_PLACEHOLDER,
+              imageUrl: imageResult.dataUrl || undefined,
               imageAttribution: imageResult.attribution,
             };
             if (imageResult.dataUrl && !adminImageLimitBypassed && imageResult.provider !== 'pexels' && imageResult.cache?.hit !== true) {
@@ -3675,15 +3999,26 @@ const App: React.FC = () => {
                 const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
                 finalSlides[slideIndex] = fallbackImageUrl
                   ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined }
-                  : { ...slide, imageUrl: PROVIDER_IMAGE_LIMIT_PLACEHOLDER, imageAttribution: undefined };
-                if (!fallbackImageUrl) {
-                    setError(IMAGE_LIMIT_BATCH_ERROR);
-                }
+                  : { ...slide, imageUrl: undefined, imageAttribution: undefined };
             } else {
-                handleApiError(imgError);
-                finalSlides[slideIndex] = { ...slide, imageUrl: 'error', imageAttribution: undefined };
+                console.warn('Slide image generation failed; keeping the slide text-only.', imgError);
+                finalSlides[slideIndex] = { ...slide, imageUrl: undefined, imageAttribution: undefined };
             }
         }
+    }
+
+    const paidResolvedCount = finalSlides.filter((slide, slideIndex) => (
+      paidCandidateIndexes.has(slideIndex)
+      && !slidesAfterFreeSources[slideIndex]?.imageUrl
+      && Boolean(slide.imageUrl)
+    )).length;
+    if (paidImageCandidates.length > 0 || unresolvedPaidCandidates.length > 0) {
+      console.info('Slide paid image generation summary.', {
+        paidCandidateCount: paidImageCandidates.length,
+        paidAttemptedCount: paidImagesAttemptedCounter,
+        paidResolvedCount,
+        rateLimitWasHit,
+      });
     }
 
     return finalSlides.map((slide, slideIndex) => {
@@ -3700,10 +4035,10 @@ const App: React.FC = () => {
         const fallbackImageUrl = getProviderLimitFallbackImageUrl(slide.imageSemanticMetadata);
         return fallbackImageUrl
           ? { ...slide, imageUrl: fallbackImageUrl, imageAttribution: undefined }
-          : { ...slide, imageUrl: PROVIDER_IMAGE_LIMIT_PLACEHOLDER, imageAttribution: undefined };
+          : { ...slide, imageUrl: undefined, imageAttribution: undefined };
       }
 
-      return { ...slide, imageUrl: USER_IMAGE_LIMIT_PLACEHOLDER, imageAttribution: undefined };
+      return { ...slide, imageUrl: undefined, imageAttribution: undefined };
     });
   };
 
@@ -3994,16 +4329,42 @@ const App: React.FC = () => {
     setError(null);
     let shouldRollbackGeneration = false;
     
-    try {
-        const dayToGenerate = lessonBlueprint.days[dayIndex];
-        const unitLabel = getPlanUnitLabel(lessonBlueprint);
-        const isStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
-        const planUnitPresentationTitle = buildPlanUnitPresentationTitle(lessonBlueprint, dayToGenerate);
-        const content = dllContent.trim() || topicContext.trim();
-        const generationLanguage = getPresentationLanguageForGeneration(content);
-        const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
-          GENERATION_CACHE_VERSION,
-          content,
+	    try {
+	        const dayToGenerate = lessonBlueprint.days[dayIndex];
+	        const unitLabel = getPlanUnitLabel(lessonBlueprint);
+	        const advanceSessionProgress = (progress: number) => {
+	          setLoadingProgress((current) => Math.max(current ?? 0, progress));
+	        };
+	        const setSessionLoadingStage = (template: string, progress: number) => {
+	          setLoadingMessage(formatPlanUnitLoadingMessage(template, unitLabel, dayToGenerate.dayNumber));
+	          advanceSessionProgress(progress);
+	        };
+	        const handleSessionGenerationMilestone = (milestone: K12SessionGenerationMilestone) => {
+	          const milestoneProgress: Record<K12SessionGenerationMilestone, number> = {
+	            'outline-start': 18,
+	            'outline-draft-ready': 30,
+	            'outline-repair-start': 34,
+	            'outline-ready': 42,
+	            'slides-start': 48,
+	            'slides-draft-ready': 60,
+	            'slides-repair-start': 62,
+	            'slides-ready': 68,
+	          };
+	          const progress = milestoneProgress[milestone];
+	          const template = milestone.startsWith('outline')
+	            ? t.presentation.loadingSessionFlow
+	            : t.presentation.loadingSessionDesign;
+	          setSessionLoadingStage(template, progress);
+	        };
+	        const isStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
+	        const planUnitPresentationTitle = buildPlanUnitPresentationTitle(lessonBlueprint, dayToGenerate);
+	        const content = dllContent.trim() || topicContext.trim();
+	        const generationLanguage = getPresentationLanguageForGeneration(content);
+	        setLoadingDuration(60);
+	        setSessionLoadingStage(t.presentation.loadingSessionReading, 8);
+	        const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
+	          GENERATION_CACHE_VERSION,
+	          content,
           DEFAULT_LESSON_FORMAT,
           generationLanguage,
           unitLabel,
@@ -4025,15 +4386,9 @@ const App: React.FC = () => {
         ]);
         const imageSemanticScope = buildK12ImageSemanticScope(lessonBlueprint, dayToGenerate, unitLabel);
 
-        setLoadingMessage(
-          t.presentation.loadingDailySlides
-            .replace('{unitLabel}', unitLabel)
-            .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
-        );
-
-        const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
-        if (!hasQuota) {
-          setError(t.presentation.errorGenerationLimit);
+	        const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+	        if (!hasQuota) {
+	          setError(t.presentation.errorGenerationLimit);
           setLessonBlueprint(prev => {
               if (!prev) return null;
               const newDays = [...prev.days];
@@ -4047,9 +4402,9 @@ const App: React.FC = () => {
         const cachedSlides = await getCachedGeneration<Slide[]>(cacheKey);
         const slideIndexOfNewDay = isStandalonePlanUnitDeck ? 0 : (presentation?.slides.length ?? 0);
 
-        if (cachedSlides && cachedSlides.length > 0) {
-            await waitForCacheHitLoading(setLoadingProgress);
-            const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, generationLanguage, imageCacheScope, imageSemanticScope);
+	        if (cachedSlides && cachedSlides.length > 0) {
+	            setSessionLoadingStage(t.presentation.loadingSessionFinalizing, 82);
+	            const refreshedSlides = await refreshSlidesWithCachedImages(cachedSlides, generationLanguage, imageCacheScope, imageSemanticScope);
             setGeneratedPlanUnitSlidesByDay(prev => ({
                 ...prev,
                 [dayToGenerate.dayNumber]: refreshedSlides,
@@ -4073,15 +4428,15 @@ const App: React.FC = () => {
             return;
         }
 
-        const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
-        const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, generationLanguage);
-        if (reusableSlides && reusableSlides.length > 0) {
-            await waitForReusableGenerationLoading(setLoadingProgress);
-            setLoadingMessage(t.presentation.loadingTables);
-            const slidesWithTables = await processSlidesForTables(reusableSlides);
-            const finalSlides = assertSlidesGenerated(
-                await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope }),
-                `${unitLabel} ${dayToGenerate.dayNumber}`
+	        const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
+	        const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, generationLanguage);
+	        if (reusableSlides && reusableSlides.length > 0) {
+	            setSessionLoadingStage(t.presentation.loadingSessionDesign, 48);
+	            const slidesWithTables = await processSlidesForTables(reusableSlides);
+	            setSessionLoadingStage(t.presentation.loadingSessionImages, 72);
+	            const finalSlides = assertSlidesGenerated(
+	                await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope, progressStart: 72, progressEnd: 92 }),
+	                `${unitLabel} ${dayToGenerate.dayNumber}`
             );
 
             setGeneratedPlanUnitSlidesByDay(prev => ({
@@ -4106,23 +4461,28 @@ const App: React.FC = () => {
             setAppStep('presenting');
             shouldRollbackGeneration = false;
             return;
-        }
+	        }
 
-        const dailySlides = assertSlidesGenerated(
-            await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, generationLanguage),
-            `${unitLabel} ${dayToGenerate.dayNumber}`
-        );
-        
-        setLoadingMessage(t.presentation.loadingTables);
-        const slidesWithTables = await processSlidesForTables(dailySlides);
-        
-        const finalSlides = assertSlidesGenerated(
-            await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope }),
-            `${unitLabel} ${dayToGenerate.dayNumber}`
-        );
+	        setSessionLoadingStage(t.presentation.loadingSessionFlow, 18);
+	        const dailySlides = assertSlidesGenerated(
+	            await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, generationLanguage, {
+	              onMilestone: handleSessionGenerationMilestone,
+	            }),
+	            `${unitLabel} ${dayToGenerate.dayNumber}`
+	        );
 
-        setGeneratedPlanUnitSlidesByDay(prev => ({
-            ...prev,
+	        setSessionLoadingStage(t.presentation.loadingSessionDesign, 70);
+	        const slidesWithTables = await processSlidesForTables(dailySlides);
+
+	        setSessionLoadingStage(t.presentation.loadingSessionImages, 74);
+	        const finalSlides = assertSlidesGenerated(
+	            await processSlidesForImages(slidesWithTables, generationLanguage, { imageCacheScope, imageSemanticScope, progressStart: 74, progressEnd: 92 }),
+	            `${unitLabel} ${dayToGenerate.dayNumber}`
+	        );
+
+	        setSessionLoadingStage(t.presentation.loadingSessionFinalizing, 94);
+	        setGeneratedPlanUnitSlidesByDay(prev => ({
+	            ...prev,
             [dayToGenerate.dayNumber]: finalSlides,
         }));
         setPresentation(prev => ({
@@ -4159,17 +4519,6 @@ const App: React.FC = () => {
         setLoadingProgress(null);
     }
   }, [lessonBlueprint, dllContent, topicContext, theme, presentation, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
-
-  const handleGenerateAllDailySlides = useCallback(async () => {
-    if (!lessonBlueprint || isLoading) return;
-    if (shouldUseStandalonePlanUnitDeck(lessonBlueprint)) return;
-
-    for (let dayIndex = 0; dayIndex < lessonBlueprint.days.length; dayIndex += 1) {
-      if (lessonBlueprint.days[dayIndex].generationStatus !== 'done') {
-        await handleGenerateDailySlides(dayIndex);
-      }
-    }
-  }, [lessonBlueprint, isLoading, handleGenerateDailySlides]);
 
   const handleViewGeneratedPlanUnit = useCallback((dayIndex: number) => {
     if (!lessonBlueprint) return;
@@ -4556,6 +4905,7 @@ const App: React.FC = () => {
             
             const hasImage = !!slideData.imageUrl && !NON_EXPORTABLE_IMAGE_STATES.has(slideData.imageUrl);
             const hasContent = slideData.content && slideData.content.length > 0 && slideData.content.some(c => c.trim() !== '');
+            const isTitleSlide = i === 0 && !hasImage;
             
             let contentForPptx: any[] = [];
             if (hasContent) {
@@ -4602,7 +4952,9 @@ const App: React.FC = () => {
                 }
             }
 
-            if (hasImage) {
+            if (isTitleSlide) {
+                addPptxTitleSlideCover(slide, pptx, slideData, brandColor, textColor);
+            } else if (hasImage) {
                 const isEvidenceLayout = slideData.visualLayout === 'evidence';
                 const imageX = isEvidenceLayout ? PPTX_EVIDENCE_IMAGE_X : PPTX_IMAGE_X;
                 const imageY = isEvidenceLayout ? PPTX_EVIDENCE_IMAGE_Y : PPTX_IMAGE_Y;
@@ -4724,14 +5076,7 @@ const App: React.FC = () => {
                 }
             }
 
-            const imageCreditNote = slideData.imageAttribution?.provider === 'pexels'
-                ? [
-                    'Image credit:',
-                    slideData.imageAttribution.label || 'Photo provided by Pexels',
-                    slideData.imageAttribution.sourceUrl || '',
-                  ].filter(Boolean).join(' ')
-                : '';
-            const slideNotes = [slideData.speakerNotes, imageCreditNote].filter(Boolean).join('\n\n');
+            const slideNotes = getPptxSlideNotes(slideData);
             if (slideNotes) {
                 slide.addNotes(slideNotes);
             }
@@ -4914,21 +5259,12 @@ const App: React.FC = () => {
 
   const renderWeeklyBlueprintView = () => {
     if (!lessonBlueprint) return null;
-    const unitLabel = getPlanUnitLabel(lessonBlueprint);
-    const usesStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
-    const hasGeneratedPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'done');
-    const hasCompletedAllPlanUnits = lessonBlueprint.days.every((day) => day.generationStatus === 'done');
-    const isGeneratingPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'loading');
-    const pendingPlanUnitCount = lessonBlueprint.days.filter((day) => day.generationStatus !== 'done').length;
-    const generationSlotsAvailable = adminGenerationLimitBypassed
-      ? Number.POSITIVE_INFINITY
-      : Math.max(0, limits.generations - generations);
-    const canGenerateAllPlanUnits = pendingPlanUnitCount > 0
-      && pendingPlanUnitCount <= generationSlotsAvailable
-      && !isGeneratingPlanUnit
-      && !usesStandalonePlanUnitDeck;
+	    const unitLabel = getPlanUnitLabel(lessonBlueprint);
+	    const usesStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
+	    const hasGeneratedPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'done');
+	    const hasCompletedAllPlanUnits = lessonBlueprint.days.every((day) => day.generationStatus === 'done');
 
-    return (
+	    return (
         <div className="w-full max-w-5xl bg-surface p-8 md:p-10 rounded-3xl shadow-neumorphic-outset border border-themed animate-fade-in">
             <div className="mb-7">
               <p className="text-xs uppercase tracking-[0.2em] text-secondary font-bold mb-2">{t.presentation.lessonWorkflowLabel}</p>
@@ -4937,20 +5273,23 @@ const App: React.FC = () => {
             </div>
 
             <div className="space-y-4">
-                {lessonBlueprint.days.map((day, index) => (
+                {lessonBlueprint.days.map((day, index) => {
+                  const displaySummary = getPlanUnitDisplaySummary(day, unitLabel);
+
+                  return (
                     <div key={day.dayNumber} className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 rounded-2xl bg-surface border border-themed shadow-neumorphic-inset">
                         <div className="flex items-center gap-4">
                             <div className="flex-shrink-0 w-12 h-12 rounded-lg flex flex-col items-center justify-center" style={{backgroundColor: 'var(--brand-light)'}}>
                                 <span className="text-xs font-semibold text-brand">{unitLabel.toUpperCase()}</span>
                                 <span className="text-xl font-bold text-brand">{day.dayNumber}</span>
                             </div>
-	                            <div>
-	                                <h3 className="text-lg font-semibold text-primary">{day.title}</h3>
-	                                {shouldShowPlanUnitFocus(day.focus, unitLabel, day.dayNumber) && (
-	                                  <p className="text-base text-secondary">{day.focus}</p>
-	                                )}
-	                            </div>
-	                        </div>
+		                            <div>
+		                                <h3 className="text-lg font-semibold text-primary">{day.title}</h3>
+		                                {displaySummary && (
+		                                  <p className="text-base text-secondary">{displaySummary}</p>
+		                                )}
+		                            </div>
+		                        </div>
                         
                         {day.generationStatus === 'pending' && (
                             <button 
@@ -4982,27 +5321,18 @@ const App: React.FC = () => {
                                     </button>
                                 )}
                             </div>
-                        )}
-                    </div>
-                ))}
-            </div>
+	                            )}
+	                        </div>
+	                  );
+	                })}
+	            </div>
              <div className="mt-8 flex flex-wrap justify-center items-center gap-4">
-                <button onClick={handleReset} className="px-6 py-3 text-base font-semibold bg-surface text-secondary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all">
-                    <RefreshCwIcon className="w-5 h-5 inline-block mr-2" />
-                    {t.presentation.startOverButton}
-                </button>
-                {!usesStandalonePlanUnitDeck && (
-                    <button
-                        onClick={handleGenerateAllDailySlides}
-                        disabled={!canGenerateAllPlanUnits}
-                        className="px-6 py-3 text-base font-semibold bg-surface text-primary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        <MagicWandIcon className="w-5 h-5 inline-block mr-2" />
-                        {t.presentation.generateAllSlidesButton}
-                    </button>
-                )}
-                 <button 
-                    onClick={() => { setCurrentSlide(0); setAppStep('presenting'); }} 
+	                <button onClick={handleReset} className="px-6 py-3 text-base font-semibold bg-surface text-secondary rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all">
+	                    <RefreshCwIcon className="w-5 h-5 inline-block mr-2" />
+	                    {t.presentation.startOverButton}
+	                </button>
+	                 <button
+	                    onClick={() => { setCurrentSlide(0); setAppStep('presenting'); }}
                     disabled={!presentation || presentation.slides.length === 0 || !hasGeneratedPlanUnit}
                     className="px-6 py-3 text-base font-semibold bg-brand text-brand-contrast rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >

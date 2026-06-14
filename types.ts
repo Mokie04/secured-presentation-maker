@@ -1,6 +1,16 @@
 
 export type ImageStyle = 'photorealistic' | 'illustration' | 'infographic' | 'diagram' | 'historical photo' | 'none';
 export type SlideVisualLayout = 'standard' | 'evidence';
+export type LessonArtifactType =
+  | 'none'
+  | 'route_map'
+  | 'self_check_slip'
+  | 'scenario_card'
+  | 'response_table'
+  | 'decision_board'
+  | 'reflection_card'
+  | 'rubric_checklist'
+  | 'source_step';
 export type TeachingLevel = 'K-12' | 'College';
 
 export interface ImageOverlayLabel {
@@ -51,6 +61,9 @@ export interface Slide {
   imageSemanticMetadata?: ImageSemanticMetadata; // Structured semantic cache metadata for cross-lesson reuse.
   imageOverlays?: ImageOverlayLabel[]; // Manual label overlays rendered above the image.
   visualLayout?: SlideVisualLayout; // Optional layout hint for image-led classroom evidence slides.
+  sourceEvidence?: string[]; // Source-derived lesson-plan evidence backing this slide.
+  sourceRefs?: string[]; // Human-readable references to the source-derived outline step(s).
+  lessonArtifactType?: LessonArtifactType; // Optional classroom artifact/layout intent.
   speakerNotes: string; // Notes for the teacher presenting the slide.
 }
 
@@ -65,6 +78,12 @@ export interface DayPlan {
     dayNumber: number;
     title: string;
     focus: string; // Brief description of what this day covers
+    sourceSummary?: string; // Clean source-derived session summary for the planning UI.
+    sourceObjective?: string; // Best source-derived learning objective or target for this unit.
+    sourceFlow?: string[]; // Ordered teaching moves extracted from the lesson plan.
+    sourceMaterials?: string[]; // Concrete resources, tools, or materials named by the source.
+    sourceAssessment?: string; // Source-derived assessment/checking detail.
+    sourceOutput?: string; // Source-derived learner output or artifact.
     generationStatus: 'pending' | 'loading' | 'done';
 }
 

@@ -1,5 +1,5 @@
 
-import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata, ImageAttribution } from '../types';
+import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata, ImageAttribution, LessonArtifactType } from '../types';
 import { K12_ADAPTIVE_PRESENTATION_STANDARD } from '../lib/presentationStandards';
 import { buildFinalImagePrompt } from '../lib/imagePrompting';
 
@@ -315,11 +315,132 @@ function cleanSlideContent(content: unknown): string[] {
     return cleaned;
 }
 
+const GENERATED_IMAGE_STYLES: ImageStyle[] = [
+    'photorealistic',
+    'illustration',
+    'infographic',
+    'diagram',
+    'historical photo',
+    'none',
+];
+
+function normalizeGeneratedImageStyle(value: unknown, fallback: ImageStyle = 'none'): ImageStyle {
+    return GENERATED_IMAGE_STYLES.includes(value as ImageStyle) ? value as ImageStyle : fallback;
+}
+
+function extractGeneratedSlidesArray(payload: unknown): unknown[] {
+    if (Array.isArray(payload)) return payload;
+    if (!payload || typeof payload !== 'object') return [];
+
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.slides)) return record.slides;
+
+    for (const key of ['presentation', 'data', 'deck']) {
+        const nested = record[key];
+        if (nested && typeof nested === 'object' && Array.isArray((nested as Record<string, unknown>).slides)) {
+            return (nested as Record<string, unknown>).slides as unknown[];
+        }
+    }
+
+    return [];
+}
+
+function normalizeGeneratedSlidesPayload(payload: unknown, label: string): Slide[] {
+    const rawSlides = extractGeneratedSlidesArray(payload);
+    if (rawSlides.length === 0) {
+        console.warn('Generated slide payload did not include a usable slides array.', { label });
+        return [];
+    }
+
+    return rawSlides.map((slideLike, index) => {
+        const slide = (slideLike && typeof slideLike === 'object')
+            ? slideLike as Partial<Slide> & Record<string, unknown>
+            : {};
+        const slideText = [
+            slide.title,
+            ...(Array.isArray(slide.content) ? slide.content : []),
+            slide.speakerNotes,
+            slide.imagePrompt,
+        ].filter(Boolean).join(' ');
+        return {
+            ...slide,
+            title: normalizeGeneratedString(slide.title, `Slide ${index + 1}`),
+            content: cleanSlideContent(slide.content),
+            speakerNotes: normalizeGeneratedString(slide.speakerNotes),
+            imagePrompt: normalizeGeneratedString(slide.imagePrompt),
+            imageStyle: normalizeGeneratedImageStyle(slide.imageStyle),
+            sourceEvidence: mergeUniqueStrings(slide.sourceEvidence).slice(0, 6),
+            sourceRefs: mergeUniqueStrings(slide.sourceRefs).slice(0, 4),
+            lessonArtifactType: normalizeLessonArtifactType(slide.lessonArtifactType ?? slide.artifactType, slideText),
+        };
+    });
+}
+
+function requireGeneratedSlides(payload: unknown, label: string): Slide[] {
+    const slides = normalizeGeneratedSlidesPayload(payload, label);
+    if (slides.length === 0) {
+        throw new Error(`${label} did not return any slides.`);
+    }
+    return slides;
+}
+
 const EMPTY_VISIBLE_ITEM_PATTERN = /^(?:[-•*]|\d+\.|[A-E]\.)\s*$/i;
 const TEACHER_ONLY_VISIBLE_PATTERN = /\b(?:teachers?\s+(?:checks?|models?|circulates?|collects?|distributes?|asks?|uses?|notes?|facilitates?|reminds?|explains?|shows?|guides?)|circulate\s+and\s+ask|collect\s+(?:responses|exit|slips?)|sort\s+support\s+needs?|use\s+(?:this|results?)\s+to\s+(?:sort|plan)|check\s+attendance|read\s+the\s+(?:learner-friendly\s+)?objective|facilitate\s+(?:pair|group|class)|distribute\s+(?:cards?|slips?|materials?))\b/i;
 const GENERIC_SUCCESS_CRITERION_PATTERN = /\b(?:identify\s+the\s+session\s+target\s+in\s+context|justify\s+one\s+claim\s+using\s+evidence|produce\s+one\s+accurate\s+session\s+artifact)\b/i;
 const GENERIC_TITLE_PATTERN = /\b(?:session\s+lesson\s+plan|single\s+lesson\s+presentation|uploaded\s+lesson\s+plan|lesson\s+plan\s+content|source\s+material)\b/i;
 const BAD_FOCUS_LINE_PATTERN = /\bfocus\s*:\s*(?:formative\s+assessment|assessment\s*&?|procedure\s+mapping)\b/i;
+const UNKNOWN_METADATA_VALUE_PATTERN = /^(?:not\s+specified|not\s+provided|not\s+available|unknown|uploaded\s+lesson\s+plan|source\s+material|lesson\s+plan\s+content|n\/?a|none|null|undefined)$/i;
+const SOURCE_METADATA_TITLE_PATTERN = /\b(?:week\s+and\s+dates?|no\.?\s+of\s+sessions?|number\s+of\s+sessions?|references?|declaration\s+of\s+ai\s+use|learning\s+area|designed\s+by|designed\s+for|grade\s+level|learner\s+context)\b/i;
+const TITLE_SOURCE_LEAK_PATTERN = /\b(?:formative\s+assessment|formatibong\s+pagtataya|ebidensiyang\s+pormatibo|evidence\s+of\s+learning|what\s+task,\s*activity|what\s+can\s+we\s+do\s+together|bumuo\s+ng\s+(?:gawain|tanong)|pagtataya\s+sa\s+pagkatuto|uploaded\s+lesson\s+plan|source\s+extract|source\s+material|lesson\s+blueprint)\b/i;
+const PLACEHOLDER_SLIDE_TITLE_PATTERN = /^(?:slide|page)\s*\d+$/i;
+const GENERIC_CONTENT_TITLE_PATTERN = /^(?:objectives?|learning\s+objectives?|lesson\s+objectives?|activity|discussion|content|assessment|evaluation|assignment|reflection|summary|introduction)$/i;
+const OBJECTIVE_INTRO_VISIBLE_PATTERN = /\bby\s+the\s+end\s+of\s+(?:this\s+)?(?:session|lesson|class),?\s+you\s+can\b/i;
+const CLASSROOM_ARTIFACT_PATTERN = /\b(?:answer\s+frame|body[-\s]?signal\s+chart|card\s+sort|checklist|concept\s+map|criteria|decision\s+board|draft\s+artifact|emotion\s+cards?|evidence\s+(?:organizer|table|map|chart)|exit\s+ticket|flow\s+map|graphic\s+organizer|organizer|private\s+self[-\s]?rating|rating\s+slip|reflection\s+(?:card|frame)|rubric|scenario\s+card|scenario[-\s]?analysis\s+table|self[-\s]?rating\s+slip|sentence\s+frame|situation\s+card|task\s+card|worksheet|chart|table|kard|mapa|organisador|pamantayan|rubriko|sitwasyon)\b/i;
+const GEOGRAPHIC_MAP_PATTERN = /\b(?:philippine|philippines|world|country|province|region|city|municipality|community|geographic|geography|location|route|topographic|territory|mapang\s+pisikal|mapang\s+politikal)\b/i;
+const GENERIC_CLASSROOM_PROMPT_PATTERN = /\b(?:teacher|teachers|student|students|learner|learners|classroom|school|education|group\s+work|writing|worksheet|notebook|board|discussion|lecture)\b/i;
+const GENERIC_VISUAL_TERM_PATTERN = /^(?:classroom|school|education|student|students|learner|learners|teacher|teachers|group|writing|worksheet|notebook|board|discussion|activity|lesson|slide|presentation)$/i;
+const LESSON_ARTIFACT_TYPES: LessonArtifactType[] = [
+    'none',
+    'route_map',
+    'self_check_slip',
+    'scenario_card',
+    'response_table',
+    'decision_board',
+    'reflection_card',
+    'rubric_checklist',
+    'source_step',
+];
+
+function classifyLessonArtifactType(text: string): LessonArtifactType {
+    if (/\b(?:route\s*map|roadmap|flight\s*plan|session\s+flow|lesson\s+flow|learning\s+sequence|sequence\s+map|workflow)\b/i.test(text)) return 'route_map';
+    if (/\b(?:self[-\s]?check|self[-\s]?rating|private\s+self|rating\s+slip|baseline\s+privately)\b/i.test(text)) return 'self_check_slip';
+    if (/\b(?:response\s+table|scenario[-\s]?analysis\s+table|evidence\s+table|analysis\s+table|matrix)\b/i.test(text)) return 'response_table';
+    if (/\b(?:decision\s+board|choice\s+board|responsible\s+decision)\b/i.test(text)) return 'decision_board';
+    if (/\b(?:reflection\s+(?:card|frame|exit)|exit\s+ticket|evidence\s+reflection)\b/i.test(text)) return 'reflection_card';
+    if (/\b(?:rubric|criteria|checklist|success\s+criteria|pamantayan)\b/i.test(text)) return 'rubric_checklist';
+    if (/\b(?:scenario|situation|case)\s+(?:card|prompt|evidence)|\b(?:scenario|situation|case)\b/i.test(text)) return 'scenario_card';
+    if (CLASSROOM_ARTIFACT_PATTERN.test(text)) return 'source_step';
+    return 'none';
+}
+
+function normalizeLessonArtifactType(value: unknown, fallbackText = ''): LessonArtifactType {
+    if (typeof value === 'string') {
+        const normalized = value.trim().toLowerCase().replace(/[\s-]+/g, '_') as LessonArtifactType;
+        if (LESSON_ARTIFACT_TYPES.includes(normalized)) return normalized;
+    }
+    return classifyLessonArtifactType(fallbackText);
+}
+
+function mergeUniqueStrings(...groups: Array<unknown>): string[] {
+    const values = groups.flatMap((group) => normalizeGeneratedStringList(group));
+    const seen = new Set<string>();
+    return values.filter((value) => {
+        const key = normalizeSourceText(value);
+        if (!key || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
 
 function cleanVisibleSlideItem(item: string): string {
     return item
@@ -334,6 +455,132 @@ function isTeacherOnlyVisibleItem(item: string): boolean {
 
 function isGenericSuccessCriterion(item: string): boolean {
     return GENERIC_SUCCESS_CRITERION_PATTERN.test(item);
+}
+
+function isUnknownMetadataValue(value: string | undefined): boolean {
+    const normalized = normalizeSourceText(value);
+    return !normalized || UNKNOWN_METADATA_VALUE_PATTERN.test(normalized);
+}
+
+function normalizeMetadataString(value: unknown, fallback = ''): string {
+    const normalized = normalizeGeneratedString(value);
+    return isUnknownMetadataValue(normalized) ? fallback : normalized;
+}
+
+function isBadTitleSourceCandidate(value: string | undefined): boolean {
+    const normalized = normalizeGeneratedString(value);
+    if (!normalized) return true;
+    return TITLE_SOURCE_LEAK_PATTERN.test(normalized)
+        || SOURCE_METADATA_TITLE_PATTERN.test(normalized)
+        || BAD_FOCUS_LINE_PATTERN.test(normalized)
+        || (normalized.length > 130 && /\?/.test(normalized));
+}
+
+function extractSourceGradeLevel(sourceContent: string | undefined): string {
+    const lines = (sourceContent || '').split(/\r?\n/).slice(0, 160);
+    const patterns = [
+        /\b(?:grade\s*level|grade|baitang(?:\s+at\s+seksyon)?|antas\s+ng\s+baitang)\s*(?:[:|,\-–—]|\s)\s*(?:grade\s*)?(\d{1,2})\b/i,
+        /\b(?:grade|baitang)\s*(\d{1,2})\b/i,
+    ];
+
+    for (const line of lines) {
+        if (!/\b(?:grade|baitang)\b/i.test(line)) continue;
+        for (const pattern of patterns) {
+            const match = line.match(pattern);
+            const grade = match ? Number.parseInt(match[1], 10) : NaN;
+            if (Number.isFinite(grade) && grade >= 1 && grade <= 12) {
+                return `Grade ${grade}`;
+            }
+        }
+    }
+
+    return '';
+}
+
+function extractSourceSubject(sourceContent: string | undefined): string {
+    const lines = (sourceContent || '').split(/\r?\n/).slice(0, 160);
+    const patterns = [
+        /\b(?:learning\s+area|subject|asignatura|larangan\s+ng\s+pagkatuto)\s*(?:[:|,\-–—])\s*([^|\n]{2,80})/i,
+        /\b(?:learning\s+area|subject|asignatura)\b\s+([^|\n]{2,80})/i,
+    ];
+
+    for (const line of lines) {
+        for (const pattern of patterns) {
+            const match = line.match(pattern);
+            const subject = cleanCandidateTopicTitle(match?.[1] || '');
+            if (
+                subject
+                && subject.length <= 60
+                && !/\b(?:grade|baitang|quarter|markahan|week|linggo|session|day)\b/i.test(subject)
+                && !isBadTitleSourceCandidate(subject)
+            ) {
+                return subject;
+            }
+        }
+    }
+
+    return '';
+}
+
+function isEditableClassroomArtifactSlide(slide: Slide): boolean {
+    const text = [
+        slide.title,
+        ...(Array.isArray(slide.content) ? slide.content : []),
+        slide.speakerNotes,
+    ].filter(Boolean).join(' ');
+    const hasArtifact = CLASSROOM_ARTIFACT_PATTERN.test(text);
+    const hasNonGeographicMap = /\b(?:map|mapa)\b/i.test(text) && !GEOGRAPHIC_MAP_PATTERN.test(text);
+    return hasArtifact || hasNonGeographicMap;
+}
+
+function hasEditableArtifactStructure(slide: Slide): boolean {
+    const content = Array.isArray(slide.content) ? slide.content : [];
+    const fieldLikeItems = content.filter((item) => /[:：]/.test(item) || /\b(?:criterion|criteria|step|hakbang|pamantayan|ebidensiya|evidence|scenario|sitwasyon|tanong|question)\b/i.test(item));
+    return fieldLikeItems.length >= 2 || content.length >= 4;
+}
+
+function isGenericClassroomImagePrompt(slide: Slide): boolean {
+    const prompt = normalizeGeneratedString(slide.imagePrompt);
+    if (!prompt || !GENERIC_CLASSROOM_PROMPT_PATTERN.test(prompt)) return false;
+
+    const promptTerms = extractImportantTerms(prompt, 10)
+        .filter((term) => !GENERIC_VISUAL_TERM_PATTERN.test(term));
+    const slideTerms = extractImportantTerms([
+        slide.title,
+        ...(Array.isArray(slide.content) ? slide.content : []),
+        slide.speakerNotes,
+    ].filter(Boolean).join(' '), 12);
+    const normalizedPrompt = normalizeSourceText(prompt);
+    const matchedSlideTerms = slideTerms.filter((term) => normalizedPrompt.includes(term));
+
+    return promptTerms.length < 4 || matchedSlideTerms.length < 2;
+}
+
+function repairSlideVisualDecision(slide: Slide): Slide {
+    const prompt = normalizeGeneratedString(slide.imagePrompt);
+    if (!prompt || slide.imageStyle === 'none') return slide;
+
+    if (isEditableClassroomArtifactSlide(slide)) {
+        return {
+            ...slide,
+            imagePrompt: '',
+            imageStyle: 'none',
+            imageUrl: undefined,
+            imageAttribution: undefined,
+        };
+    }
+
+    if (isGenericClassroomImagePrompt(slide)) {
+        return {
+            ...slide,
+            imagePrompt: '',
+            imageStyle: 'none',
+            imageUrl: undefined,
+            imageAttribution: undefined,
+        };
+    }
+
+    return slide;
 }
 
 function cleanSlideItemsForDisplay(content: unknown): { content: string[]; movedToNotes: string[] } {
@@ -365,18 +612,101 @@ function isGenericDeckTitle(value: string | undefined): boolean {
         || /^(?:session|day|lesson)\s*\d*$/i.test(normalized);
 }
 
-function cleanCandidateTopicTitle(value: string): string {
-    return value
-        .replace(/\|/g, ' ')
-        .replace(/^\s*(?:title|topic|lesson\s+title|week\s+topic|main\s+title|paksa|pamagat)\s*[:\-–—]\s*/i, '')
+function isPlaceholderSlideTitle(value: string | undefined): boolean {
+    const normalized = normalizeGeneratedString(value);
+    return PLACEHOLDER_SLIDE_TITLE_PATTERN.test(normalized)
+        || GENERIC_CONTENT_TITLE_PATTERN.test(normalized);
+}
+
+function polishCandidateTopicTitle(value: string): string {
+    let title = value
+        .replace(/^\s*grade\s*\d{1,2}\s+[^:]{2,90}:\s*/i, '')
+        .replace(/\bwork\s+on\s+discuss\s+the\s+procedures\s+in\s+maintaining\b/i, 'Work on Maintaining')
+        .replace(/\bdiscuss\s+the\s+procedures\s+in\s+maintaining\b/i, 'Maintaining')
+        .replace(/\baccording\s+to\s+industry(?:\s+standards?)?\b\.?/i, 'to Industry Standards')
         .replace(/\s+/g, ' ')
         .replace(/^[\s:;,\-–—]+|[\s:;,\-–—]+$/g, '')
         .trim();
+
+    if (title.length > 110 && title.includes(':')) {
+        title = title.split(':').slice(1).join(':').trim();
+    }
+
+    return title;
+}
+
+function cleanCandidateTopicTitle(value: string): string {
+    const cleaned = value
+        .replace(/\|/g, ' ')
+        .replace(/^\s*(?:name\s+of\s+lesson|lesson\s+name|title|topic|lesson\s+title|week\s+topic|main\s+title|paksa|pamagat)\s*[:\-–—]\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s:;,\-–—]+|[\s:;,\-–—]+$/g, '')
+        .trim();
+    return polishCandidateTopicTitle(cleaned);
+}
+
+function splitSourceCells(line: string): string[] {
+    return line
+        .split(/\s*\|\s*|\t+/)
+        .map((cell) => cell.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+}
+
+function isExplicitLessonTitleLabel(value: string): boolean {
+    return /^(?:name\s+of\s+lesson|lesson\s+name|lesson\s+title|week\s+topic|main\s+title|topic|paksa|pamagat)$/i.test(value.trim());
+}
+
+function isUsableTopicTitleCandidate(value: string): boolean {
+    const normalized = normalizeSourceText(value);
+    return value.length >= 18
+        && value.length <= 140
+        && !value.includes('?')
+        && !normalized.startsWith('table ')
+        && !normalized.includes('learning session')
+        && !normalized.includes('formative assessment')
+        && !SOURCE_METADATA_TITLE_PATTERN.test(value)
+        && !isBadTitleSourceCandidate(value)
+        && !PLAN_UNIT_OBJECTIVE_HEADING_PATTERN.test(value)
+        && !isPlanUnitFocusScaffoldText(value)
+        && !isGenericDeckTitle(value);
+}
+
+function extractExplicitSourceTopicCandidates(sourceText: string | undefined): string[] {
+    const seen = new Set<string>();
+    const candidates: string[] = [];
+
+    (sourceText || '').split(/\r?\n/).slice(0, 120).forEach((rawLine) => {
+        const cells = splitSourceCells(rawLine);
+        cells.forEach((cell, index) => {
+            if (!isExplicitLessonTitleLabel(cell)) return;
+            cells.slice(index + 1).forEach((candidateCell) => {
+                const candidate = cleanCandidateTopicTitle(candidateCell);
+                const key = normalizeSourceText(candidate);
+                if (!key || seen.has(key) || !isUsableTopicTitleCandidate(candidate)) return;
+                seen.add(key);
+                candidates.push(candidate);
+            });
+        });
+
+        const inlineMatch = rawLine.match(/\b(?:name\s+of\s+lesson|lesson\s+name|lesson\s+title|week\s+topic|main\s+title|topic|paksa|pamagat)\b\s*[:\-–—]\s*([^|\n]+)/i);
+        if (inlineMatch?.[1]) {
+            const candidate = cleanCandidateTopicTitle(inlineMatch[1]);
+            const key = normalizeSourceText(candidate);
+            if (key && !seen.has(key) && isUsableTopicTitleCandidate(candidate)) {
+                seen.add(key);
+                candidates.push(candidate);
+            }
+        }
+    });
+
+    return candidates.sort((a, b) => a.length - b.length);
 }
 
 function extractSourceTopicTitle(sourceText: string | undefined, fallback = ''): string {
     const fallbackTitle = cleanCandidateTopicTitle(fallback);
-    if (fallbackTitle && !isGenericDeckTitle(fallbackTitle)) return fallbackTitle;
+    const explicitCandidates = extractExplicitSourceTopicCandidates(sourceText);
+    if (explicitCandidates.length > 0) return explicitCandidates[0];
+    if (fallbackTitle && !isGenericDeckTitle(fallbackTitle) && !isBadTitleSourceCandidate(fallbackTitle)) return fallbackTitle;
 
     const candidates = (sourceText || '')
         .split(/\r?\n/)
@@ -387,15 +717,7 @@ function extractSourceTopicTitle(sourceText: string | undefined, fallback = ''):
         }))
         .filter(({ line }) => {
             const normalized = normalizeSourceText(line);
-            return line.length >= 18
-                && line.length <= 120
-                && !line.includes('?')
-                && !normalized.startsWith('table ')
-                && !normalized.includes('learning session')
-                && !normalized.includes('formative assessment')
-                && !PLAN_UNIT_OBJECTIVE_HEADING_PATTERN.test(line)
-                && !isPlanUnitFocusScaffoldText(line)
-                && !isGenericDeckTitle(line);
+            return isUsableTopicTitleCandidate(line);
         })
         .map(({ rawLine, line }, index) => {
             const explicitTitleScore = /\b(?:title|topic|paksa|pamagat)\b/i.test(rawLine) ? 200 : 0;
@@ -412,7 +734,7 @@ function getBestFocusText(context: SlideRepairContext): string {
     const focus = normalizeGeneratedString(context.focus);
     if (focus && !isGenericPlanUnitSummary(focus, normalizePlanUnitLabel(context.unitLabel, 'Session'), context.dayNumber || 1)
         && !BAD_FOCUS_LINE_PATTERN.test(`Focus: ${focus}`)
-        && !/\bformative\s+assessment\b/i.test(focus)) {
+        && !isBadTitleSourceCandidate(focus)) {
         return focus;
     }
     return '';
@@ -420,9 +742,18 @@ function getBestFocusText(context: SlideRepairContext): string {
 
 function repairTitleSlide(slide: Slide, context: SlideRepairContext): Slide {
     const topicTitle = normalizeGeneratedString(context.topicTitle);
-    const title = topicTitle && (isGenericDeckTitle(slide.title) || /^session\s+\d+\s*:/i.test(slide.title) || slide.title.length < topicTitle.length)
+    const rawTitle = normalizeGeneratedString(slide.title);
+    const titleCandidate = topicTitle && (
+        isGenericDeckTitle(rawTitle)
+        || isBadTitleSourceCandidate(rawTitle)
+        || /^session\s+\d+\s*:/i.test(rawTitle)
+        || rawTitle.length < topicTitle.length
+    )
         ? topicTitle
-        : normalizeGeneratedString(slide.title, topicTitle || 'Lesson Presentation');
+        : normalizeGeneratedString(rawTitle, topicTitle || 'Lesson Presentation');
+    const title = isBadTitleSourceCandidate(titleCandidate)
+        ? topicTitle || 'Lesson Presentation'
+        : titleCandidate;
     const focus = getBestFocusText(context);
     const unitContext = context.unitLabel && context.dayNumber
         ? `${context.unitLabel} ${context.dayNumber}${focus ? `: ${focus}` : ''}`
@@ -430,13 +761,16 @@ function repairTitleSlide(slide: Slide, context: SlideRepairContext): Slide {
     const { content } = cleanSlideItemsForDisplay(slide.content);
     const filteredContent = content.filter((item) => (
         !BAD_FOCUS_LINE_PATTERN.test(item)
-        && !/\bformative\s+assessment\b/i.test(item)
+        && !isBadTitleSourceCandidate(item)
         && !isGenericPlanUnitSummary(item, normalizePlanUnitLabel(context.unitLabel, 'Session'), context.dayNumber || 1)
+        && !/^grade\s+level\s*:\s*(?:not\s+specified|unknown|n\/?a|none)$/i.test(item)
     ));
+    const subject = normalizeMetadataString(context.subject);
+    const gradeLevel = normalizeMetadataString(context.gradeLevel);
     const contextLines = [
         unitContext,
-        context.subject ? `Subject: ${context.subject}` : '',
-        context.gradeLevel ? `Grade Level: ${context.gradeLevel}` : '',
+        subject ? `Subject: ${subject}` : '',
+        gradeLevel ? `Grade Level: ${gradeLevel}` : '',
     ].filter(Boolean);
     const mergedContent = Array.from(new Set([
         ...contextLines,
@@ -466,7 +800,8 @@ function repairGeneratedSlidesForClassroomUse(slides: Slide[], context: SlideRep
             speakerNotes,
         };
 
-        return index === 0 ? repairTitleSlide(repairedSlide, context) : repairedSlide;
+        const repairedVisualSlide = repairSlideVisualDecision(repairedSlide);
+        return index === 0 ? repairTitleSlide(repairedVisualSlide, context) : repairedVisualSlide;
     });
 }
 
@@ -482,9 +817,14 @@ type InferredPlanUnitInfo = {
 type PlanUnitSourceBlock = {
     text: string;
     found: boolean;
-    strategy: 'marker' | 'focus' | 'full-plan';
+    strategy: 'table-column' | 'marker' | 'focus' | 'full-plan';
     keyTerms: string[];
 };
+
+type PlanUnitSourceDetails = Pick<
+    DayPlan,
+    'sourceSummary' | 'sourceObjective' | 'sourceFlow' | 'sourceMaterials' | 'sourceAssessment' | 'sourceOutput'
+>;
 
 type SessionAlignmentIssue = {
     code: string;
@@ -578,6 +918,14 @@ const PLAN_UNIT_OBJECTIVE_ACTION_PATTERN = /\b(?:determine|identify|describe|exp
 const PLAN_UNIT_OBJECTIVE_LEARNER_SIGNAL_PATTERN = /\b(?:(?:students?|learners?|pupils?)\s+(?:will|should|can|shall|must|are\s+able\s+to|be\s+able\s+to|are\s+expected\s+to(?:\s+be\s+able\s+to)?)|(?:mga\s+)?mag-aaral\s+(?:ay\s+)?(?:inaasahang|maaaring|makakaya(?:ng)?|dapat))\b/i;
 const PLAN_UNIT_STANDARD_LABEL_PATTERN = /\b(?:content\s+standard|performance\s+standard|pamantayang\s+pangnilalaman|pamantayan\s+sa\s+pagganap)\b/i;
 const PLAN_UNIT_FOCUS_SCAFFOLD_PATTERN = /\b(?:what\s+task,?\s+activity,?\s+or\s+questions\s+can\s+i\s+use|what\s+can\s+we\s+do\s+together\s+so\s+that\s+learners|what\s+kind\s+of\s+questions\s+will\s+check|assessment\s+reveal|ways\s+forward|meaningful\s+learning\s+can\s+also\s+happen|learning\s+experience\s+is\s+like\s+a\s+thoughtfully\s+designed\s+journey|what\s+can\s+i\s+do\s+to\s+make\s+the\s+objectives?\s+clear|what\s+learning\s+resources\s+(?:do|will)\s+i\s+need|are\s+there\s+spaces\s+to\s+meaningfully\s+integrate|think\s+about\s+what\s+you\s+need\s+to\s+adjust|what\s+experiences?\s+outside\s+the\s+classroom)\b/i;
+const PLAN_UNIT_METADATA_LINE_PATTERN = /\b(?:school|teacher|date|time|duration|quarter|grade\s+level|subject|section|learning\s+area)\b/i;
+const PLAN_UNIT_FLOW_HEADING_PATTERN = /\b(?:review|motivation|pre[-\s]?activity|presentation|discussion|concept\s+development|activity|analysis|abstraction|application|generalization|evaluation|assessment|assignment|homework|reflection|closing|lesson\s+proper|guided\s+practice|independent\s+practice|engage|explore|explain|elaborate|evaluate|demo|demonstration|performance\s+task|pre[-\s]?lesson|during\s+lesson|post[-\s]?lesson)\b/i;
+const PLAN_UNIT_FLOW_ACTION_PATTERN = /\b(?:ask|answer|observe|predict|record|calculate|solve|compute|draw|construct|classify|compare|explain|analy[sz]e|discuss|demonstrate|practice|present|write|complete|identify|determine|inspect|check|sort|match|group|measure|interpret|create|revise|evaluate|submit|use|apply|describe|show|share|read|listen|gawin|sagutin|tukuyin|ilarawan|ipaliwanag|suriin|ihambing|buoin|gumawa|gamitin|isulat|ipakita)\b/i;
+const PLAN_UNIT_MATERIAL_HEADING_PATTERN = /\b(?:materials?|resources?|learning\s+resources?|tools?|equipment|facilit(?:y|ies)|supplies|worksheets?|cards?|chart|rubric|visual\s+aid|apparatus|kagamitan|sanggunian)\b/i;
+const PLAN_UNIT_ASSESSMENT_HEADING_PATTERN = /\b(?:assessment|evaluation|quiz|exit\s+(?:ticket|slip)|formative|summative|check(?:ing)?|rubric|criteria|score|pagtataya|ebalwasyon)\b/i;
+const PLAN_UNIT_OUTPUT_HEADING_PATTERN = /\b(?:output|artifact|product|performance\s+task|worksheet|table|chart|poster|report|presentation|draft|slip|card|journal|paragraph|solution|portfolio|awtput|produkto)\b/i;
+const PLAN_UNIT_SPLIT_HEADING_PATTERN = /\b(?:Learning\s+Objectives?|Objectives?|Learning\s+Targets?|Content|Learning\s+Resources?|Materials?|Review|Motivation|Presentation|Discussion|Concept\s+Development|Activity|Analysis|Abstraction|Application|Generalization|Evaluation|Assessment|Assignment|Reflection|Formative\s+Assessment|Extended\s+Learning\s+Opportunities|Opportunities\s+for\s+Integration)\b/g;
+const PLAN_UNIT_BARE_HEADING_PATTERN = /^(?:learning\s+objectives?|objectives?|learning\s+targets?|content|learning\s+resources?|materials?|review|motivation|presentation|discussion|concept\s+development|activity|analysis|abstraction|application|generalization|evaluation|assessment|formative\s+assessment|assignment|reflection|extended\s+learning\s+opportunities|opportunities\s+for\s+integration)$/i;
 
 function isPlanUnitFocusScaffoldText(value: unknown): boolean {
     const normalized = normalizeSourceText(typeof value === 'string' ? value : '');
@@ -733,6 +1081,162 @@ function summarizePlanUnitSourceText(
     return '';
 }
 
+function splitPlanUnitSourceLines(sourceText: string): string[] {
+    return sourceText
+        .replace(/\t/g, '\n')
+        .replace(PLAN_UNIT_SPLIT_HEADING_PATTERN, '\n$&')
+        .split(/\r?\n/)
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+}
+
+function cleanPlanUnitSourceDetailLine(line: string, unitLabel: PlanUnitLabel, dayNumber: number): string {
+    const cleaned = cleanPlanUnitFocusCandidateLine(line, unitLabel, dayNumber)
+        .replace(/^(?:learners?|students?|pupils?)\s+(?:will|should|can|shall|must|are\s+able\s+to)\s+/i, '')
+        .replace(/^[\s:;,\-–—]+|[\s:;,\-–—.]+$/g, '')
+        .trim();
+    const normalized = normalizeSourceText(cleaned);
+
+    if (!cleaned || cleaned.length < 8) return '';
+    if (isGenericPlanUnitSummary(cleaned, unitLabel, dayNumber)) return '';
+    if (PLAN_UNIT_BARE_HEADING_PATTERN.test(cleaned)) return '';
+    if (PLAN_UNIT_STANDARD_LABEL_PATTERN.test(cleaned)) return '';
+    if (PLAN_UNIT_METADATA_LINE_PATTERN.test(cleaned) && cleaned.length < 80) return '';
+    if (normalized === 'not specified' || normalized === 'none' || normalized === 'n/a') return '';
+
+    return cleaned.length > 190 ? `${cleaned.slice(0, 187).trim()}...` : cleaned;
+}
+
+function uniqueSourceDetails(items: string[], maxItems: number): string[] {
+    const seen = new Set<string>();
+    const unique: string[] = [];
+
+    for (const item of items) {
+        const key = normalizeSourceText(item);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        unique.push(item);
+        if (unique.length >= maxItems) break;
+    }
+
+    return unique;
+}
+
+function extractPlanUnitDetailList(
+    sourceText: string,
+    unitLabel: PlanUnitLabel,
+    dayNumber: number,
+    headingPattern: RegExp,
+    itemPattern: RegExp,
+    maxItems: number,
+): string[] {
+    const lines = splitPlanUnitSourceLines(sourceText);
+    const candidates: string[] = [];
+    let activeDetailUntil = -1;
+
+    lines.forEach((line, index) => {
+        if (headingPattern.test(line)) {
+            activeDetailUntil = Math.max(activeDetailUntil, index + 4);
+        }
+
+        const cleaned = cleanPlanUnitSourceDetailLine(line, unitLabel, dayNumber);
+        if (!cleaned) return;
+
+        const isInActiveDetailBlock = index <= activeDetailUntil;
+        const isDirectMatch = headingPattern.test(line) || itemPattern.test(line);
+        if (!isInActiveDetailBlock && !isDirectMatch) return;
+
+        candidates.push(cleaned);
+    });
+
+    return uniqueSourceDetails(candidates, maxItems);
+}
+
+function extractPlanUnitSourceFlow(sourceText: string, unitLabel: PlanUnitLabel, dayNumber: number): string[] {
+    const candidates = splitPlanUnitSourceLines(sourceText)
+        .map((line, index) => {
+            const cleaned = cleanPlanUnitSourceDetailLine(line, unitLabel, dayNumber);
+            if (!cleaned) return null;
+
+            const hasFlowHeading = PLAN_UNIT_FLOW_HEADING_PATTERN.test(line);
+            const hasFlowAction = PLAN_UNIT_FLOW_ACTION_PATTERN.test(cleaned) || PLAN_UNIT_OBJECTIVE_ACTION_PATTERN.test(cleaned);
+            const hasAssessmentOrOutput = PLAN_UNIT_ASSESSMENT_HEADING_PATTERN.test(line) || PLAN_UNIT_OUTPUT_HEADING_PATTERN.test(line);
+            if (!hasFlowHeading && !hasFlowAction && !hasAssessmentOrOutput) return null;
+
+            const score = (hasFlowHeading ? 90 : 0)
+                + (hasFlowAction ? 70 : 0)
+                + (hasAssessmentOrOutput ? 50 : 0)
+                + Math.min(cleaned.length, 120);
+
+            return { text: cleaned, index, score };
+        })
+        .filter((candidate): candidate is { text: string; index: number; score: number } => Boolean(candidate));
+
+    const selected = candidates
+        .filter((candidate) => candidate.score >= 80)
+        .sort((a, b) => a.index - b.index)
+        .map((candidate) => candidate.text);
+
+    return uniqueSourceDetails(selected, 10);
+}
+
+function extractPlanUnitSourceDetails(
+    sourceText: string,
+    unitLabel: PlanUnitLabel,
+    dayNumber: number,
+    language: 'EN' | 'FIL',
+): PlanUnitSourceDetails {
+    const sourceObjective = extractPlanUnitObjectiveFocus(sourceText, unitLabel, dayNumber);
+    const sourceFlow = extractPlanUnitSourceFlow(sourceText, unitLabel, dayNumber);
+    const sourceMaterials = extractPlanUnitDetailList(
+        sourceText,
+        unitLabel,
+        dayNumber,
+        PLAN_UNIT_MATERIAL_HEADING_PATTERN,
+        PLAN_UNIT_MATERIAL_HEADING_PATTERN,
+        6,
+    );
+    const sourceAssessment = extractPlanUnitDetailList(
+        sourceText,
+        unitLabel,
+        dayNumber,
+        PLAN_UNIT_ASSESSMENT_HEADING_PATTERN,
+        PLAN_UNIT_ASSESSMENT_HEADING_PATTERN,
+        3,
+    )[0] || '';
+    const sourceOutput = extractPlanUnitDetailList(
+        sourceText,
+        unitLabel,
+        dayNumber,
+        PLAN_UNIT_OUTPUT_HEADING_PATTERN,
+        PLAN_UNIT_OUTPUT_HEADING_PATTERN,
+        3,
+    )[0] || '';
+    const sourceSummary = sourceObjective
+        || sourceFlow[0]
+        || summarizePlanUnitSourceText(sourceText, unitLabel, dayNumber, language);
+
+    return {
+        sourceSummary: sourceSummary || undefined,
+        sourceObjective: sourceObjective || undefined,
+        sourceFlow: sourceFlow.length > 0 ? sourceFlow : undefined,
+        sourceMaterials: sourceMaterials.length > 0 ? sourceMaterials : undefined,
+        sourceAssessment: sourceAssessment || undefined,
+        sourceOutput: sourceOutput || undefined,
+    };
+}
+
+function derivePlanUnitSourceDetails(
+    sourceContent: string | undefined,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+    language: 'EN' | 'FIL',
+): PlanUnitSourceDetails {
+    if (!sourceContent?.trim()) return {};
+    const sourceBlock = extractPlanUnitSourceBlock(sourceContent, unitLabel, day);
+    return extractPlanUnitSourceDetails(sourceBlock.text, unitLabel, day.dayNumber, language);
+}
+
 function derivePlanUnitFocusFromSource(
     sourceContent: string | undefined,
     unitLabel: PlanUnitLabel,
@@ -751,9 +1255,11 @@ const normalizeLessonBlueprintUnits = (
     language: 'EN' | 'FIL' = 'EN',
 ): LessonBlueprint => {
     const planUnitLabel = normalizePlanUnitLabel(blueprint.planUnitLabel, inferred.label || 'Day');
-    const subject = normalizeGeneratedString(blueprint.subject, 'Uploaded lesson plan');
-    const gradeLevel = normalizeGeneratedString(blueprint.gradeLevel, 'Not specified');
-    const quarter = normalizeGeneratedString(blueprint.quarter, 'Not specified');
+    const sourceSubject = extractSourceSubject(sourceContent);
+    const sourceGradeLevel = extractSourceGradeLevel(sourceContent);
+    const subject = normalizeMetadataString(blueprint.subject, sourceSubject) || sourceSubject;
+    const gradeLevel = normalizeMetadataString(blueprint.gradeLevel, sourceGradeLevel) || sourceGradeLevel;
+    const quarter = normalizeMetadataString(blueprint.quarter);
     const learningCompetency = normalizeGeneratedString(
         blueprint.learningCompetency,
         'Learning competency from the uploaded lesson plan'
@@ -777,7 +1283,9 @@ const normalizeLessonBlueprintUnits = (
                 focus: normalizeGeneratedString(day.focus),
                 generationStatus: day.generationStatus || 'pending' as const,
             };
-            const sourceDerivedFocus = derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, fallbackDay, language);
+            const sourceDetails = derivePlanUnitSourceDetails(sourceContent, planUnitLabel, fallbackDay, language);
+            const modelSourceFlow = normalizeGeneratedStringList(day.sourceFlow);
+            const modelSourceMaterials = normalizeGeneratedStringList(day.sourceMaterials);
             const modelFocus = isGenericPlanUnitSummary(fallbackDay.focus, planUnitLabel, dayNumber)
                 ? ''
                 : fallbackDay.focus;
@@ -785,20 +1293,33 @@ const normalizeLessonBlueprintUnits = (
                 ...day,
                 dayNumber,
                 title,
-                focus: sourceDerivedFocus || modelFocus,
+                focus: sourceDetails.sourceSummary || modelFocus,
+                sourceSummary: sourceDetails.sourceSummary || normalizeGeneratedString(day.sourceSummary) || undefined,
+                sourceObjective: sourceDetails.sourceObjective || normalizeGeneratedString(day.sourceObjective) || undefined,
+                sourceFlow: sourceDetails.sourceFlow || (modelSourceFlow.length > 0 ? modelSourceFlow : undefined),
+                sourceMaterials: sourceDetails.sourceMaterials || (modelSourceMaterials.length > 0 ? modelSourceMaterials : undefined),
+                sourceAssessment: sourceDetails.sourceAssessment || normalizeGeneratedString(day.sourceAssessment) || undefined,
+                sourceOutput: sourceDetails.sourceOutput || normalizeGeneratedString(day.sourceOutput) || undefined,
                 generationStatus: day.generationStatus || 'pending' as const,
             };
         })
         .sort((a, b) => a.dayNumber - b.dayNumber);
+    const fallbackDayDetails = derivePlanUnitSourceDetails(sourceContent, planUnitLabel, {
+        dayNumber: 1,
+        title: `${planUnitLabel} 1`,
+        focus: '',
+        generationStatus: 'pending',
+    }, language);
     const fallbackDay = {
         dayNumber: 1,
         title: `${planUnitLabel} 1`,
-        focus: derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
+        focus: fallbackDayDetails.sourceSummary || derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
             dayNumber: 1,
             title: `${planUnitLabel} 1`,
             focus: '',
             generationStatus: 'pending',
         }, language),
+        ...fallbackDayDetails,
         generationStatus: 'pending' as const,
     };
 
@@ -820,15 +1341,22 @@ const normalizeLessonBlueprintUnits = (
     const byNumber = new Map(normalizedDays.map((day) => [day.dayNumber, day]));
     const days = Array.from({ length: inferred.count }, (_, index) => {
         const dayNumber = index + 1;
+        const generatedFallbackDayDetails = derivePlanUnitSourceDetails(sourceContent, planUnitLabel, {
+            dayNumber,
+            title: `${planUnitLabel} ${dayNumber}`,
+            focus: '',
+            generationStatus: 'pending',
+        }, language);
         return byNumber.get(dayNumber) || {
             dayNumber,
             title: `${planUnitLabel} ${dayNumber}`,
-            focus: derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
+            focus: generatedFallbackDayDetails.sourceSummary || derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
                 dayNumber,
                 title: `${planUnitLabel} ${dayNumber}`,
                 focus: '',
                 generationStatus: 'pending',
             }, language),
+            ...generatedFallbackDayDetails,
             generationStatus: 'pending' as const,
         };
     });
@@ -1044,6 +1572,48 @@ function combineMarkerBlockCandidates(candidates: PlanUnitMarkerBlockCandidate[]
     return truncateSourceText(blocks.join('\n\n---\n\n'));
 }
 
+function extractPlanUnitTableColumnBlock(
+    content: string,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+): string {
+    const lines = content.split(/\r?\n/);
+    const targetMarker = planUnitMarkerRegex(unitLabel, day.dayNumber);
+    let targetColumnIndex = -1;
+
+    for (const line of lines) {
+        const cells = splitSourceCells(line);
+        if (cells.length < 3) continue;
+        const markerIndex = cells.findIndex((cell, index) => index > 0 && targetMarker.test(cell));
+        if (markerIndex > 0) {
+            targetColumnIndex = markerIndex;
+            break;
+        }
+    }
+
+    if (targetColumnIndex < 1) return '';
+
+    const selectedRows: string[] = [];
+    const seen = new Set<string>();
+    for (const line of lines) {
+        const cells = splitSourceCells(line);
+        if (cells.length <= targetColumnIndex) continue;
+
+        const label = cleanPlanUnitSourceDetailLine(cells[0] || '', unitLabel, day.dayNumber);
+        const value = cleanPlanUnitSourceDetailLine(cells[targetColumnIndex] || '', unitLabel, day.dayNumber);
+        if (!value || normalizeSourceText(value) === normalizeSourceText(label)) continue;
+
+        const rowText = label ? `${label}: ${value}` : value;
+        const key = normalizeSourceText(rowText).slice(0, 260);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        selectedRows.push(rowText);
+    }
+
+    const block = selectedRows.join('\n');
+    return block.length >= 300 ? truncateSourceText(block) : '';
+}
+
 function extractPlanUnitSourceBlock(
     content: string,
     unitLabel: PlanUnitLabel,
@@ -1061,6 +1631,16 @@ function extractPlanUnitSourceBlock(
     ]));
 
     for (const label of labelsToTry) {
+        const tableColumnText = extractPlanUnitTableColumnBlock(normalizedContent, label, day);
+        if (tableColumnText) {
+            return {
+                text: tableColumnText,
+                found: true,
+                strategy: 'table-column',
+                keyTerms: extractImportantTerms(`${day.title} ${day.focus} ${tableColumnText}`),
+            };
+        }
+
         const markers = findPlanUnitMarkers(lines, label);
         const candidates = getMarkerBlockCandidates(lines, markers, label, day);
         if (candidates.length > 0) {
@@ -1147,6 +1727,17 @@ function collectPresentationOutlineText(outline: PresentationOutline): string {
     ].filter(Boolean).join(' ');
 }
 
+function collectPlanUnitSourceDetailsText(day: DayPlan): string {
+    return [
+        day.sourceSummary,
+        day.sourceObjective,
+        ...(day.sourceFlow || []),
+        ...(day.sourceMaterials || []),
+        day.sourceAssessment,
+        day.sourceOutput,
+    ].filter(Boolean).join(' ');
+}
+
 function validateGeneratedSessionAlignment(
     slides: Slide[],
     sourceBlock: PlanUnitSourceBlock,
@@ -1159,6 +1750,8 @@ function validateGeneratedSessionAlignment(
         slide.title,
         ...(Array.isArray(slide.content) ? slide.content : []),
         slide.speakerNotes,
+        ...(slide.sourceEvidence || []),
+        ...(slide.sourceRefs || []),
     ].filter(Boolean).join(' ')).join(' '));
 
     const wrongTitleUnits = findWrongUnitTitleReferences(slides, unitLabel, day.dayNumber);
@@ -1189,6 +1782,18 @@ function validateGeneratedSessionAlignment(
         }
     }
 
+    const sourceDetailsTerms = extractImportantTerms(collectPlanUnitSourceDetailsText(day), 10);
+    if (sourceDetailsTerms.length >= 4) {
+        const detailHits = sourceDetailsTerms.filter((term) => slideText.includes(term));
+        const requiredHits = Math.min(4, Math.ceil(sourceDetailsTerms.length * 0.35));
+        if (detailHits.length < requiredHits) {
+            issues.push({
+                code: 'weak_source_map_coverage',
+                message: `Slides do not preserve enough details from the extracted ${unitLabel.toLowerCase()} source map. Missing source-map terms: ${sourceDetailsTerms.filter((term) => !detailHits.includes(term)).slice(0, 6).join(', ')}.`,
+            });
+        }
+    }
+
     if (outline) {
         const outlineTerms = extractImportantTerms(collectPresentationOutlineText(outline), 12);
         const outlineHits = outlineTerms.filter((term) => slideText.includes(term));
@@ -1199,6 +1804,32 @@ function validateGeneratedSessionAlignment(
                 message: `Slides do not preserve enough details from the presentation outline. Missing outline terms: ${outlineTerms.filter((term) => !outlineHits.includes(term)).slice(0, 6).join(', ')}.`,
             });
         }
+
+        const instructionalSteps = getInstructionalOutlineSteps(outline);
+        const hasRouteMap = instructionalSteps.length < 2 || slides.some((slide) => (
+            normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)) === 'route_map'
+        ));
+        if (!hasRouteMap) {
+            issues.push({
+                code: 'missing_source_route_map',
+                message: `Slides should include a source-derived ${unitLabel.toLowerCase()} route map before activity slides.`,
+            });
+        }
+    }
+
+    const slidesMissingEvidence = slides
+        .map((slide, index) => ({ slide, index }))
+        .filter(({ slide, index }) => (
+            index > 0
+            && !/^sources?$/i.test(slide.title.trim())
+            && normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)) !== 'route_map'
+            && mergeUniqueStrings(slide.sourceEvidence, slide.sourceRefs).length === 0
+        ));
+    if (slidesMissingEvidence.length > 0) {
+        issues.push({
+            code: 'missing_slide_source_evidence',
+            message: `Slides ${slidesMissingEvidence.map(({ index }) => index + 1).join(', ')} do not carry source evidence from the uploaded lesson plan.`,
+        });
     }
 
     return [
@@ -1223,10 +1854,16 @@ function validateGeneratedSlideQuality(slides: Slide[], context: SlideRepairCont
     const firstSlide = slides[0];
     if (firstSlide) {
         const firstSlideText = [firstSlide.title, ...(firstSlide.content || [])].join(' ');
-        if (isGenericDeckTitle(firstSlide.title) || BAD_FOCUS_LINE_PATTERN.test(firstSlideText) || /\bformative\s+assessment\b/i.test(firstSlideText)) {
+        if (isGenericDeckTitle(firstSlide.title) || isBadTitleSourceCandidate(firstSlide.title) || BAD_FOCUS_LINE_PATTERN.test(firstSlideText) || TITLE_SOURCE_LEAK_PATTERN.test(firstSlideText)) {
             issues.push({
                 code: 'weak_title_slide',
                 message: 'The first slide still uses a generic title or a planning/assessment phrase instead of the lesson topic plus session focus.',
+            });
+        }
+        if ((firstSlide.content || []).some((item) => /^grade\s+level\s*:\s*(?:not\s+specified|unknown|n\/?a|none)$/i.test(item.trim()))) {
+            issues.push({
+                code: 'unknown_title_metadata',
+                message: 'The first slide shows unknown metadata instead of omitting it or extracting it from the source.',
             });
         }
         if (context.unitLabel && context.dayNumber) {
@@ -1242,6 +1879,20 @@ function validateGeneratedSlideQuality(slides: Slide[], context: SlideRepairCont
 
     slides.forEach((slide, index) => {
         const content = Array.isArray(slide.content) ? slide.content : [];
+        if (index > 0 && isPlaceholderSlideTitle(slide.title)) {
+            issues.push({
+                code: 'placeholder_slide_title',
+                message: `Slide ${index + 1} still uses a placeholder or generic title instead of a student-facing source-specific title.`,
+            });
+        }
+
+        if (content.some((item) => OBJECTIVE_INTRO_VISIBLE_PATTERN.test(item))) {
+            issues.push({
+                code: 'objective_intro_visible',
+                message: `Slide ${index + 1} shows boilerplate objective intro text instead of direct learner-facing targets.`,
+            });
+        }
+
         if (content.some((item) => EMPTY_VISIBLE_ITEM_PATTERN.test(item.trim()))) {
             issues.push({
                 code: 'empty_visible_item',
@@ -1261,6 +1912,20 @@ function validateGeneratedSlideQuality(slides: Slide[], context: SlideRepairCont
             issues.push({
                 code: 'generic_success_criteria',
                 message: `Slide ${index + 1} uses generic success criteria instead of source-specific learning evidence.`,
+            });
+        }
+
+        if (isGenericClassroomImagePrompt(slide)) {
+            issues.push({
+                code: 'generic_visual_prompt',
+                message: `Slide ${index + 1} asks for a generic classroom image instead of a source-specific instructional visual or text-only slide.`,
+            });
+        }
+
+        if (isEditableClassroomArtifactSlide(slide) && !hasEditableArtifactStructure(slide)) {
+            issues.push({
+                code: 'artifact_without_editable_structure',
+                message: `Slide ${index + 1} names a card, organizer, checklist, map, chart, or table but does not show enough editable learner-facing structure.`,
             });
         }
 
@@ -1320,6 +1985,18 @@ function validatePresentationOutlineAlignment(
         }
     }
 
+    const sourceDetailsTerms = extractImportantTerms(collectPlanUnitSourceDetailsText(day), 10);
+    if (sourceDetailsTerms.length >= 4) {
+        const detailHits = sourceDetailsTerms.filter((term) => outlineText.includes(term));
+        const requiredHits = Math.min(4, Math.ceil(sourceDetailsTerms.length * 0.35));
+        if (detailHits.length < requiredHits) {
+            issues.push({
+                code: 'weak_outline_source_map',
+                message: `Outline does not preserve enough details from the extracted ${unitLabel.toLowerCase()} source map. Missing source-map terms: ${sourceDetailsTerms.filter((term) => !detailHits.includes(term)).slice(0, 6).join(', ')}.`,
+            });
+        }
+    }
+
     return issues;
 }
 
@@ -1332,7 +2009,7 @@ function alignmentRepairInstruction(issues: SessionAlignmentIssue[]): string {
         ${issues.map((issue) => `- ${issue.code}: ${issue.message}`).join('\n')}
 
         Regenerate the deck so every slide clearly belongs to the selected session/day source extract. Remove any slide title that points to a different session/day. Preserve source-specific materials, activity steps, expected output, assessment, and assignment details from the selected source extract.
-        Also fix any slide-quality failures: visible slide content must be student-facing, teacher actions belong in speaker notes, numbered lists must have no blank items, title slides must show the lesson topic plus session/day context, and dense slides must be split or shortened instead of overflowing.
+        Also fix any slide-quality failures: visible slide content must be student-facing, teacher actions belong in speaker notes, numbered lists must have no blank items, title slides must show the lesson topic plus session/day context, dense slides must be split or shortened instead of overflowing, generic classroom photo prompts must be removed, and named cards, organizers, checklists, maps, charts, or tables must appear as editable learner-facing slide structure instead of vague bullets.
     `;
 }
 
@@ -1391,6 +2068,435 @@ function normalizePresentationOutline(
             }],
         missingSourceDetails: normalizeGeneratedStringList(outline.missingSourceDetails),
     };
+}
+
+function buildSlidesFromPresentationOutlineFallback(outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
+    const unitLabel = normalizeGeneratedString(context.unitLabel, outline.unitLabel || 'Session');
+    const unitNumber = context.dayNumber || outline.unitNumber || 1;
+    const focus = normalizeGeneratedString(context.focus || outline.learningTarget);
+    const unitContext = unitLabel && unitNumber
+        ? `${unitLabel} ${unitNumber}${focus ? `: ${focus}` : ''}`
+        : focus;
+    const title = normalizeGeneratedString(outline.title, 'Lesson Presentation');
+    const titleContent = [
+        unitContext,
+        context.subject ? `Subject: ${context.subject}` : '',
+        context.gradeLevel ? `Grade Level: ${context.gradeLevel}` : '',
+        outline.sourceSummary && normalizeSourceText(outline.sourceSummary) !== normalizeSourceText(title)
+            ? outline.sourceSummary
+            : '',
+    ].filter(Boolean).slice(0, 4);
+
+    const titleSlide: Slide = {
+        title,
+        content: titleContent,
+        speakerNotes: outline.sourceSummary || 'Introduce the source-aligned lesson flow.',
+        imagePrompt: '',
+        imageStyle: 'none',
+    };
+
+    const flowSlides = outline.flow
+        .filter((step, index) => {
+            if (index !== 0) return true;
+            const text = `${step.section} ${step.slideTitle} ${step.slidePurpose}`;
+            return !/\b(?:title|context)\b/i.test(text);
+        })
+        .slice(0, 14)
+        .map((step, index): Slide => {
+            const content = cleanSlideContent([
+                ...step.sourceEvidence,
+                ...step.keyPoints,
+            ]);
+            const fallbackContent = cleanSlideContent([
+                step.slidePurpose,
+                step.studentAction,
+            ]);
+
+            return {
+                title: normalizeGeneratedString(step.slideTitle, `Lesson Step ${index + 1}`),
+                content: (content.length > 0 ? content : fallbackContent).slice(0, 6),
+                speakerNotes: [
+                    step.teacherMove,
+                    step.studentAction,
+                    step.assessmentCue,
+                ].filter(Boolean).join('\n'),
+                imagePrompt: '',
+                imageStyle: 'none',
+            };
+        });
+
+    return [titleSlide, ...flowSlides];
+}
+
+function isOutlineTitleContextStep(step: PresentationOutlineStep, index: number): boolean {
+    if (index !== 0) return false;
+    const text = `${step.section} ${step.slideTitle} ${step.slidePurpose}`;
+    return /\b(?:title|context)\b/i.test(text);
+}
+
+function getInstructionalOutlineSteps(outline: PresentationOutline): PresentationOutlineStep[] {
+    return outline.flow.filter((step, index) => !isOutlineTitleContextStep(step, index));
+}
+
+function getOutlineStepSourceRef(step: PresentationOutlineStep, index: number): string {
+    const section = normalizeGeneratedString(step.section, `Step ${index + 1}`);
+    const title = normalizeGeneratedString(step.slideTitle);
+    return title && normalizeSourceText(title) !== normalizeSourceText(section)
+        ? `${index + 1}. ${section}: ${title}`
+        : `${index + 1}. ${section}`;
+}
+
+function getOutlineStepEvidence(step: PresentationOutlineStep): string[] {
+    return mergeUniqueStrings(
+        step.sourceEvidence,
+        step.keyPoints,
+        step.slideTitle,
+        step.slidePurpose,
+    ).slice(0, 6);
+}
+
+function buildSourceRouteMapSlide(outline: PresentationOutline, context: SlideRepairContext = {}): Slide | null {
+    const steps = getInstructionalOutlineSteps(outline).slice(0, 8);
+    if (steps.length < 2) return null;
+
+    const unitLabel = normalizeGeneratedString(context.unitLabel, outline.unitLabel || 'Session');
+    const unitNumber = context.dayNumber || outline.unitNumber || 1;
+    const content = steps.map((step, index) => `${index + 1}. ${normalizeGeneratedString(step.slideTitle, step.section)}`);
+    const refs = steps.map(getOutlineStepSourceRef);
+
+    return {
+        title: `${unitLabel} ${unitNumber} Route Map`,
+        content,
+        speakerNotes: [
+            'Use this route map to preview the exact sequence extracted from the uploaded lesson plan.',
+            `Source-backed flow: ${refs.join(' | ')}`,
+        ].join('\n'),
+        imagePrompt: '',
+        imageStyle: 'none',
+        sourceEvidence: mergeUniqueStrings(outline.sourceSummary, ...steps.flatMap(getOutlineStepEvidence)).slice(0, 8),
+        sourceRefs: refs,
+        lessonArtifactType: 'route_map',
+    };
+}
+
+function compactVisibleSlideItem(value: string, maxLength = 128): string {
+    const cleaned = cleanVisibleSlideItem(value)
+        .replace(/^(?:learner-friendly\s+objective|objective\s+checked|prompt\s+\d+|criteria|teacher\s+use|activity|learner\s+instructions|suggested\s+materials)\s*[:\-–—]\s*/i, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    if (!cleaned) return '';
+    return cleaned.length > maxLength ? `${cleaned.slice(0, maxLength - 3).trim()}...` : cleaned;
+}
+
+function studentFacingContentFromItems(items: string[], maxItems = 5): string[] {
+    const seen = new Set<string>();
+    return cleanSlideContent(items)
+        .map((item) => compactVisibleSlideItem(item))
+        .filter((item) => (
+            item
+            && !EMPTY_VISIBLE_ITEM_PATTERN.test(item)
+            && !isTeacherOnlyVisibleItem(item)
+            && !isGenericSuccessCriterion(item)
+            && !OBJECTIVE_INTRO_VISIBLE_PATTERN.test(item)
+            && !isPlanUnitFocusScaffoldText(item)
+        ))
+        .filter((item) => {
+            const key = normalizeSourceText(item);
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        })
+        .slice(0, maxItems);
+}
+
+function conciseTopicPhrase(value: string | undefined, fallback = 'the session task'): string {
+    const cleaned = normalizeGeneratedString(value, fallback)
+        .replace(/^(?:learners?\s+(?:will|can|are\s+able\s+to)\s+|students?\s+(?:will|can|are\s+able\s+to)\s+)/i, '')
+        .replace(/^(?:identify|describe|explain|discuss|determine|apply|evaluate|synthesize|analy[sz]e|create|produce|use)\s+(?:and\s+\w+\s+)?/i, '')
+        .replace(/\baccording\s+to\s+industry(?:\s+standards?)?\b\.?/i, '')
+        .replace(/\busing\s+evidence\b.*$/i, '')
+        .replace(/\s+/g, ' ')
+        .replace(/^[\s:;,\-–—]+|[\s:;,\-–—.]+$/g, '')
+        .trim();
+    const phrase = cleaned || fallback;
+    return phrase.length > 82 ? `${phrase.slice(0, 79).trim()}...` : phrase;
+}
+
+function outlineStepText(step: PresentationOutlineStep): string {
+    return [
+        step.section,
+        step.slideTitle,
+        step.slidePurpose,
+        ...step.sourceEvidence,
+        ...step.keyPoints,
+        step.teacherMove,
+        step.studentAction,
+        step.assessmentCue,
+        step.visualIntent,
+    ].filter(Boolean).join(' ');
+}
+
+function isObjectiveOutlineStep(step: PresentationOutlineStep, text = outlineStepText(step)): boolean {
+    return /\b(?:objective|target|success\s+criteria|by\s+the\s+end|learner-friendly)\b/i.test(text);
+}
+
+function buildStudentFacingTitleForOutlineStep(
+    step: PresentationOutlineStep,
+    artifactType: LessonArtifactType,
+    context: SlideRepairContext = {},
+): string {
+    const stepText = outlineStepText(step);
+    const fallbackFocus = conciseTopicPhrase(context.focus || step.slideTitle || step.section);
+
+    if (artifactType === 'route_map') return `${context.unitLabel || 'Session'} ${context.dayNumber || ''} Learning Route`.replace(/\s+/g, ' ').trim();
+    if (isObjectiveOutlineStep(step, stepText)) return 'Session Target';
+    if (/\b(?:procedure\s+mapping|sequence\s+the\s+(?:required\s+)?procedure|prepare\s*->\s*perform|prepare\s+perform\s+inspect\s+improve)\b/i.test(stepText)) return 'Procedure Mapping Task';
+    if (/\b(?:checklist|safety|quality\s+checkpoint|criteria|rubric)\b/i.test(stepText)) return 'Safety and Quality Checklist';
+    if (/\b(?:exit\s+(?:check|ticket|slip)|short\s+mastery\s+check|formative\s+assessment|short\s+essay)\b/i.test(stepText)) return 'Exit Check';
+    if (/\b(?:home\s+reinforcement|extended\s+learning|assignment|support\s+option|enrichment\s+option)\b/i.test(stepText)) return 'Home Practice';
+    if (/\b(?:reflection|transfer|real-life|new\s+situation)\b/i.test(stepText)) return 'Transfer Reflection';
+    if (/\b(?:pair-share|prior\s+knowledge|daily-life\s+connection|engage)\b/i.test(stepText)) return 'Connect to Prior Knowledge';
+
+    const candidate = cleanCandidateTopicTitle(step.slideTitle || step.section || fallbackFocus);
+    return isPlaceholderSlideTitle(candidate) || isBadTitleSourceCandidate(candidate)
+        ? fallbackFocus
+        : candidate;
+}
+
+function buildStudentFacingContentForOutlineStep(
+    step: PresentationOutlineStep,
+    artifactType: LessonArtifactType,
+    context: SlideRepairContext = {},
+): string[] {
+    const stepText = outlineStepText(step);
+    const focus = conciseTopicPhrase(context.focus || step.slideTitle || step.sourceEvidence[0]);
+
+    if (isObjectiveOutlineStep(step, stepText)) {
+        const sourceItems = studentFacingContentFromItems([...step.sourceEvidence, ...step.keyPoints], 4);
+        const objectiveItems = sourceItems.filter((item) => !/^learners?\s+can\s*\(/i.test(item));
+        return Array.from(new Set([
+            objectiveItems[0] || `Work with ${focus}.`,
+            'Identify the required tools, materials, or steps.',
+            'Explain one safety or quality checkpoint.',
+            'Use evidence or criteria to justify your procedure.',
+        ])).slice(0, 4);
+    }
+
+    if (/\b(?:procedure\s+mapping|sequence\s+the\s+(?:required\s+)?procedure|prepare\s*->\s*perform|prepare\s+perform\s+inspect\s+improve)\b/i.test(stepText)) {
+        return [
+            'Prepare: identify the required steps.',
+            'Perform: sequence the procedure correctly.',
+            'Inspect: check safety and quality.',
+            'Improve: fix one risk or error.',
+        ];
+    }
+
+    if (artifactType === 'rubric_checklist' || /\b(?:checklist|criteria|rubric|quality\s+checkpoint)\b/i.test(stepText)) {
+        return [
+            'Correct procedure sequence',
+            'Safe and responsible tool use',
+            'Quality standards met',
+            'Troubleshooting evidence included',
+        ];
+    }
+
+    if (/\b(?:exit\s+(?:check|ticket|slip)|short\s+mastery\s+check|formative\s+assessment|short\s+essay)\b/i.test(stepText)) {
+        const sourceItems = studentFacingContentFromItems([...step.sourceEvidence, ...step.keyPoints], 4);
+        return sourceItems.length >= 3
+            ? sourceItems
+            : [
+                `Sequence key steps for ${focus}.`,
+                'Identify one common error or risk.',
+                'Explain how to prevent or troubleshoot it.',
+                'Use safety, quality, and evidence criteria.',
+            ];
+    }
+
+    if (/\b(?:home\s+reinforcement|extended\s+learning|assignment|support\s+option|enrichment\s+option)\b/i.test(stepText)) {
+        const sourceItems = studentFacingContentFromItems([...step.sourceEvidence, ...step.keyPoints], 5);
+        return sourceItems.length > 0
+            ? sourceItems
+            : [
+                'Collect two real-life examples.',
+                'Record evidence notes for each example.',
+                'Support: use the guided prompt card.',
+                'Enrichment: add one counterexample.',
+            ];
+    }
+
+    if (artifactType === 'reflection_card' || /\b(?:reflection|transfer|real-life|new\s+situation)\b/i.test(stepText)) {
+        return [
+            `Where can you use ${focus}?`,
+            'What evidence supports your answer?',
+            'What safety or quality rule matters?',
+            'What would you improve next time?',
+        ];
+    }
+
+    const sourceItems = studentFacingContentFromItems([
+        ...step.sourceEvidence,
+        ...step.keyPoints,
+        step.studentAction,
+    ], 5);
+    return sourceItems.length > 0 ? sourceItems : studentFacingContentFromItems([
+        step.slidePurpose,
+        step.studentAction,
+    ], 5);
+}
+
+function shouldReplaceWeakVisibleSlideContent(slide: Slide): boolean {
+    const content = Array.isArray(slide.content) ? slide.content : [];
+    if (isPlaceholderSlideTitle(slide.title) || isBadTitleSourceCandidate(slide.title)) return true;
+    if (content.some((item) => OBJECTIVE_INTRO_VISIBLE_PATTERN.test(item))) return true;
+    if (content.some(isGenericSuccessCriterion)) return true;
+    if (content.length <= 2 && content.join(' ').length < 220) return true;
+    return false;
+}
+
+function strengthenSlideWithOutlineStep(
+    slide: Slide,
+    step: PresentationOutlineStep | null,
+    artifactType: LessonArtifactType,
+    context: SlideRepairContext = {},
+): Slide {
+    if (!step) return slide;
+
+    const title = (isPlaceholderSlideTitle(slide.title) || isBadTitleSourceCandidate(slide.title))
+        ? buildStudentFacingTitleForOutlineStep(step, artifactType, context)
+        : slide.title;
+    const content = shouldReplaceWeakVisibleSlideContent(slide)
+        ? buildStudentFacingContentForOutlineStep(step, artifactType, context)
+        : studentFacingContentFromItems(slide.content || [], 6);
+
+    return {
+        ...slide,
+        title,
+        content: content.length > 0 ? content : slide.content,
+    };
+}
+
+function slideTextForSourceMatching(slide: Slide): string {
+    return [
+        slide.title,
+        ...(Array.isArray(slide.content) ? slide.content : []),
+        slide.speakerNotes,
+        ...(slide.sourceEvidence || []),
+        ...(slide.sourceRefs || []),
+    ].filter(Boolean).join(' ');
+}
+
+function findBestOutlineStepForSlide(
+    slide: Slide,
+    steps: PresentationOutlineStep[],
+    usedStepIndexes: Set<number>,
+): { step: PresentationOutlineStep; index: number } | null {
+    const slideText = normalizeSourceText(slideTextForSourceMatching(slide));
+    const scored = steps
+        .map((step, index) => {
+            if (usedStepIndexes.has(index)) return null;
+            const stepText = [
+                step.section,
+                step.slideTitle,
+                step.slidePurpose,
+                ...step.sourceEvidence,
+                ...step.keyPoints,
+            ].join(' ');
+            const terms = extractImportantTerms(stepText, 8);
+            const hits = terms.filter((term) => slideText.includes(term)).length;
+            const titleHit = normalizeSourceText(step.slideTitle)
+                ? slideText.includes(normalizeSourceText(step.slideTitle)) ? 2 : 0
+                : 0;
+            return { step, index, score: hits + titleHit };
+        })
+        .filter((value): value is { step: PresentationOutlineStep; index: number; score: number } => Boolean(value))
+        .sort((a, b) => b.score - a.score);
+
+    return scored[0] && scored[0].score >= 2
+        ? { step: scored[0].step, index: scored[0].index }
+        : null;
+}
+
+function bindSlidesToPresentationOutline(slides: Slide[], outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
+    const steps = getInstructionalOutlineSteps(outline);
+    const usedStepIndexes = new Set<number>();
+    let sequentialStepIndex = 0;
+
+    return slides.map((slide, slideIndex) => {
+        if (slideIndex === 0) {
+            const sourceEvidence = mergeUniqueStrings(slide.sourceEvidence, outline.learningTarget, outline.sourceSummary).slice(0, 6);
+            return {
+                ...slide,
+                sourceEvidence,
+                sourceRefs: mergeUniqueStrings(slide.sourceRefs, `${outline.unitLabel || context.unitLabel || 'Session'} ${outline.unitNumber || context.dayNumber || 1} title/context`).slice(0, 4),
+                lessonArtifactType: normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)),
+            };
+        }
+
+        const slideText = slideTextForSourceMatching(slide);
+        const isRouteMap = normalizeLessonArtifactType(slide.lessonArtifactType, slideText) === 'route_map';
+        if (isRouteMap) {
+            return {
+                ...slide,
+                sourceEvidence: mergeUniqueStrings(slide.sourceEvidence, outline.sourceSummary, ...steps.flatMap(getOutlineStepEvidence)).slice(0, 8),
+                sourceRefs: mergeUniqueStrings(slide.sourceRefs, steps.map(getOutlineStepSourceRef)).slice(0, 10),
+                lessonArtifactType: 'route_map',
+                imagePrompt: '',
+                imageStyle: 'none',
+            };
+        }
+
+        const matched = findBestOutlineStepForSlide(slide, steps, usedStepIndexes)
+            || (sequentialStepIndex < steps.length
+                ? { step: steps[sequentialStepIndex], index: sequentialStepIndex }
+                : null);
+        if (matched) {
+            usedStepIndexes.add(matched.index);
+            sequentialStepIndex = Math.max(sequentialStepIndex, matched.index + 1);
+        }
+
+        const matchedEvidence = matched ? getOutlineStepEvidence(matched.step) : [];
+        const matchedRefs = matched ? [getOutlineStepSourceRef(matched.step, matched.index)] : [];
+        const sourceEvidence = mergeUniqueStrings(slide.sourceEvidence, matchedEvidence).slice(0, 6);
+        const sourceRefs = mergeUniqueStrings(slide.sourceRefs, matchedRefs).slice(0, 4);
+        const artifactText = [
+            slideText,
+            ...sourceEvidence,
+            ...sourceRefs,
+        ].join(' ');
+        const lessonArtifactType = normalizeLessonArtifactType(slide.lessonArtifactType, artifactText);
+
+        return strengthenSlideWithOutlineStep({
+            ...slide,
+            sourceEvidence,
+            sourceRefs,
+            lessonArtifactType,
+        }, matched?.step || null, lessonArtifactType, context);
+    });
+}
+
+function isSourceRouteMapSlide(slide: Slide): boolean {
+    const title = normalizeSourceText(slide.title);
+    return normalizeLessonArtifactType(slide.lessonArtifactType, slideTextForSourceMatching(slide)) === 'route_map'
+        && /\b(?:route\s+map|learning\s+route|source\s+flow|lesson\s+flow|session\s+flow)\b/i.test(title)
+        && mergeUniqueStrings(slide.sourceRefs, slide.sourceEvidence).length >= 2;
+}
+
+function ensureSourceRouteMapSlide(slides: Slide[], outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
+    const routeMap = buildSourceRouteMapSlide(outline, context);
+    if (!routeMap || slides.length === 0) return slides;
+
+    const hasRouteMap = slides.slice(0, 4).some(isSourceRouteMapSlide);
+    if (hasRouteMap) return slides;
+
+    return [slides[0], routeMap, ...slides.slice(1)];
+}
+
+function prepareSourceAlignedSlides(slides: Slide[], outline: PresentationOutline, context: SlideRepairContext = {}): Slide[] {
+    return bindSlidesToPresentationOutline(
+        ensureSourceRouteMapSlide(slides, outline, context),
+        outline,
+        context,
+    );
 }
 
 const PRESENTATION_OUTLINE_RESPONSE_SCHEMA = {
@@ -1471,6 +2577,16 @@ async function createK12PresentationOutline(params: {
         - Focus: ${day.focus}
         `
         : '';
+    const sourceDetailsContext = day
+        ? `
+        **EXTRACTED ${unitLabel.toUpperCase()} ${unitNumber} SOURCE MAP:**
+        - Source objective/target: ${day.sourceObjective || day.sourceSummary || 'Not explicitly extracted.'}
+        - Ordered source flow: ${(day.sourceFlow || []).join(' | ') || 'Use the selected source extract order.'}
+        - Materials/resources: ${(day.sourceMaterials || []).join(' | ') || 'Use only materials explicitly named in the selected source extract.'}
+        - Assessment/check: ${day.sourceAssessment || 'Use only assessment details explicitly named in the selected source extract.'}
+        - Expected output/artifact: ${day.sourceOutput || 'Use only output details explicitly named in the selected source extract.'}
+        `
+        : '';
 
     const prompt = `
         You are a senior K-12 instructional designer. Create the PRESENTATION OUTLINE ONLY.
@@ -1484,6 +2600,7 @@ async function createK12PresentationOutline(params: {
         ${outlineRepairInstruction(alignmentIssues)}
         ${blueprintContext}
         ${dayContext}
+        ${sourceDetailsContext}
 
         **BINDING LESSON-PLAN SOURCE (${sourceLabel}):**
         This is the source of truth. Extract the teaching flow, materials, prompts, student tasks, assessment, assignment, and output requirements from this source. Preserve the order used by the lesson plan.
@@ -1499,6 +2616,8 @@ async function createK12PresentationOutline(params: {
 
         **OUTLINE RULES:**
         - The outline is the binding bridge between lesson plan and slide deck.
+        - Treat the extracted source map as a concise guide to the selected ${unitLabel.toLowerCase()} only. If it conflicts with the source extract, the source extract wins.
+        - Preserve the extracted source flow in order. Use it to decide slide sequence, sourceEvidence, teacherMove, studentAction, assessmentCue, and visualIntent.
         - Add one first \`flow\` item for the title/context slide. Its visible title should be the week topic or lesson name, not merely "${unitLabel} ${unitNumber}". Its key points should narrow to the selected ${unitLabel.toLowerCase()} focus plus subject, grade, week/term, or session context when available.
         - After the title/context item, every \`flow\` item must come from the selected lesson-plan source in the same order the teacher would teach it.
         - Treat the selected source block as an ordered session script. If it has row labels, headings, or table sections, walk them top-to-bottom and convert only the source-backed teaching steps into outline items.
@@ -1511,6 +2630,8 @@ async function createK12PresentationOutline(params: {
         - Make \`keyPoints\` concise. They are planning notes, not final slide bullets.
         - Make \`teacherMove\`, \`studentAction\`, and \`assessmentCue\` practical enough for speaker notes.
         - Make \`visualIntent\` concrete and source-specific. Name the exact object, material, setup, process, expected output, misconception, or real-world setting the image should show.
+        - If the source names a card, slip, organizer, checklist, board, map, chart, table, sentence frame, answer frame, or reflection frame, plan it as an editable classroom artifact in slide content first. Its \`visualIntent\` must be "No visual needed" unless the lesson requires a real subject/process photo rather than the classroom material itself.
+        - If the source mentions fictional situations, scenario cards, or task cards but does not provide the full text, create short safe classroom examples that directly match the session focus and list them in sourceEvidence/keyPoints so the final deck is usable.
         - If the best visual would only be a teacher, students, group work, writing, worksheet, or classroom board, set \`visualIntent\` to "No visual needed" instead of describing a generic classroom photo.
         - Clean awkward source wording into natural classroom language, but keep the meaning and required task intact.
 
@@ -1620,8 +2741,22 @@ export async function createK12LessonBlueprint(content: string, format: string, 
 }
 
 
+export type K12SessionGenerationMilestone =
+    | 'outline-start'
+    | 'outline-draft-ready'
+    | 'outline-repair-start'
+    | 'outline-ready'
+    | 'slides-start'
+    | 'slides-draft-ready'
+    | 'slides-repair-start'
+    | 'slides-ready';
+
+type K12SessionGenerationOptions = {
+    onMilestone?: (milestone: K12SessionGenerationMilestone) => void;
+};
+
 // PHASE 2: SLIDE GENERATION (PER DAY)
-export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL'): Promise<Slide[]> {
+export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlueprint, originalContent: string, format: string, language: 'EN' | 'FIL', options: K12SessionGenerationOptions = {}): Promise<Slide[]> {
     const blueprintForGeneration = normalizeLessonBlueprintUnits(blueprint, inferPlanUnitInfo(originalContent), originalContent, language);
     const dayForGeneration = blueprintForGeneration.days.find((candidateDay) => candidateDay.dayNumber === day.dayNumber) || day;
     const unitLabel = getPlanUnitLabel(blueprintForGeneration);
@@ -1647,19 +2782,21 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
         - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
         - **No Visual:** For text-only slides, title-only slides, agenda slides, objective/goal slides, transition slides, summary slides, or slides where a visual would be decorative, optional, or merely nice-to-have, you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not create an image prompt just to fill a layout.
-    5.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
-    6.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
+    5.  **TEACHER-READY MATERIALS CONTRACT:** If the source names a situation card, task card, self-rating slip, organizer, checklist, decision board, rubric, map, chart, table, sentence frame, answer frame, reflection card, reflection frame, or output template, make that material visible as editable slide content and set \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not search for or generate a photo of the classroom material itself. If a fictional situation or classroom example is required but missing from the source, create a short, safe, grade-appropriate example that directly matches the session focus.
+    6.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
+    7.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
         - **Visible vs Notes:** The \`content\` array is for learner-facing slide text only: what students see, answer, sort, build, check, revise, or submit. Teacher-only directions such as "Teacher checks draft artifact against criteria", "Teacher models...", "circulate", "collect", or "sort support needs" must go in \`speakerNotes\`, not visible slide bullets.
-    7.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
-    8.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
-    9.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
-    10. **CONTENT & CLARITY (CRITICAL):**
+    8.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
+    9.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
+    10. **SOURCE TRACEABILITY (MANDATORY):** Every slide after the title/context slide must include \`sourceEvidence\`: 1-4 short strings copied or tightly paraphrased from the matching presentation outline/source extract. If the slide is a classroom artifact, include \`artifactType\` using one of: "self_check_slip", "scenario_card", "response_table", "decision_board", "reflection_card", "rubric_checklist", "source_step", or "none".
+    11. **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
+    12. **CONTENT & CLARITY (CRITICAL):**
         - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
         - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of volcanoes), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
         - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs.
         - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
         - **Complete Lists:** Never output an empty numbered item, empty answer option, or placeholder-only bullet. If the source has only three assessment items, show three items and do not write "4.".
-    11. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the selected lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
+    13. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the selected lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
     `;
     
     const flowReference = getK12FlowReference(format);
@@ -1667,6 +2804,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
     let presentationOutline: PresentationOutline | null = null;
 
     for (let attempt = 0; attempt <= MAX_ALIGNMENT_REPAIR_ATTEMPTS; attempt += 1) {
+        options.onMilestone?.(attempt === 0 ? 'outline-start' : 'outline-repair-start');
         presentationOutline = await createK12PresentationOutline({
             sourceLabel: `${unitLabel} ${day.dayNumber} source extract`,
             sourceText: sourceBlock.text,
@@ -1682,6 +2820,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
             day: dayForGeneration,
             alignmentIssues: outlineIssues,
         });
+        options.onMilestone?.('outline-draft-ready');
         outlineIssues = validatePresentationOutlineAlignment(presentationOutline, sourceBlock, normalizedUnitLabel, dayForGeneration);
 
         if (outlineIssues.length === 0 || attempt === MAX_ALIGNMENT_REPAIR_ATTEMPTS) {
@@ -1692,6 +2831,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                     issues: outlineIssues,
                 });
             }
+            options.onMilestone?.('outline-ready');
             break;
         }
     }
@@ -1719,6 +2859,11 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         **TODAY'S FOCUS (${unitLabel.toUpperCase()} ${day.dayNumber}):**
         - Title: ${dayForGeneration.title}
         - Focus: ${dayForGeneration.focus}
+        - Source objective/target: ${dayForGeneration.sourceObjective || dayForGeneration.sourceSummary || 'Use the selected source extract.'}
+        - Ordered source flow: ${(dayForGeneration.sourceFlow || []).join(' | ') || 'Use the selected source extract order.'}
+        - Materials/resources: ${(dayForGeneration.sourceMaterials || []).join(' | ') || 'Use only source-named materials.'}
+        - Assessment/check: ${dayForGeneration.sourceAssessment || 'Use only source-named assessment details.'}
+        - Expected output/artifact: ${dayForGeneration.sourceOutput || 'Use only source-named output details.'}
 
         **SELECTED ${unitLabel.toUpperCase()} ${day.dayNumber} SOURCE EXTRACT (${sourceBlock.strategy.toUpperCase()} MATCH):**
         ${sourceBlock.found
@@ -1767,7 +2912,9 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                         content: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
                         speakerNotes: { type: JSON_SCHEMA.STRING },
                         imagePrompt: { type: JSON_SCHEMA.STRING },
-                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] }
+                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] },
+                        sourceEvidence: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                        artifactType: { type: JSON_SCHEMA.STRING }
                     },
                     required: ["title", "content", "speakerNotes", "imagePrompt", "imageStyle"] 
                 }
@@ -1788,18 +2935,23 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                 // Removed tools because Gemini does not support tool use with JSON mime responses
             },
         });
-        const data = parseJsonModelResponse<{ slides: Slide[] }>(response.text, `day ${day.dayNumber} slide generation`);
-        const slides = repairGeneratedSlidesForClassroomUse(data.slides.map((s: any) => ({
-            ...s,
-            content: cleanSlideContent(s.content),
-        })), {
+        const data = parseJsonModelResponse<unknown>(response.text, `day ${day.dayNumber} slide generation`);
+        const repairContext = {
             topicTitle,
             unitLabel,
             dayNumber: day.dayNumber,
             focus: dayForGeneration.focus || dayForGeneration.title,
             subject: blueprintForGeneration.subject,
             gradeLevel: blueprintForGeneration.gradeLevel,
-        });
+        };
+        const generatedSlides = normalizeGeneratedSlidesPayload(data, `day ${day.dayNumber} slide generation`);
+        const repairedSlides = repairGeneratedSlidesForClassroomUse(
+            generatedSlides.length > 0
+                ? generatedSlides
+                : buildSlidesFromPresentationOutlineFallback(boundPresentationOutline, repairContext),
+            repairContext,
+        );
+        const slides = prepareSourceAlignedSlides(repairedSlides, boundPresentationOutline, repairContext);
 
         return { slides, groundingChunks: response.groundingChunks };
     };
@@ -1808,7 +2960,9 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         let alignmentIssues: SessionAlignmentIssue[] = [];
 
         for (let attempt = 0; attempt <= MAX_ALIGNMENT_REPAIR_ATTEMPTS; attempt += 1) {
+            options.onMilestone?.(attempt === 0 ? 'slides-start' : 'slides-repair-start');
             const { slides, groundingChunks } = await requestSlides(buildPrompt(alignmentIssues));
+            options.onMilestone?.('slides-draft-ready');
             alignmentIssues = validateGeneratedSessionAlignment(slides, sourceBlock, normalizedUnitLabel, dayForGeneration, boundPresentationOutline);
 
             if (alignmentIssues.length === 0 || attempt === MAX_ALIGNMENT_REPAIR_ATTEMPTS) {
@@ -1820,6 +2974,7 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
                     });
                 }
                 appendGroundingSources(slides, groundingChunks);
+                options.onMilestone?.('slides-ready');
                 return slides;
             }
         }
@@ -1890,19 +3045,21 @@ export async function generateK12SingleLessonSlides(content: string, format: str
             - **Example:** For a slide on "Homogeneous Mixtures," a GOOD prompt is: "A clear glass beaker of water with salt crystals dissolving and disappearing into it." A BAD prompt is: "A glass of water."
             - **Style:** Select a suitable \`imageStyle\` from ["photorealistic", "infographic", "illustration", "diagram", "historical photo"].
             - **No Visual:** For text-only slides, title-only slides, agenda slides, objective/goal slides, transition slides, summary slides, or slides where a visual would be decorative, optional, or merely nice-to-have, you MUST use \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not create an image prompt just to fill a layout.
-        5.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
-        6.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
+        5.  **TEACHER-READY MATERIALS CONTRACT:** If the source names a situation card, task card, self-rating slip, organizer, checklist, decision board, rubric, map, chart, table, sentence frame, answer frame, reflection card, reflection frame, or output template, make that material visible as editable slide content and set \`"imagePrompt": ""\` and \`"imageStyle": "none"\`. Do not search for or generate a photo of the classroom material itself. If a fictional situation or classroom example is required but missing from the source, create a short, safe, grade-appropriate example that directly matches the lesson focus.
+        6.  **NO TEXT INSIDE GENERATED IMAGES (MANDATORY):** Do NOT request any words, labels, letters, numbers, or captions to appear inside generated images, including diagrams and infographics. If labels are needed for teaching, place them in slide content and speaker notes only; they will be added manually as editable overlays in the app.
+        7.  **SPEAKER NOTES (ESSENTIAL):** For EACH slide, provide practical, actionable speaker notes with: teacher move, student action, evidence to collect, and one misconception or check-for-understanding when relevant.
             - **Visible vs Notes:** The \`content\` array is for learner-facing slide text only: what students see, answer, sort, build, check, revise, or submit. Teacher-only directions such as "Teacher checks draft artifact against criteria", "Teacher models...", "circulate", "collect", or "sort support needs" must go in \`speakerNotes\`, not visible slide bullets.
-        7.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
-        8.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
-        9.  **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
-        10. **CONTENT & CLARITY (CRITICAL):**
+        8.  **CLASSROOM-READY FLOW:** Use concrete teacher-use slide types only when they fit the source lesson: Do Now/Hook, Think-Pair-Share, Teacher Demo, Group Task, Guided Model, Misconception Check, Exit Ticket, and Homework/Home Connection. Do not make every slide the same bullet-summary format.
+        9.  **SOURCE DETAIL FIDELITY:** Pull exact materials, questions, examples, expected outputs, assessment criteria, and extended-learning details from the uploaded plan when available. Do not replace specific lesson-plan details with generic summaries.
+        10. **SOURCE TRACEABILITY (MANDATORY):** Every slide after the title/context slide must include \`sourceEvidence\`: 1-4 short strings copied or tightly paraphrased from the matching presentation outline/source extract. If the slide is a classroom artifact, include \`artifactType\` using one of: "self_check_slip", "scenario_card", "response_table", "decision_board", "reflection_card", "rubric_checklist", "source_step", or "none".
+        11. **PEDAGOGICAL ALIGNMENT & TITLES:** The slide sequence must follow the presentation outline, which is source-derived. Use **${format}** section names only when they accurately describe a source step. Slide titles must be creative and directly reflect the content, NOT generic section names.
+        12. **CONTENT & CLARITY (CRITICAL):**
             - **Avoid Overcrowding (STRICT RULE):** Your primary goal is readability and clarity. A single slide should NEVER be a wall of text. As a strict rule, if a topic requires more than 5-6 bullet points or a few short sentences, you MUST split it into multiple, logically sequenced slides. This is not optional. Use clear follow-up titles (e.g., "Topic (Continued)" or a specific sub-topic title).
             - **Decompose Lists:** When a slide introduces multiple distinct concepts (e.g., three types of rocks), create a separate slide for each concept and provide a unique, relevant \`imagePrompt\`.
             - **Brevity:** Use clear, student-facing language in bullet points. Avoid long paragraphs. Use markdown bolding (\`**term**\`) for key terminology.
             - **Line Separation:** Every bullet point or list item MUST be a separate string in the 'content' array.
             - **Complete Lists:** Never output an empty numbered item, empty answer option, or placeholder-only bullet. If the source has only three assessment items, show three items and do not write "4.".
-        11. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
+        13. **CLOSING SOURCE STEP:** The final slide must represent the final source-backed step in the lesson flow, such as assessment, expected output, reflection, assignment, or handoff. Do not invent a summary or assignment if the source does not provide one.
 
         **OUTPUT (JSON FORMAT ONLY):**
         Return a single JSON object. Do not add any extra text.
@@ -1921,7 +3078,9 @@ export async function generateK12SingleLessonSlides(content: string, format: str
                         content: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
                         speakerNotes: { type: JSON_SCHEMA.STRING },
                         imagePrompt: { type: JSON_SCHEMA.STRING },
-                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] }
+                        imageStyle: { type: JSON_SCHEMA.STRING, enum: ["photorealistic", "infographic", "illustration", "diagram", "historical photo", "none"] },
+                        sourceEvidence: { type: JSON_SCHEMA.ARRAY, items: { type: JSON_SCHEMA.STRING } },
+                        artifactType: { type: JSON_SCHEMA.STRING }
                     },
                     required: ["title", "content", "speakerNotes", "imagePrompt", "imageStyle"]
                 }
@@ -1942,20 +3101,28 @@ export async function generateK12SingleLessonSlides(content: string, format: str
             // No tools when using JSON mime; tools cause unsupported mime errors
         },
     });
-    const data = parseJsonModelResponse<{ title: string; slides: Slide[] }>(response.text, 'single lesson generation');
-    const topicTitle = extractSourceTopicTitle(sourceText, data.title || presentationOutline.title);
-    const slides = repairGeneratedSlidesForClassroomUse(data.slides.map((s: any) => ({
-         ...s,
-         content: cleanSlideContent(s.content),
-    })), {
+    const data = parseJsonModelResponse<Record<string, unknown>>(response.text, 'single lesson generation');
+    const dataTitle = normalizeGeneratedString(data.title, presentationOutline.title);
+    const topicTitle = extractSourceTopicTitle(sourceText, dataTitle || presentationOutline.title);
+    const repairContext = {
         topicTitle,
         unitLabel: 'Lesson',
         dayNumber: 1,
-    });
+        subject: extractSourceSubject(sourceText),
+        gradeLevel: extractSourceGradeLevel(sourceText),
+    };
+    const generatedSlides = normalizeGeneratedSlidesPayload(data, 'single lesson generation');
+    const repairedSlides = repairGeneratedSlidesForClassroomUse(
+        generatedSlides.length > 0
+            ? generatedSlides
+            : buildSlidesFromPresentationOutlineFallback(presentationOutline, repairContext),
+        repairContext,
+    );
+    const slides = prepareSourceAlignedSlides(repairedSlides, presentationOutline, repairContext);
     appendGroundingSources(slides, response.groundingChunks);
 
     return {
-        title: topicTitle || data.title,
+        title: topicTitle || dataTitle,
         slides: slides
     };
 }
@@ -2044,15 +3211,12 @@ export async function generateCollegeLectureSlides(topic: string, objectives: st
             // Removed tools because Gemini does not support tool use with JSON mime responses
         },
     });
-    const data = parseJsonModelResponse<{ title: string; slides: Slide[] }>(response.text, 'college lecture generation');
-    const slides = data.slides.map((s: any) => ({
-         ...s,
-         content: cleanSlideContent(s.content),
-    }));
+    const data = parseJsonModelResponse<Record<string, unknown>>(response.text, 'college lecture generation');
+    const slides = requireGeneratedSlides(data, 'college lecture generation');
     appendGroundingSources(slides, response.groundingChunks);
 
     return {
-        title: data.title,
+        title: normalizeGeneratedString(data.title, topic),
         slides: slides
     };
 }

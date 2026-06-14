@@ -41,35 +41,69 @@ type PexelsSearchResponse = {
 type PexelsSearchPlan = {
   query: string;
   requiredTerms: string[];
+  anchorTerms: string[];
+  supportTerms: string[];
   selectionSeed: string;
+};
+
+type PexelsPhotoScore = {
+  score: number;
+  matchedAnchorTerms: string[];
+  matchedSupportTerms: string[];
+  matchedRequiredTerms: string[];
 };
 
 const PEXELS_SEARCH_URL = 'https://api.pexels.com/v1/search';
 const PEXELS_MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const PEXELS_SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const PEXELS_TIMEOUT_MS = 8_000;
-const PEXELS_CACHE_VERSION = 'pexels-selection-v3';
+const PEXELS_CACHE_VERSION = 'pexels-selection-v6';
 const PEXELS_SEARCH_TERM_STOPWORDS = new Set([
-  'able', 'about', 'accurate', 'activity', 'against', 'artifact', 'background', 'class', 'classroom',
-  'area', 'areas', 'clear', 'concept', 'content', 'criteria', 'criterion', 'decorative', 'depict',
-  'draft', 'education', 'educational', 'evidence', 'example', 'focus', 'generic', 'grade', 'group',
-  'groups', 'high', 'image', 'instructional', 'key',
-  'lesson', 'learning', 'learners', 'material', 'materials', 'notebook', 'output', 'photo',
-  'photorealistic', 'picture', 'professional', 'question', 'questions', 'realistic', 'resolution',
-  'school', 'session', 'slide', 'specific', 'student', 'students', 'subject', 'teacher', 'teaching',
-  'work', 'worksheet', 'worksheets', 'write', 'writing',
+    'able', 'about', 'accurate', 'activity', 'against', 'artifact', 'background', 'class', 'classroom',
+    'area', 'areas', 'clear', 'concept', 'content', 'criteria', 'criterion', 'decorative', 'depict',
+    'card', 'cards', 'draft', 'education', 'educational', 'evidence', 'example', 'focus', 'generic', 'grade', 'group',
+    'environment', 'environmental', 'focused', 'groups', 'high', 'image', 'instructional', 'key',
+    'lesson', 'learning', 'learners', 'material', 'materials', 'notebook', 'output', 'photo',
+    'photorealistic', 'picture', 'professional', 'quality', 'question', 'questions', 'realistic', 'resolution',
+    'role', 'roles', 'school', 'session', 'sheet', 'sheets', 'slide', 'specific', 'student', 'students',
+    'subject', 'table', 'tables', 'teacher', 'teaching',
+    'management', 'work', 'worksheet', 'worksheets', 'write', 'writing',
 ]);
 const PEXELS_TERM_SYNONYMS: Record<string, string[]> = {
+  brooder: ['brooder', 'brooding', 'heat lamp', 'chick brooder'],
+  drainage: ['drainage', 'drain', 'drains', 'gutter'],
+  drinker: ['drinker', 'drinkers', 'waterer', 'waterers', 'watering'],
+  drinkers: ['drinker', 'drinkers', 'waterer', 'waterers', 'watering'],
   equipment: ['equipment', 'tool', 'tools', 'gear'],
+  feeder: ['feeder', 'feeders', 'feeding', 'trough'],
+  feeders: ['feeder', 'feeders', 'feeding', 'trough'],
   facility: ['facility', 'facilities', 'building', 'workshop', 'farm'],
   facilities: ['facility', 'facilities', 'building', 'workshop', 'farm'],
+  fencing: ['fencing', 'fence', 'fenced'],
+  floor: ['floor', 'floors', 'flooring'],
+  floors: ['floor', 'floors', 'flooring'],
   house: ['house', 'housing', 'shed', 'shelter', 'coop'],
   housing: ['housing', 'house', 'shed', 'shelter', 'coop'],
   maintenance: ['maintenance', 'cleaning', 'repair', 'inspection'],
+  median: ['median', 'statistics', 'data'],
+  mode: ['mode', 'statistics', 'data'],
+  mean: ['mean', 'average', 'statistics', 'data'],
+  nest: ['nest', 'nests', 'nesting box', 'nest box'],
   poultry: ['poultry', 'chicken', 'chickens', 'hen', 'hens', 'coop', 'farm'],
   procedure: ['procedure', 'process', 'steps', 'sequence'],
+  roofing: ['roofing', 'roof', 'roofs'],
+  storage: ['storage', 'stored', 'supply room', 'warehouse'],
   tools: ['tool', 'tools', 'equipment'],
+  ventilation: ['ventilation', 'vent', 'vents', 'fan', 'fans'],
+  wall: ['wall', 'walls'],
+  walls: ['wall', 'walls'],
 };
+const PEXELS_GENERIC_CLASSROOM_PATTERN = /\b(?:classroom|teacher|teachers|student|students|school|education|books|notebook|writing|lecture|seminar)\b/i;
+const PEXELS_ARTIFACT_ONLY_TERMS = new Set([
+  'activity', 'card', 'cards', 'checklist', 'criteria', 'evidence', 'group', 'groups', 'material',
+  'materials', 'output', 'procedure', 'quality', 'role', 'roles', 'sheet', 'sheets', 'table',
+  'tables', 'task', 'worksheet', 'worksheets',
+]);
 
 function pexelsApiKey(): string {
   return process.env.PEXELS_API_KEY?.trim() || '';
@@ -113,6 +147,17 @@ function extractSpecificSearchTerms(value: string | undefined, maxTerms = 12): s
   return terms.slice(0, maxTerms);
 }
 
+function uniqueTerms(...termGroups: string[][]): string[] {
+  const seen = new Set<string>();
+  const terms: string[] = [];
+  termGroups.flat().forEach((term) => {
+    if (!term || seen.has(term)) return;
+    seen.add(term);
+    terms.push(term);
+  });
+  return terms;
+}
+
 function extractDepictedSubject(prompt: string): string {
   const match = prompt.match(/The image should depict:\s*"([^"]+)"/i);
   return normalizeText(match?.[1] || prompt)
@@ -152,20 +197,27 @@ function buildPexelsSearchPlan(prompt: string, metadata: ImageSemanticMetadata |
   const planUnitTitle = normalizeText(metadata?.planUnitTitle);
   const promptSubject = extractDepictedSubject(prompt);
   const roleTerm = roleSearchTerm(metadata?.slideTemplate || metadata?.visualRole || '');
-  const specificTerms = extractSpecificSearchTerms([
-    promptSubject,
-    anchor,
-    planUnitTitle,
-    topic,
-    competency,
-    subject,
-  ].filter(Boolean).join(' '), 10);
+  const anchorTerms = uniqueTerms(
+    extractSpecificSearchTerms(promptSubject, 8),
+    extractSpecificSearchTerms(anchor, 6),
+    extractSpecificSearchTerms(planUnitTitle, 5),
+  ).slice(0, 10);
+  const supportTerms = uniqueTerms(
+    extractSpecificSearchTerms(topic, 5),
+    extractSpecificSearchTerms(competency, 5),
+    extractSpecificSearchTerms(subject, 4),
+  ).filter((term) => !anchorTerms.includes(term)).slice(0, 8);
+  const specificTerms = uniqueTerms(anchorTerms, supportTerms).slice(0, 10);
 
-  if (specificTerms.length < 2) return null;
+  if (anchorTerms.length < 1 || specificTerms.length < 2) return null;
 
+  const queryTerms = uniqueTerms(
+    anchorTerms.slice(0, 7),
+    supportTerms.slice(0, 2),
+  );
   const isGenericRoleTerm = /\b(?:classroom|students?|teacher|education|school|books?)\b/i.test(roleTerm);
   const query = [
-    specificTerms.slice(0, 8).join(' '),
+    queryTerms.join(' '),
     !isGenericRoleTerm ? roleTerm : '',
   ]
     .filter(Boolean)
@@ -178,7 +230,9 @@ function buildPexelsSearchPlan(prompt: string, metadata: ImageSemanticMetadata |
 
   return {
     query,
-    requiredTerms: specificTerms.slice(0, 6),
+    requiredTerms: specificTerms.slice(0, 8),
+    anchorTerms: anchorTerms.slice(0, 6),
+    supportTerms: supportTerms.slice(0, 6),
     selectionSeed: [
       query,
       promptSubject,
@@ -225,14 +279,57 @@ function expandPhotoMatchTerms(term: string): string[] {
   return Array.from(new Set([term, plural, ...synonyms].filter((candidate) => candidate.length >= 4)));
 }
 
-function scorePhotoSubjectMatch(photo: PexelsPhoto, requiredTerms: string[]): number {
-  const haystack = normalizeSearchText(`${photo.alt || ''} ${photo.url || ''}`);
-  if (!haystack) return 0;
+function photoMatchesTerm(haystack: string, term: string): boolean {
+  return expandPhotoMatchTerms(term).some((candidate) => haystack.includes(candidate));
+}
 
-  return requiredTerms.reduce((score, term) => {
-    const matchesTerm = expandPhotoMatchTerms(term).some((candidate) => haystack.includes(candidate));
-    return score + (matchesTerm ? 1 : 0);
-  }, 0);
+function matchedPhotoTerms(haystack: string, terms: string[]): string[] {
+  return terms.filter((term) => photoMatchesTerm(haystack, term));
+}
+
+function hasEnoughPhotoSubjectEvidence(score: PexelsPhotoScore, plan: PexelsSearchPlan): boolean {
+  const matchedTerms = uniqueTerms(
+    score.matchedAnchorTerms,
+    score.matchedSupportTerms,
+    score.matchedRequiredTerms,
+  );
+  const subjectTerms = matchedTerms.filter((term) => !PEXELS_ARTIFACT_ONLY_TERMS.has(term));
+  if (subjectTerms.length === 0) return false;
+
+  if (score.matchedAnchorTerms.some((term) => subjectTerms.includes(term))) return true;
+  if (score.matchedAnchorTerms.length >= 2) return true;
+  if (score.matchedAnchorTerms.length >= 1 && score.matchedSupportTerms.length >= 1) return true;
+
+  return plan.anchorTerms.length <= 1
+    && score.matchedAnchorTerms.length >= 1
+    && score.matchedRequiredTerms.length >= 2;
+}
+
+function scorePhotoSubjectMatch(photo: PexelsPhoto, plan: PexelsSearchPlan): PexelsPhotoScore {
+  const haystack = normalizeSearchText(`${photo.alt || ''} ${photo.url || ''}`);
+  if (!haystack) {
+    return {
+      score: 0,
+      matchedAnchorTerms: [],
+      matchedSupportTerms: [],
+      matchedRequiredTerms: [],
+    };
+  }
+
+  const matchedAnchorTerms = matchedPhotoTerms(haystack, plan.anchorTerms);
+  const matchedSupportTerms = matchedPhotoTerms(haystack, plan.supportTerms);
+  const matchedRequiredTerms = matchedPhotoTerms(haystack, plan.requiredTerms);
+  const genericPenalty = PEXELS_GENERIC_CLASSROOM_PATTERN.test(haystack) ? 2 : 0;
+
+  return {
+    score: (matchedAnchorTerms.length * 5)
+      + (matchedSupportTerms.length * 2)
+      + matchedRequiredTerms.length
+      - genericPenalty,
+    matchedAnchorTerms,
+    matchedSupportTerms,
+    matchedRequiredTerms,
+  };
 }
 
 function pickPhoto(photos: PexelsPhoto[], plan: PexelsSearchPlan): PexelsPhoto | null {
@@ -242,16 +339,16 @@ function pickPhoto(photos: PexelsPhoto[], plan: PexelsSearchPlan): PexelsPhoto |
   const scoredCandidates = candidates
     .map((photo) => ({
       photo,
-      score: scorePhotoSubjectMatch(photo, plan.requiredTerms),
+      subjectScore: scorePhotoSubjectMatch(photo, plan),
     }))
-    .filter((candidate) => candidate.score > 0)
-    .sort((a, b) => b.score - a.score || b.photo.width - a.photo.width);
+    .filter((candidate) => candidate.subjectScore.score > 0 && hasEnoughPhotoSubjectEvidence(candidate.subjectScore, plan))
+    .sort((a, b) => b.subjectScore.score - a.subjectScore.score || b.photo.width - a.photo.width);
 
   if (scoredCandidates.length === 0) return null;
 
-  const bestScore = scoredCandidates[0].score;
+  const bestScore = scoredCandidates[0].subjectScore.score;
   const relevantCandidates = scoredCandidates
-    .filter((candidate) => candidate.score === bestScore)
+    .filter((candidate) => candidate.subjectScore.score === bestScore)
     .slice(0, Math.min(scoredCandidates.length, 8));
   const selected = relevantCandidates[hashString(plan.selectionSeed) % relevantCandidates.length];
   return selected?.photo || relevantCandidates[0]?.photo || null;
@@ -291,7 +388,14 @@ export async function getPexelsImageForPrompt(input: {
     const payload = await searchResponse.json() as PexelsSearchResponse;
     const photo = pickPhoto(Array.isArray(payload.photos) ? payload.photos : [], searchPlan);
     const imageUrl = photo?.src?.large;
-    if (!photo || !imageUrl) return null;
+    if (!photo || !imageUrl) {
+      console.info('Pexels image fallback skipped because no photo matched the slide-specific terms.', {
+        query: searchPlan.query,
+        anchorTerms: searchPlan.anchorTerms,
+        supportTerms: searchPlan.supportTerms,
+      });
+      return null;
+    }
 
     const imageResponse = await fetchWithTimeout(imageUrl, {
       headers: {
