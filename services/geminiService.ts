@@ -486,6 +486,11 @@ type PlanUnitSourceBlock = {
     keyTerms: string[];
 };
 
+type PlanUnitSourceDetails = Pick<
+    DayPlan,
+    'sourceSummary' | 'sourceObjective' | 'sourceFlow' | 'sourceMaterials' | 'sourceAssessment' | 'sourceOutput'
+>;
+
 type SessionAlignmentIssue = {
     code: string;
     message: string;
@@ -578,6 +583,14 @@ const PLAN_UNIT_OBJECTIVE_ACTION_PATTERN = /\b(?:determine|identify|describe|exp
 const PLAN_UNIT_OBJECTIVE_LEARNER_SIGNAL_PATTERN = /\b(?:(?:students?|learners?|pupils?)\s+(?:will|should|can|shall|must|are\s+able\s+to|be\s+able\s+to|are\s+expected\s+to(?:\s+be\s+able\s+to)?)|(?:mga\s+)?mag-aaral\s+(?:ay\s+)?(?:inaasahang|maaaring|makakaya(?:ng)?|dapat))\b/i;
 const PLAN_UNIT_STANDARD_LABEL_PATTERN = /\b(?:content\s+standard|performance\s+standard|pamantayang\s+pangnilalaman|pamantayan\s+sa\s+pagganap)\b/i;
 const PLAN_UNIT_FOCUS_SCAFFOLD_PATTERN = /\b(?:what\s+task,?\s+activity,?\s+or\s+questions\s+can\s+i\s+use|what\s+can\s+we\s+do\s+together\s+so\s+that\s+learners|what\s+kind\s+of\s+questions\s+will\s+check|assessment\s+reveal|ways\s+forward|meaningful\s+learning\s+can\s+also\s+happen|learning\s+experience\s+is\s+like\s+a\s+thoughtfully\s+designed\s+journey|what\s+can\s+i\s+do\s+to\s+make\s+the\s+objectives?\s+clear|what\s+learning\s+resources\s+(?:do|will)\s+i\s+need|are\s+there\s+spaces\s+to\s+meaningfully\s+integrate|think\s+about\s+what\s+you\s+need\s+to\s+adjust|what\s+experiences?\s+outside\s+the\s+classroom)\b/i;
+const PLAN_UNIT_METADATA_LINE_PATTERN = /\b(?:school|teacher|date|time|duration|quarter|grade\s+level|subject|section|learning\s+area)\b/i;
+const PLAN_UNIT_FLOW_HEADING_PATTERN = /\b(?:review|motivation|pre[-\s]?activity|presentation|discussion|concept\s+development|activity|analysis|abstraction|application|generalization|evaluation|assessment|assignment|homework|reflection|closing|lesson\s+proper|guided\s+practice|independent\s+practice|engage|explore|explain|elaborate|evaluate|demo|demonstration|performance\s+task|pre[-\s]?lesson|during\s+lesson|post[-\s]?lesson)\b/i;
+const PLAN_UNIT_FLOW_ACTION_PATTERN = /\b(?:ask|answer|observe|predict|record|calculate|solve|compute|draw|construct|classify|compare|explain|analy[sz]e|discuss|demonstrate|practice|present|write|complete|identify|determine|inspect|check|sort|match|group|measure|interpret|create|revise|evaluate|submit|use|apply|describe|show|share|read|listen|gawin|sagutin|tukuyin|ilarawan|ipaliwanag|suriin|ihambing|buoin|gumawa|gamitin|isulat|ipakita)\b/i;
+const PLAN_UNIT_MATERIAL_HEADING_PATTERN = /\b(?:materials?|resources?|learning\s+resources?|tools?|equipment|facilit(?:y|ies)|supplies|worksheets?|cards?|chart|rubric|visual\s+aid|apparatus|kagamitan|sanggunian)\b/i;
+const PLAN_UNIT_ASSESSMENT_HEADING_PATTERN = /\b(?:assessment|evaluation|quiz|exit\s+(?:ticket|slip)|formative|summative|check(?:ing)?|rubric|criteria|score|pagtataya|ebalwasyon)\b/i;
+const PLAN_UNIT_OUTPUT_HEADING_PATTERN = /\b(?:output|artifact|product|performance\s+task|worksheet|table|chart|poster|report|presentation|draft|slip|card|journal|paragraph|solution|portfolio|awtput|produkto)\b/i;
+const PLAN_UNIT_SPLIT_HEADING_PATTERN = /\b(?:Learning\s+Objectives?|Objectives?|Learning\s+Targets?|Content|Learning\s+Resources?|Materials?|Review|Motivation|Presentation|Discussion|Concept\s+Development|Activity|Analysis|Abstraction|Application|Generalization|Evaluation|Assessment|Assignment|Reflection|Formative\s+Assessment|Extended\s+Learning\s+Opportunities|Opportunities\s+for\s+Integration)\b/g;
+const PLAN_UNIT_BARE_HEADING_PATTERN = /^(?:learning\s+objectives?|objectives?|learning\s+targets?|content|learning\s+resources?|materials?|review|motivation|presentation|discussion|concept\s+development|activity|analysis|abstraction|application|generalization|evaluation|assessment|formative\s+assessment|assignment|reflection|extended\s+learning\s+opportunities|opportunities\s+for\s+integration)$/i;
 
 function isPlanUnitFocusScaffoldText(value: unknown): boolean {
     const normalized = normalizeSourceText(typeof value === 'string' ? value : '');
@@ -733,6 +746,162 @@ function summarizePlanUnitSourceText(
     return '';
 }
 
+function splitPlanUnitSourceLines(sourceText: string): string[] {
+    return sourceText
+        .replace(/\t/g, '\n')
+        .replace(PLAN_UNIT_SPLIT_HEADING_PATTERN, '\n$&')
+        .split(/\r?\n/)
+        .map((line) => line.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+}
+
+function cleanPlanUnitSourceDetailLine(line: string, unitLabel: PlanUnitLabel, dayNumber: number): string {
+    const cleaned = cleanPlanUnitFocusCandidateLine(line, unitLabel, dayNumber)
+        .replace(/^(?:learners?|students?|pupils?)\s+(?:will|should|can|shall|must|are\s+able\s+to)\s+/i, '')
+        .replace(/^[\s:;,\-–—]+|[\s:;,\-–—.]+$/g, '')
+        .trim();
+    const normalized = normalizeSourceText(cleaned);
+
+    if (!cleaned || cleaned.length < 8) return '';
+    if (isGenericPlanUnitSummary(cleaned, unitLabel, dayNumber)) return '';
+    if (PLAN_UNIT_BARE_HEADING_PATTERN.test(cleaned)) return '';
+    if (PLAN_UNIT_STANDARD_LABEL_PATTERN.test(cleaned)) return '';
+    if (PLAN_UNIT_METADATA_LINE_PATTERN.test(cleaned) && cleaned.length < 80) return '';
+    if (normalized === 'not specified' || normalized === 'none' || normalized === 'n/a') return '';
+
+    return cleaned.length > 190 ? `${cleaned.slice(0, 187).trim()}...` : cleaned;
+}
+
+function uniqueSourceDetails(items: string[], maxItems: number): string[] {
+    const seen = new Set<string>();
+    const unique: string[] = [];
+
+    for (const item of items) {
+        const key = normalizeSourceText(item);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        unique.push(item);
+        if (unique.length >= maxItems) break;
+    }
+
+    return unique;
+}
+
+function extractPlanUnitDetailList(
+    sourceText: string,
+    unitLabel: PlanUnitLabel,
+    dayNumber: number,
+    headingPattern: RegExp,
+    itemPattern: RegExp,
+    maxItems: number,
+): string[] {
+    const lines = splitPlanUnitSourceLines(sourceText);
+    const candidates: string[] = [];
+    let activeDetailUntil = -1;
+
+    lines.forEach((line, index) => {
+        if (headingPattern.test(line)) {
+            activeDetailUntil = Math.max(activeDetailUntil, index + 4);
+        }
+
+        const cleaned = cleanPlanUnitSourceDetailLine(line, unitLabel, dayNumber);
+        if (!cleaned) return;
+
+        const isInActiveDetailBlock = index <= activeDetailUntil;
+        const isDirectMatch = headingPattern.test(line) || itemPattern.test(line);
+        if (!isInActiveDetailBlock && !isDirectMatch) return;
+
+        candidates.push(cleaned);
+    });
+
+    return uniqueSourceDetails(candidates, maxItems);
+}
+
+function extractPlanUnitSourceFlow(sourceText: string, unitLabel: PlanUnitLabel, dayNumber: number): string[] {
+    const candidates = splitPlanUnitSourceLines(sourceText)
+        .map((line, index) => {
+            const cleaned = cleanPlanUnitSourceDetailLine(line, unitLabel, dayNumber);
+            if (!cleaned) return null;
+
+            const hasFlowHeading = PLAN_UNIT_FLOW_HEADING_PATTERN.test(line);
+            const hasFlowAction = PLAN_UNIT_FLOW_ACTION_PATTERN.test(cleaned) || PLAN_UNIT_OBJECTIVE_ACTION_PATTERN.test(cleaned);
+            const hasAssessmentOrOutput = PLAN_UNIT_ASSESSMENT_HEADING_PATTERN.test(line) || PLAN_UNIT_OUTPUT_HEADING_PATTERN.test(line);
+            if (!hasFlowHeading && !hasFlowAction && !hasAssessmentOrOutput) return null;
+
+            const score = (hasFlowHeading ? 90 : 0)
+                + (hasFlowAction ? 70 : 0)
+                + (hasAssessmentOrOutput ? 50 : 0)
+                + Math.min(cleaned.length, 120);
+
+            return { text: cleaned, index, score };
+        })
+        .filter((candidate): candidate is { text: string; index: number; score: number } => Boolean(candidate));
+
+    const selected = candidates
+        .filter((candidate) => candidate.score >= 80)
+        .sort((a, b) => a.index - b.index)
+        .map((candidate) => candidate.text);
+
+    return uniqueSourceDetails(selected, 10);
+}
+
+function extractPlanUnitSourceDetails(
+    sourceText: string,
+    unitLabel: PlanUnitLabel,
+    dayNumber: number,
+    language: 'EN' | 'FIL',
+): PlanUnitSourceDetails {
+    const sourceObjective = extractPlanUnitObjectiveFocus(sourceText, unitLabel, dayNumber);
+    const sourceFlow = extractPlanUnitSourceFlow(sourceText, unitLabel, dayNumber);
+    const sourceMaterials = extractPlanUnitDetailList(
+        sourceText,
+        unitLabel,
+        dayNumber,
+        PLAN_UNIT_MATERIAL_HEADING_PATTERN,
+        PLAN_UNIT_MATERIAL_HEADING_PATTERN,
+        6,
+    );
+    const sourceAssessment = extractPlanUnitDetailList(
+        sourceText,
+        unitLabel,
+        dayNumber,
+        PLAN_UNIT_ASSESSMENT_HEADING_PATTERN,
+        PLAN_UNIT_ASSESSMENT_HEADING_PATTERN,
+        3,
+    )[0] || '';
+    const sourceOutput = extractPlanUnitDetailList(
+        sourceText,
+        unitLabel,
+        dayNumber,
+        PLAN_UNIT_OUTPUT_HEADING_PATTERN,
+        PLAN_UNIT_OUTPUT_HEADING_PATTERN,
+        3,
+    )[0] || '';
+    const sourceSummary = sourceObjective
+        || sourceFlow[0]
+        || summarizePlanUnitSourceText(sourceText, unitLabel, dayNumber, language);
+
+    return {
+        sourceSummary: sourceSummary || undefined,
+        sourceObjective: sourceObjective || undefined,
+        sourceFlow: sourceFlow.length > 0 ? sourceFlow : undefined,
+        sourceMaterials: sourceMaterials.length > 0 ? sourceMaterials : undefined,
+        sourceAssessment: sourceAssessment || undefined,
+        sourceOutput: sourceOutput || undefined,
+    };
+}
+
+function derivePlanUnitSourceDetails(
+    sourceContent: string | undefined,
+    unitLabel: PlanUnitLabel,
+    day: DayPlan,
+    language: 'EN' | 'FIL',
+): PlanUnitSourceDetails {
+    if (!sourceContent?.trim()) return {};
+    const sourceBlock = extractPlanUnitSourceBlock(sourceContent, unitLabel, day);
+    return extractPlanUnitSourceDetails(sourceBlock.text, unitLabel, day.dayNumber, language);
+}
+
 function derivePlanUnitFocusFromSource(
     sourceContent: string | undefined,
     unitLabel: PlanUnitLabel,
@@ -777,7 +946,9 @@ const normalizeLessonBlueprintUnits = (
                 focus: normalizeGeneratedString(day.focus),
                 generationStatus: day.generationStatus || 'pending' as const,
             };
-            const sourceDerivedFocus = derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, fallbackDay, language);
+            const sourceDetails = derivePlanUnitSourceDetails(sourceContent, planUnitLabel, fallbackDay, language);
+            const modelSourceFlow = normalizeGeneratedStringList(day.sourceFlow);
+            const modelSourceMaterials = normalizeGeneratedStringList(day.sourceMaterials);
             const modelFocus = isGenericPlanUnitSummary(fallbackDay.focus, planUnitLabel, dayNumber)
                 ? ''
                 : fallbackDay.focus;
@@ -785,20 +956,33 @@ const normalizeLessonBlueprintUnits = (
                 ...day,
                 dayNumber,
                 title,
-                focus: sourceDerivedFocus || modelFocus,
+                focus: sourceDetails.sourceSummary || modelFocus,
+                sourceSummary: sourceDetails.sourceSummary || normalizeGeneratedString(day.sourceSummary) || undefined,
+                sourceObjective: sourceDetails.sourceObjective || normalizeGeneratedString(day.sourceObjective) || undefined,
+                sourceFlow: sourceDetails.sourceFlow || (modelSourceFlow.length > 0 ? modelSourceFlow : undefined),
+                sourceMaterials: sourceDetails.sourceMaterials || (modelSourceMaterials.length > 0 ? modelSourceMaterials : undefined),
+                sourceAssessment: sourceDetails.sourceAssessment || normalizeGeneratedString(day.sourceAssessment) || undefined,
+                sourceOutput: sourceDetails.sourceOutput || normalizeGeneratedString(day.sourceOutput) || undefined,
                 generationStatus: day.generationStatus || 'pending' as const,
             };
         })
         .sort((a, b) => a.dayNumber - b.dayNumber);
+    const fallbackDayDetails = derivePlanUnitSourceDetails(sourceContent, planUnitLabel, {
+        dayNumber: 1,
+        title: `${planUnitLabel} 1`,
+        focus: '',
+        generationStatus: 'pending',
+    }, language);
     const fallbackDay = {
         dayNumber: 1,
         title: `${planUnitLabel} 1`,
-        focus: derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
+        focus: fallbackDayDetails.sourceSummary || derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
             dayNumber: 1,
             title: `${planUnitLabel} 1`,
             focus: '',
             generationStatus: 'pending',
         }, language),
+        ...fallbackDayDetails,
         generationStatus: 'pending' as const,
     };
 
@@ -820,15 +1004,22 @@ const normalizeLessonBlueprintUnits = (
     const byNumber = new Map(normalizedDays.map((day) => [day.dayNumber, day]));
     const days = Array.from({ length: inferred.count }, (_, index) => {
         const dayNumber = index + 1;
+        const generatedFallbackDayDetails = derivePlanUnitSourceDetails(sourceContent, planUnitLabel, {
+            dayNumber,
+            title: `${planUnitLabel} ${dayNumber}`,
+            focus: '',
+            generationStatus: 'pending',
+        }, language);
         return byNumber.get(dayNumber) || {
             dayNumber,
             title: `${planUnitLabel} ${dayNumber}`,
-            focus: derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
+            focus: generatedFallbackDayDetails.sourceSummary || derivePlanUnitFocusFromSource(sourceContent, planUnitLabel, {
                 dayNumber,
                 title: `${planUnitLabel} ${dayNumber}`,
                 focus: '',
                 generationStatus: 'pending',
             }, language),
+            ...generatedFallbackDayDetails,
             generationStatus: 'pending' as const,
         };
     });
@@ -1147,6 +1338,17 @@ function collectPresentationOutlineText(outline: PresentationOutline): string {
     ].filter(Boolean).join(' ');
 }
 
+function collectPlanUnitSourceDetailsText(day: DayPlan): string {
+    return [
+        day.sourceSummary,
+        day.sourceObjective,
+        ...(day.sourceFlow || []),
+        ...(day.sourceMaterials || []),
+        day.sourceAssessment,
+        day.sourceOutput,
+    ].filter(Boolean).join(' ');
+}
+
 function validateGeneratedSessionAlignment(
     slides: Slide[],
     sourceBlock: PlanUnitSourceBlock,
@@ -1185,6 +1387,18 @@ function validateGeneratedSessionAlignment(
             issues.push({
                 code: 'weak_source_coverage',
                 message: `Slides do not preserve enough source-specific details from the extracted ${unitLabel.toLowerCase()} block. Missing source terms: ${sourceBlock.keyTerms.filter((term) => !sourceHits.includes(term)).slice(0, 6).join(', ')}.`,
+            });
+        }
+    }
+
+    const sourceDetailsTerms = extractImportantTerms(collectPlanUnitSourceDetailsText(day), 10);
+    if (sourceDetailsTerms.length >= 4) {
+        const detailHits = sourceDetailsTerms.filter((term) => slideText.includes(term));
+        const requiredHits = Math.min(4, Math.ceil(sourceDetailsTerms.length * 0.35));
+        if (detailHits.length < requiredHits) {
+            issues.push({
+                code: 'weak_source_map_coverage',
+                message: `Slides do not preserve enough details from the extracted ${unitLabel.toLowerCase()} source map. Missing source-map terms: ${sourceDetailsTerms.filter((term) => !detailHits.includes(term)).slice(0, 6).join(', ')}.`,
             });
         }
     }
@@ -1316,6 +1530,18 @@ function validatePresentationOutlineAlignment(
             issues.push({
                 code: 'weak_outline_source',
                 message: `Outline does not preserve enough source-specific details from the extracted ${unitLabel.toLowerCase()} block. Missing source terms: ${sourceBlock.keyTerms.filter((term) => !sourceHits.includes(term)).slice(0, 6).join(', ')}.`,
+            });
+        }
+    }
+
+    const sourceDetailsTerms = extractImportantTerms(collectPlanUnitSourceDetailsText(day), 10);
+    if (sourceDetailsTerms.length >= 4) {
+        const detailHits = sourceDetailsTerms.filter((term) => outlineText.includes(term));
+        const requiredHits = Math.min(4, Math.ceil(sourceDetailsTerms.length * 0.35));
+        if (detailHits.length < requiredHits) {
+            issues.push({
+                code: 'weak_outline_source_map',
+                message: `Outline does not preserve enough details from the extracted ${unitLabel.toLowerCase()} source map. Missing source-map terms: ${sourceDetailsTerms.filter((term) => !detailHits.includes(term)).slice(0, 6).join(', ')}.`,
             });
         }
     }
@@ -1471,6 +1697,16 @@ async function createK12PresentationOutline(params: {
         - Focus: ${day.focus}
         `
         : '';
+    const sourceDetailsContext = day
+        ? `
+        **EXTRACTED ${unitLabel.toUpperCase()} ${unitNumber} SOURCE MAP:**
+        - Source objective/target: ${day.sourceObjective || day.sourceSummary || 'Not explicitly extracted.'}
+        - Ordered source flow: ${(day.sourceFlow || []).join(' | ') || 'Use the selected source extract order.'}
+        - Materials/resources: ${(day.sourceMaterials || []).join(' | ') || 'Use only materials explicitly named in the selected source extract.'}
+        - Assessment/check: ${day.sourceAssessment || 'Use only assessment details explicitly named in the selected source extract.'}
+        - Expected output/artifact: ${day.sourceOutput || 'Use only output details explicitly named in the selected source extract.'}
+        `
+        : '';
 
     const prompt = `
         You are a senior K-12 instructional designer. Create the PRESENTATION OUTLINE ONLY.
@@ -1484,6 +1720,7 @@ async function createK12PresentationOutline(params: {
         ${outlineRepairInstruction(alignmentIssues)}
         ${blueprintContext}
         ${dayContext}
+        ${sourceDetailsContext}
 
         **BINDING LESSON-PLAN SOURCE (${sourceLabel}):**
         This is the source of truth. Extract the teaching flow, materials, prompts, student tasks, assessment, assignment, and output requirements from this source. Preserve the order used by the lesson plan.
@@ -1499,6 +1736,8 @@ async function createK12PresentationOutline(params: {
 
         **OUTLINE RULES:**
         - The outline is the binding bridge between lesson plan and slide deck.
+        - Treat the extracted source map as a concise guide to the selected ${unitLabel.toLowerCase()} only. If it conflicts with the source extract, the source extract wins.
+        - Preserve the extracted source flow in order. Use it to decide slide sequence, sourceEvidence, teacherMove, studentAction, assessmentCue, and visualIntent.
         - Add one first \`flow\` item for the title/context slide. Its visible title should be the week topic or lesson name, not merely "${unitLabel} ${unitNumber}". Its key points should narrow to the selected ${unitLabel.toLowerCase()} focus plus subject, grade, week/term, or session context when available.
         - After the title/context item, every \`flow\` item must come from the selected lesson-plan source in the same order the teacher would teach it.
         - Treat the selected source block as an ordered session script. If it has row labels, headings, or table sections, walk them top-to-bottom and convert only the source-backed teaching steps into outline items.
@@ -1719,6 +1958,11 @@ export async function generateK12SlidesForDay(day: DayPlan, blueprint: LessonBlu
         **TODAY'S FOCUS (${unitLabel.toUpperCase()} ${day.dayNumber}):**
         - Title: ${dayForGeneration.title}
         - Focus: ${dayForGeneration.focus}
+        - Source objective/target: ${dayForGeneration.sourceObjective || dayForGeneration.sourceSummary || 'Use the selected source extract.'}
+        - Ordered source flow: ${(dayForGeneration.sourceFlow || []).join(' | ') || 'Use the selected source extract order.'}
+        - Materials/resources: ${(dayForGeneration.sourceMaterials || []).join(' | ') || 'Use only source-named materials.'}
+        - Assessment/check: ${dayForGeneration.sourceAssessment || 'Use only source-named assessment details.'}
+        - Expected output/artifact: ${dayForGeneration.sourceOutput || 'Use only source-named output details.'}
 
         **SELECTED ${unitLabel.toUpperCase()} ${day.dayNumber} SOURCE EXTRACT (${sourceBlock.strategy.toUpperCase()} MATCH):**
         ${sourceBlock.found

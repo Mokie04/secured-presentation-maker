@@ -4,6 +4,7 @@ import { ImageIcon, RefreshCwIcon, UploadCloudIcon, FileTextIcon, XIcon } from '
 import { useLanguage } from '../contexts/LanguageContext';
 import { translations } from '../lib/translations';
 import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from '../lib/branding';
+import { getTitleSlideContext } from '../lib/titleSlide';
 
 interface SlideProps {
   slide: Slide;
@@ -263,6 +264,13 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
   const imagePanelWidthClass = isEvidenceLayout ? 'w-[62%]' : 'w-[48%]';
   const textPanelWidthClass = isEvidenceLayout ? 'w-[38%]' : (hasImageLayout ? 'w-[52%]' : 'w-full');
   const imageObjectFitClass = isEvidenceLayout ? 'object-contain' : 'object-cover';
+  const isTitleSlide = slideIndex === 0 && !hasImageLayout;
+  const titleSlideContext = isTitleSlide ? getTitleSlideContext(slide) : null;
+  const titleSlideTitleSizeClass = slide.title.length > 72
+    ? 'text-[2.35rem] md:text-[3.1rem]'
+    : slide.title.length > 42
+      ? 'text-[2.75rem] md:text-[3.55rem]'
+      : 'text-[3.2rem] md:text-[4.25rem]';
 
   const parseMarkdown = (text: string) => {
     const parts = text.split(/(\*\*.*?\*\*)/g).filter(Boolean);
@@ -296,6 +304,76 @@ const SlideComponent: React.FC<SlideProps> = ({ slide, slideIndex, direction, on
       return <React.Fragment key={keyPrefix}>{subParts}</React.Fragment>;
     });
   };
+
+  if (isTitleSlide) {
+    const unitLabel = titleSlideContext?.unitLabel || 'LESSON';
+    const unitNumber = titleSlideContext?.unitNumber || '';
+    const unitFocus = titleSlideContext?.unitFocus || '';
+    const metadataItems = titleSlideContext?.metadataItems || [];
+
+    return (
+      <div className={`w-full h-full aspect-[16/9] bg-[#f8fafc] rounded-2xl shadow-neumorphic-outset overflow-hidden relative ${animationClass}`}>
+        <div className="absolute inset-y-0 right-0 w-[31%] bg-[#e0f2fe]" />
+        <div className="absolute inset-y-0 right-[31%] w-2 bg-brand" />
+        <div className="absolute left-0 bottom-0 h-2 w-[69%] bg-[#14b8a6]" />
+
+        <div className="relative z-10 flex h-full">
+          <div className="flex min-w-0 flex-1 flex-col justify-center px-10 py-9 md:px-14 md:py-12">
+            {(unitLabel || unitNumber) && (
+              <div className="mb-6 flex flex-wrap items-center gap-3">
+                <span className="inline-flex items-center rounded-md bg-brand px-4 py-2 text-sm font-extrabold uppercase text-white shadow-sm">
+                  {unitLabel}{unitNumber ? ` ${unitNumber}` : ''}
+                </span>
+                {metadataItems[0] && (
+                  <span className="max-w-[72%] truncate text-sm font-bold uppercase text-secondary">
+                    {parseMarkdown(metadataItems[0])}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <h2 className={`${titleSlideTitleSizeClass} max-w-[14ch] break-words font-extrabold leading-[1.02] text-primary`}>
+              {parseMarkdown(slide.title)}
+            </h2>
+
+            <div className="mt-7 h-1.5 w-32 rounded-full bg-brand" />
+
+            {unitFocus && (
+              <p className="mt-7 max-w-3xl text-[1.55rem] font-semibold leading-snug text-secondary">
+                {parseMarkdown(unitFocus)}
+              </p>
+            )}
+
+            {metadataItems.length > 1 && (
+              <div className="mt-7 flex max-w-4xl flex-wrap gap-3">
+                {metadataItems.slice(1).map((item, index) => (
+                  <div
+                    key={`${item}-${index}`}
+                    className="max-w-[45%] rounded-md border border-slate-200 bg-white/80 px-4 py-2 text-base font-semibold text-primary shadow-sm"
+                  >
+                    <span className="line-clamp-2">{parseMarkdown(item)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="flex w-[31%] flex-col items-center justify-between px-7 py-10 text-center">
+            <div className="h-1.5 w-full rounded-full bg-[#14b8a6]" />
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center">
+              <div className="text-base font-extrabold uppercase text-[#0f766e]">{unitLabel}</div>
+              {unitNumber && (
+                <div className="mt-2 text-[7.25rem] font-extrabold leading-none text-brand">
+                  {unitNumber}
+                </div>
+              )}
+            </div>
+            <div className="h-12 w-full border-t border-sky-200" />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`w-full h-full aspect-[16/9] bg-surface rounded-2xl shadow-neumorphic-outset flex overflow-hidden ${animationClass}`}>

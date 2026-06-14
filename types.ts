@@ -65,6 +65,12 @@ export interface DayPlan {
     dayNumber: number;
     title: string;
     focus: string; // Brief description of what this day covers
+    sourceSummary?: string; // Clean source-derived session summary for the planning UI.
+    sourceObjective?: string; // Best source-derived learning objective or target for this unit.
+    sourceFlow?: string[]; // Ordered teaching moves extracted from the lesson plan.
+    sourceMaterials?: string[]; // Concrete resources, tools, or materials named by the source.
+    sourceAssessment?: string; // Source-derived assessment/checking detail.
+    sourceOutput?: string; // Source-derived learner output or artifact.
     generationStatus: 'pending' | 'loading' | 'done';
 }
 
