@@ -78,7 +78,7 @@ This must run before:
 - `generateK12SingleLessonSlides(...)`;
 - `generateK12SlidesForDay(...)`.
 
-The returned storyboard is not passed into the current prompts in Gate 2. It is validated and stored only as a source-bound contract for later gates.
+The returned storyboard is not passed into the current prompts in Gate 2. It is built and validated ephemerally during source-primary preflight; later gates may rebuild it from the manifest or add explicit persisted App state in their own scoped plan.
 
 ## Expected Implementation File Set
 
@@ -530,6 +530,28 @@ test('rejects foreign or invented source-step references', () => {
   assert.match(formatStoryboardDiagnostics(diagnostics), /source step/i);
 });
 
+test('rejects unaccounted selected source steps', () => {
+  const manifest = manifestFrom(EVIDENCE_OUTPUT_DOCUMENT);
+  const result = buildTeachingStoryboard(manifest);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const removedEntry = result.storyboard.sourceStepAccounting[0];
+  const invalidStoryboard = {
+    ...result.storyboard,
+    sourceStepAccounting: result.storyboard.sourceStepAccounting.slice(1),
+    screens: result.storyboard.screens.map((screen) => ({
+      ...screen,
+      sourceStepIds: screen.sourceStepIds.filter((sourceStepId) => sourceStepId !== removedEntry.sourceStepId),
+    })),
+  };
+  const diagnostics = validateTeachingStoryboard(invalidStoryboard, manifest);
+
+  assert.equal(hasBlockingStoryboardDiagnostics(diagnostics), true);
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'storyboard_source_step_unaccounted'), true);
+});
+
 test('rejects source-step order inversions', () => {
   const manifest = manifestFrom(EVIDENCE_OUTPUT_DOCUMENT);
   const result = buildTeachingStoryboard(manifest);
@@ -545,6 +567,145 @@ test('rejects source-step order inversions', () => {
 
   assert.equal(hasBlockingStoryboardDiagnostics(diagnostics), true);
   assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'storyboard_order_inversion'), true);
+});
+
+test('rejects objective count, order, identity, or ownership mismatches', () => {
+  const manifest = manifestFrom(MULTI_OBJECTIVE_UNIT_DOCUMENT);
+  const result = buildTeachingStoryboard(manifest);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const mutations = [
+    result.storyboard.objectives.slice(1),
+    [...result.storyboard.objectives].reverse(),
+    [result.storyboard.objectives[0], result.storyboard.objectives[0], ...result.storyboard.objectives.slice(1)],
+    [
+      {
+        ...result.storyboard.objectives[0],
+        sourceObjectiveId: 'obj-999',
+      },
+      ...result.storyboard.objectives.slice(1),
+    ],
+    [
+      {
+        ...result.storyboard.objectives[0],
+        unitId: 'unit-999',
+      },
+      ...result.storyboard.objectives.slice(1),
+    ],
+  ];
+
+  for (const objectives of mutations) {
+    const diagnostics = validateTeachingStoryboard({ ...result.storyboard, objectives }, manifest);
+    assert.equal(hasBlockingStoryboardDiagnostics(diagnostics), true);
+    assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'storyboard_objective_mismatch'), true);
+  }
+});
+
+test('rejects visible teacher-script injected into learner-visible fields', () => {
+  const manifest = manifestFrom(TEACHER_SCRIPT_DOCUMENT);
+  const result = buildTeachingStoryboard(manifest);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const injectedText = 'The teacher will ask learners to explain the answer.';
+  const baseScreen = result.storyboard.screens[0];
+  const mutations = [
+    { ...baseScreen, learnerTitle: injectedText },
+    { ...baseScreen, learnerContent: { ...baseScreen.learnerContent, prompt: injectedText } },
+    { ...baseScreen, learnerContent: { ...baseScreen.learnerContent, task: injectedText } },
+    { ...baseScreen, learnerContent: { ...baseScreen.learnerContent, directions: [injectedText] } },
+  ];
+
+  for (const screen of mutations) {
+    const diagnostics = validateTeachingStoryboard({
+      ...result.storyboard,
+      screens: [screen, ...result.storyboard.screens.slice(1)],
+    }, manifest);
+    assert.equal(hasBlockingStoryboardDiagnostics(diagnostics), true);
+    assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'storyboard_teacher_script_visible'), true);
+  }
+});
+
+test('rejects missing required evidence and output attachments', () => {
+  const manifest = manifestFrom(EVIDENCE_OUTPUT_DOCUMENT);
+  const result = buildTeachingStoryboard(manifest);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const evidenceScreen = result.storyboard.screens.find((screen) => screen.requiredEvidence.length > 0);
+  const outputScreen = result.storyboard.screens.find((screen) => screen.requiredOutputs.length > 0);
+  assert.ok(evidenceScreen);
+  assert.ok(outputScreen);
+
+  const missingEvidenceStoryboard = {
+    ...result.storyboard,
+    screens: result.storyboard.screens.map((screen) => (
+      screen.id === evidenceScreen.id ? { ...screen, requiredEvidence: [] } : screen
+    )),
+  };
+  const evidenceDiagnostics = validateTeachingStoryboard(missingEvidenceStoryboard, manifest);
+  assert.equal(hasBlockingStoryboardDiagnostics(evidenceDiagnostics), true);
+  assert.equal(evidenceDiagnostics.some((diagnostic) => diagnostic.code === 'storyboard_required_evidence_missing'), true);
+
+  const missingOutputStoryboard = {
+    ...result.storyboard,
+    screens: result.storyboard.screens.map((screen) => (
+      screen.id === outputScreen.id ? { ...screen, requiredOutputs: [] } : screen
+    )),
+  };
+  const outputDiagnostics = validateTeachingStoryboard(missingOutputStoryboard, manifest);
+  assert.equal(hasBlockingStoryboardDiagnostics(outputDiagnostics), true);
+  assert.equal(outputDiagnostics.some((diagnostic) => diagnostic.code === 'storyboard_required_output_missing'), true);
+});
+
+test('rejects invented visible content from blank source fields', () => {
+  const manifest = manifestFrom(MISSING_AND_BLANK_DOCUMENT);
+  const result = buildTeachingStoryboard(manifest);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const blankEntry = result.storyboard.sourceFieldAccounting.find((entry) => entry.state === 'blank');
+  assert.ok(blankEntry);
+
+  const invalidScreen = {
+    id: 'screen-blank-invention',
+    unitId: blankEntry.unitId,
+    sourceStepIds: [],
+    sourceObjectiveIds: [],
+    sourceFieldIds: [blankEntry.sourceFieldId],
+    instructionalPurpose: 'Invented blank-field content',
+    learnerTitle: 'Reflection answer',
+    learnerContent: {
+      prompt: 'Write the reflection that was missing from the source.',
+      task: undefined,
+      questions: [],
+      directions: ['Complete the blank reflection now.'],
+      successCriteria: [],
+      expectedOutput: undefined,
+    },
+    teacherNotes: 'This screen intentionally mutates a blank field for validator coverage.',
+    requiredEvidence: [],
+    requiredOutputs: [],
+    communicationIntent: 'teacher-note' as const,
+  };
+  const invalidStoryboard = {
+    ...result.storyboard,
+    screens: [...result.storyboard.screens, invalidScreen],
+    sourceFieldAccounting: result.storyboard.sourceFieldAccounting.map((entry) => (
+      entry.sourceFieldId === blankEntry.sourceFieldId
+        ? { ...entry, status: 'screened' as const, screenIds: [invalidScreen.id] }
+        : entry
+    )),
+  };
+  const diagnostics = validateTeachingStoryboard(invalidStoryboard, manifest);
+
+  assert.equal(hasBlockingStoryboardDiagnostics(diagnostics), true);
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'storyboard_blank_field_invented'), true);
 });
 
 test('requires storyboard validation for enabled source-primary routes', () => {
@@ -696,6 +857,16 @@ export const validateTeachingStoryboard = (
 
 The helper implementations must follow the rules sections above. Do not add model calls or prompt strings.
 
+Validator helper requirements:
+
+- `validateObjectiveMapping(...)` compares the expected selected source-objective array to `storyboard.objectives` by length, order, `sourceObjectiveId`, and `unitId`; any missing, reordered, duplicated, changed-ID, or changed-owner objective returns `storyboard_objective_mismatch`.
+- `validateForeignReferences(...)` returns `storyboard_foreign_source_step` for any `screen.sourceStepIds` entry not in selected source steps and `storyboard_objective_mismatch` for any `screen.sourceObjectiveIds` entry not in selected objectives.
+- `validateSourceStepAccounting(...)` requires every selected non-blank source step to have one accounting entry and at least one screen reference; a missing accounting entry or missing screen reference returns `storyboard_source_step_unaccounted`.
+- `validateScreenOrder(...)` rejects decreasing source-step `sourceOrder` across source-backed screens with `storyboard_order_inversion`; it must not reorder screens as a repair.
+- `validateVisibleTeacherScript(...)` scans only `learnerTitle` and `learnerContent` strings and returns `storyboard_teacher_script_visible` for every visible teacher-script pattern; `teacherNotes` are exempt.
+- `validateRequiredEvidenceAndOutputs(...)` recomputes source requirements from each referenced source step and returns `storyboard_required_evidence_missing` or `storyboard_required_output_missing` when the matching screen omits the extracted requirement.
+- `validateBlankFieldAccounting(...)` returns `storyboard_blank_field_invented` when a blank source field is marked `screened`, is attached to a screen with visible learner content, or has a screen reference other than `blank-preserved`.
+
 - [ ] **Step 5: Run tests to verify expected next failure**
 
 Run:
@@ -842,12 +1013,12 @@ npm test
 Expected:
 
 ```text
-tests 32
-pass 32
+tests 38
+pass 38
 fail 0
 ```
 
-The count is 22 existing Gate 0/Gate 1 tests plus 10 Gate 2 tests.
+The count is 22 existing Gate 0/Gate 1 tests plus 16 Gate 2 tests.
 
 ---
 
@@ -1024,8 +1195,8 @@ git diff -- services/geminiService.ts types.ts components/Slide.tsx lib/generati
 Expected:
 
 ```text
-tests 33
-pass 33
+tests 39
+pass 39
 fail 0
 ```
 
@@ -1101,7 +1272,7 @@ git diff --check
 Expected:
 
 ```text
-npm test exits 0 with 33 tests, 33 pass, 0 fail.
+npm test exits 0 with 39 tests, 39 pass, 0 fail.
 npm run typecheck exits 0.
 npm run build exits 0.
 git diff --check prints nothing.
