@@ -22,6 +22,8 @@ import CompiledSlideSceneView from './components/CompiledSlideSceneView';
 import { COMPILED_SLIDE_SCENE_VERSION, type CompiledScenePresentation, type CompiledSlideScene } from './lib/compiledSlideScene';
 import { compilePptxSceneOperations } from './lib/compiledScenePptx';
 import { resolveEndToEndValidatedScenePresentationForGeneration } from './lib/endToEndSceneBoundary';
+import { buildSourcePrimarySceneTelemetryEvent } from './lib/sourcePrimarySceneTelemetry';
+import { resolveSourcePrimarySceneRolloutForGeneration, shouldRunSourcePrimaryScenePreflight } from './lib/sourcePrimarySceneRollout';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -106,6 +108,7 @@ const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v38';
 const SOURCE_PRIMARY_ROUTING_V1_FLAG = import.meta.env.VITE_SOURCE_PRIMARY_ROUTING_V1;
+const SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG = import.meta.env.VITE_SOURCE_PRIMARY_SCENE_ROLLOUT_V1;
 const SEMANTIC_SLIDES_V1_FLAG = import.meta.env.VITE_SEMANTIC_SLIDES_V1;
 const DECK_VISUAL_SYSTEM_V1_FLAG = import.meta.env.VITE_DECK_VISUAL_SYSTEM_V1;
 const END_TO_END_VALIDATION_V1_FLAG = import.meta.env.VITE_END_TO_END_VALIDATION_V1;
@@ -721,6 +724,14 @@ const getSourceDocumentFormat = (fileExtension: string): SourceDocumentFormat =>
 
 const shouldApplySourcePrimaryUploadPreflight = (): boolean => (
   resolveK12GenerationRoutePolicy('uploaded lesson source', SOURCE_PRIMARY_ROUTING_V1_FLAG).mode === 'source-primary'
+);
+
+const getSafeSourcePrimarySceneBucketSeed = (
+  manifestResult: LessonSourceManifestResult | null,
+): string | undefined => (
+  manifestResult?.ok === true
+    ? manifestResult.manifest.provenance.sourceHash.slice(0, 12)
+    : undefined
 );
 
 const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
@@ -3893,27 +3904,48 @@ const App: React.FC = () => {
         } 
         // DepEd Flows
         else if (teachingLevel === 'K-12') {
-            const routePolicy = resolveK12GenerationRoutePolicy(
+            const originalRoutePolicy = resolveK12GenerationRoutePolicy(
               dllContent,
               SOURCE_PRIMARY_ROUTING_V1_FLAG,
             );
-            const sourceManifestBoundary = resolveSourceManifestForGeneration(
-              routePolicy,
-              lessonSourceManifestResult,
+            const rolloutDecision = resolveSourcePrimarySceneRolloutForGeneration(
+              depEdMode === 'single' ? 'k12-single-lesson' : 'k12-weekly-plan',
+              originalRoutePolicy,
+              SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG,
+              {
+                isAdmin: adminGenerationLimitBypassed,
+                stableBucketSeed: getSafeSourcePrimarySceneBucketSeed(lessonSourceManifestResult),
+              },
             );
+            const routePolicy = rolloutDecision.effectiveRoutePolicy;
+            const runSourcePrimaryScenePreflight = shouldRunSourcePrimaryScenePreflight(rolloutDecision);
+            void buildSourcePrimarySceneTelemetryEvent({
+              decision: rolloutDecision,
+              sourceHash: lessonSourceManifestResult?.ok === true
+                ? lessonSourceManifestResult.manifest.provenance.sourceHash
+                : undefined,
+            });
+            const sourceManifestBoundary = runSourcePrimaryScenePreflight
+              ? resolveSourceManifestForGeneration(
+                  routePolicy,
+                  lessonSourceManifestResult,
+                )
+              : { ok: true as const, manifest: null };
             if (sourceManifestBoundary.ok === false) {
               setError(sourceManifestBoundary.message);
               setIsLoading(false);
               return;
             }
-            const teachingStoryboardResult = sourceManifestBoundary.manifest
+            const teachingStoryboardResult = runSourcePrimaryScenePreflight && sourceManifestBoundary.manifest
               ? buildTeachingStoryboard(sourceManifestBoundary.manifest)
               : null;
-            const teachingStoryboardBoundary = resolveTeachingStoryboardForGeneration(
-              routePolicy,
-              sourceManifestBoundary.manifest,
-              teachingStoryboardResult,
-            );
+            const teachingStoryboardBoundary = runSourcePrimaryScenePreflight
+              ? resolveTeachingStoryboardForGeneration(
+                  routePolicy,
+                  sourceManifestBoundary.manifest,
+                  teachingStoryboardResult,
+                )
+              : { ok: true as const, storyboard: null };
             if (teachingStoryboardBoundary.ok === false) {
               setError(teachingStoryboardBoundary.message);
               setIsLoading(false);
@@ -3923,38 +3955,47 @@ const App: React.FC = () => {
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
                 setLoadingMessage(t.presentation.loadingSingleLesson);
-                const semanticSceneBoundary = await resolveEndToEndValidatedScenePresentationForGeneration(
-                  routePolicy,
-                  SEMANTIC_SLIDES_V1_FLAG,
-                  DECK_VISUAL_SYSTEM_V1_FLAG,
-                  END_TO_END_VALIDATION_V1_FLAG,
-                  sourceManifestBoundary.manifest,
-                  teachingStoryboardBoundary.storyboard,
-                  {
-                    title: sourceManifestBoundary.manifest?.units.map((unit) => unit.sourceLabel).join(' / ') || 'Source-Aligned Lesson',
-                    selectedUnitLabel: sourceManifestBoundary.manifest?.units[0]?.sourceLabel,
-                  },
-                );
-                if (semanticSceneBoundary.ok === false) {
-                  setError(semanticSceneBoundary.message);
-                  setIsLoading(false);
-                  return;
-                }
-                if (semanticSceneBoundary.presentation) {
-                  const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
-                  if (!hasQuota) {
+                if (runSourcePrimaryScenePreflight) {
+                  const semanticSceneBoundary = await resolveEndToEndValidatedScenePresentationForGeneration(
+                    routePolicy,
+                    SEMANTIC_SLIDES_V1_FLAG,
+                    DECK_VISUAL_SYSTEM_V1_FLAG,
+                    END_TO_END_VALIDATION_V1_FLAG,
+                    sourceManifestBoundary.manifest,
+                    teachingStoryboardBoundary.storyboard,
+                    {
+                      title: sourceManifestBoundary.manifest?.units.map((unit) => unit.sourceLabel).join(' / ') || 'Source-Aligned Lesson',
+                      selectedUnitLabel: sourceManifestBoundary.manifest?.units[0]?.sourceLabel,
+                    },
+                  );
+                  void buildSourcePrimarySceneTelemetryEvent({
+                    decision: rolloutDecision,
+                    validationReport: semanticSceneBoundary.validationReport,
+                    sourceHash: lessonSourceManifestResult?.ok === true
+                      ? lessonSourceManifestResult.manifest.provenance.sourceHash
+                      : undefined,
+                  });
+                  if (semanticSceneBoundary.ok === false) {
+                    setError(semanticSceneBoundary.message);
                     setIsLoading(false);
-                    setError(t.presentation.errorGenerationLimit);
                     return;
                   }
-                  shouldRollbackGeneration = !adminGenerationLimitBypassed;
-                  setCompiledScenePresentation(semanticSceneBoundary.presentation);
-                  setPresentation(null);
-                  setCurrentSlide(0);
-                  await finishLoadingProgress(setLoadingProgress);
-                  setAppStep('presenting');
-                  shouldRollbackGeneration = false;
-                  return;
+                  if (semanticSceneBoundary.presentation) {
+                    const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+                    if (!hasQuota) {
+                      setIsLoading(false);
+                      setError(t.presentation.errorGenerationLimit);
+                      return;
+                    }
+                    shouldRollbackGeneration = !adminGenerationLimitBypassed;
+                    setCompiledScenePresentation(semanticSceneBoundary.presentation);
+                    setPresentation(null);
+                    setCurrentSlide(0);
+                    await finishLoadingProgress(setLoadingProgress);
+                    setAppStep('presenting');
+                    shouldRollbackGeneration = false;
+                    return;
+                  }
                 }
                 const cacheKey = await buildGenerationCacheKey('k12-single-presentation', [
                   GENERATION_CACHE_VERSION,
@@ -4115,14 +4156,33 @@ const App: React.FC = () => {
         const isStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
         const planUnitPresentationTitle = buildPlanUnitPresentationTitle(lessonBlueprint, dayToGenerate);
         const content = dllContent.trim() || topicContext.trim();
-        const routePolicy = resolveK12GenerationRoutePolicy(
+        const originalRoutePolicy = resolveK12GenerationRoutePolicy(
           dllContent,
           SOURCE_PRIMARY_ROUTING_V1_FLAG,
         );
-        const sourceManifestBoundary = resolveSourceManifestForGeneration(
-          routePolicy,
-          lessonSourceManifestResult,
+        const rolloutDecision = resolveSourcePrimarySceneRolloutForGeneration(
+          'k12-daily-unit',
+          originalRoutePolicy,
+          SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG,
+          {
+            isAdmin: adminGenerationLimitBypassed,
+            stableBucketSeed: getSafeSourcePrimarySceneBucketSeed(lessonSourceManifestResult),
+          },
         );
+        const routePolicy = rolloutDecision.effectiveRoutePolicy;
+        const runSourcePrimaryScenePreflight = shouldRunSourcePrimaryScenePreflight(rolloutDecision);
+        void buildSourcePrimarySceneTelemetryEvent({
+          decision: rolloutDecision,
+          sourceHash: lessonSourceManifestResult?.ok === true
+            ? lessonSourceManifestResult.manifest.provenance.sourceHash
+            : undefined,
+        });
+        const sourceManifestBoundary = runSourcePrimaryScenePreflight
+          ? resolveSourceManifestForGeneration(
+              routePolicy,
+              lessonSourceManifestResult,
+            )
+          : { ok: true as const, manifest: null };
         if (sourceManifestBoundary.ok === false) {
           setError(sourceManifestBoundary.message);
           setLessonBlueprint(prev => {
@@ -4135,17 +4195,19 @@ const App: React.FC = () => {
           return;
         }
         const selectedSourceUnitId = sourceManifestBoundary.manifest?.units[dayIndex]?.id;
-        const teachingStoryboardResult = sourceManifestBoundary.manifest
+        const teachingStoryboardResult = runSourcePrimaryScenePreflight && sourceManifestBoundary.manifest
           ? buildTeachingStoryboard(
               sourceManifestBoundary.manifest,
               selectedSourceUnitId ? { selectedUnitIds: [selectedSourceUnitId] } : undefined,
             )
           : null;
-        const teachingStoryboardBoundary = resolveTeachingStoryboardForGeneration(
-          routePolicy,
-          sourceManifestBoundary.manifest,
-          teachingStoryboardResult,
-        );
+        const teachingStoryboardBoundary = runSourcePrimaryScenePreflight
+          ? resolveTeachingStoryboardForGeneration(
+              routePolicy,
+              sourceManifestBoundary.manifest,
+              teachingStoryboardResult,
+            )
+          : { ok: true as const, storyboard: null };
         if (teachingStoryboardBoundary.ok === false) {
           setError(teachingStoryboardBoundary.message);
           setLessonBlueprint(prev => {
@@ -4163,73 +4225,82 @@ const App: React.FC = () => {
             .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
         );
 
-        const semanticSceneBoundary = await resolveEndToEndValidatedScenePresentationForGeneration(
-          routePolicy,
-          SEMANTIC_SLIDES_V1_FLAG,
-          DECK_VISUAL_SYSTEM_V1_FLAG,
-          END_TO_END_VALIDATION_V1_FLAG,
-          sourceManifestBoundary.manifest,
-          teachingStoryboardBoundary.storyboard,
-          {
-            title: planUnitPresentationTitle,
-            selectedUnitLabel: sourceManifestBoundary.manifest?.units[dayIndex]?.sourceLabel,
-          },
-        );
-        if (semanticSceneBoundary.ok === false) {
-          setError(semanticSceneBoundary.message);
-          setLessonBlueprint(prev => {
-              if (!prev) return null;
-              const newDays = [...prev.days];
-              newDays[dayIndex].generationStatus = 'pending';
-              return {...prev, days: newDays};
+        if (runSourcePrimaryScenePreflight) {
+          const semanticSceneBoundary = await resolveEndToEndValidatedScenePresentationForGeneration(
+            routePolicy,
+            SEMANTIC_SLIDES_V1_FLAG,
+            DECK_VISUAL_SYSTEM_V1_FLAG,
+            END_TO_END_VALIDATION_V1_FLAG,
+            sourceManifestBoundary.manifest,
+            teachingStoryboardBoundary.storyboard,
+            {
+              title: planUnitPresentationTitle,
+              selectedUnitLabel: sourceManifestBoundary.manifest?.units[dayIndex]?.sourceLabel,
+            },
+          );
+          void buildSourcePrimarySceneTelemetryEvent({
+            decision: rolloutDecision,
+            validationReport: semanticSceneBoundary.validationReport,
+            sourceHash: lessonSourceManifestResult?.ok === true
+              ? lessonSourceManifestResult.manifest.provenance.sourceHash
+              : undefined,
           });
-          setIsLoading(false);
-          return;
-        }
-        if (semanticSceneBoundary.presentation) {
-          const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
-          if (!hasQuota) {
-            setError(t.presentation.errorGenerationLimit);
+          if (semanticSceneBoundary.ok === false) {
+            setError(semanticSceneBoundary.message);
             setLessonBlueprint(prev => {
                 if (!prev) return null;
                 const newDays = [...prev.days];
                 newDays[dayIndex].generationStatus = 'pending';
                 return {...prev, days: newDays};
             });
+            setIsLoading(false);
             return;
           }
+          if (semanticSceneBoundary.presentation) {
+            const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+            if (!hasQuota) {
+              setError(t.presentation.errorGenerationLimit);
+              setLessonBlueprint(prev => {
+                  if (!prev) return null;
+                  const newDays = [...prev.days];
+                  newDays[dayIndex].generationStatus = 'pending';
+                  return {...prev, days: newDays};
+              });
+              return;
+            }
 
-          shouldRollbackGeneration = !adminGenerationLimitBypassed;
-          const sceneIndexOfNewDay = isStandalonePlanUnitDeck ? 0 : (compiledScenePresentation?.scenes.length ?? 0);
-          setGeneratedPlanUnitSceneSlidesByDay(prev => ({
-              ...prev,
-              [dayToGenerate.dayNumber]: semanticSceneBoundary.presentation.scenes,
-          }));
-          setGeneratedPlanUnitSlidesByDay(prev => {
-              const next = { ...prev };
-              delete next[dayToGenerate.dayNumber];
-              return next;
-          });
-          setCompiledScenePresentation(prev => ({
-              kind: 'compiled-scene-presentation',
-              contractVersion: semanticSceneBoundary.presentation.contractVersion,
-              title: isStandalonePlanUnitDeck ? semanticSceneBoundary.presentation.title : (prev?.title ?? lessonBlueprint.mainTitle),
-              scenes: isStandalonePlanUnitDeck
-                  ? semanticSceneBoundary.presentation.scenes
-                  : [...(prev?.scenes ?? []), ...semanticSceneBoundary.presentation.scenes],
-          }));
-          setPresentation(null);
-          setLessonBlueprint(prev => {
-              if (!prev) return null;
-              const newDays = [...prev.days];
-              newDays[dayIndex].generationStatus = 'done';
-              return {...prev, days: newDays};
-          });
-          setCurrentSlide(sceneIndexOfNewDay);
-          await finishLoadingProgress(setLoadingProgress);
-          setAppStep('presenting');
-          shouldRollbackGeneration = false;
-          return;
+            shouldRollbackGeneration = !adminGenerationLimitBypassed;
+            const sceneIndexOfNewDay = isStandalonePlanUnitDeck ? 0 : (compiledScenePresentation?.scenes.length ?? 0);
+            setGeneratedPlanUnitSceneSlidesByDay(prev => ({
+                ...prev,
+                [dayToGenerate.dayNumber]: semanticSceneBoundary.presentation.scenes,
+            }));
+            setGeneratedPlanUnitSlidesByDay(prev => {
+                const next = { ...prev };
+                delete next[dayToGenerate.dayNumber];
+                return next;
+            });
+            setCompiledScenePresentation(prev => ({
+                kind: 'compiled-scene-presentation',
+                contractVersion: semanticSceneBoundary.presentation.contractVersion,
+                title: isStandalonePlanUnitDeck ? semanticSceneBoundary.presentation.title : (prev?.title ?? lessonBlueprint.mainTitle),
+                scenes: isStandalonePlanUnitDeck
+                    ? semanticSceneBoundary.presentation.scenes
+                    : [...(prev?.scenes ?? []), ...semanticSceneBoundary.presentation.scenes],
+            }));
+            setPresentation(null);
+            setLessonBlueprint(prev => {
+                if (!prev) return null;
+                const newDays = [...prev.days];
+                newDays[dayIndex].generationStatus = 'done';
+                return {...prev, days: newDays};
+            });
+            setCurrentSlide(sceneIndexOfNewDay);
+            await finishLoadingProgress(setLoadingProgress);
+            setAppStep('presenting');
+            shouldRollbackGeneration = false;
+            return;
+          }
         }
         const generationLanguage = getPresentationLanguageForGeneration(content);
         const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
