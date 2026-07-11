@@ -246,13 +246,15 @@ export type StructuredSourceDocument = {
 
 ### Objective Mapping
 
-- Create one `SourceObjective` for each unit-specific objective cell or block.
+- Create one `SourceObjective` for each source objective cell, line, or block that has clear unit ownership.
 - Objective IDs are assigned in source order: `obj-001`, `obj-002`, `obj-003`.
-- Each unit must have exactly one unit-owned objective for Gate 1 pass.
-- Shared competency, content standard, or performance standard rows are metadata or fields, not substitutes for unit-owned objectives.
-- If an objective cell spans multiple units and cannot be deterministically split, return `source_structure_ambiguous` with severity `blocking`.
-- If a unit has no objective, return `source_unit_missing_objective` with severity `blocking`.
-- If a unit has two independent objective fields, return `source_unit_duplicate_objective` with severity `blocking`.
+- Every unit objective maps to exactly one owning `unitId`.
+- A unit may have one or more owned objectives when the source clearly provides multiple objective cells, lines, or blocks for that same unit.
+- Shared competency, content standard, or performance standard rows are metadata or fields, not unit-owned objectives.
+- If an objective cell spans multiple units and is explicitly shared metadata, preserve it as metadata instead of creating unit objectives.
+- If an objective cell spans multiple units but appears to be unit-specific and cannot be deterministically assigned or split, return `source_structure_ambiguous` with severity `blocking`.
+- If one source objective appears to be duplicated into two owning units, or two unit columns claim conflicting ownership of the same objective source location, return `source_unit_duplicate_objective` with severity `blocking`.
+- If a unit has no owned objective, return `source_unit_missing_objective` with severity `blocking` only when the source declares unit objectives for peer units in the same table or block sequence.
 
 ### Source-Step Rules
 
@@ -464,6 +466,24 @@ export const FOUR_A_DOCUMENT: StructuredSourceDocument = {
   tables: [],
 };
 
+export const MULTI_OBJECTIVE_UNIT_DOCUMENT: StructuredSourceDocument = {
+  format: 'txt',
+  fileName: 'sanitized-multi-objective.txt',
+  sourceHash: 'fixture-multi-objective-source-hash',
+  byteLength: 3600,
+  plainText: '',
+  blocks: [
+    { id: 'm001', kind: 'heading', text: 'Day 1', sourceOrder: 1, sourceLocation: { blockId: 'm001' } },
+    { id: 'm002', kind: 'paragraph', text: 'Objective: M1-OBJ-A Identify one reliable observation.', sourceOrder: 2, sourceLocation: { blockId: 'm002' } },
+    { id: 'm003', kind: 'paragraph', text: 'Objective: M1-OBJ-B Use the observation to support a claim.', sourceOrder: 3, sourceLocation: { blockId: 'm003' } },
+    { id: 'm004', kind: 'paragraph', text: 'Investigation: M1-INVESTIGATE-A Test two cards and record evidence.', sourceOrder: 4, sourceLocation: { blockId: 'm004' } },
+    { id: 'm005', kind: 'heading', text: 'Day 2', sourceOrder: 5, sourceLocation: { blockId: 'm005' } },
+    { id: 'm006', kind: 'paragraph', text: 'Objective: M2-OBJ-A Revise a claim after peer evidence.', sourceOrder: 6, sourceLocation: { blockId: 'm006' } },
+    { id: 'm007', kind: 'paragraph', text: 'Synthesis: M2-SYNTHESIS-A Defend the revised claim.', sourceOrder: 7, sourceLocation: { blockId: 'm007' } },
+  ],
+  tables: [],
+};
+
 export const MISSING_AND_BLANK_DOCUMENT: StructuredSourceDocument = {
   ...FIVE_SESSION_MATRIX_DOCUMENT,
   sourceHash: 'fixture-missing-blank-source-hash',
@@ -537,6 +557,7 @@ import {
   FIVE_SESSION_MATRIX_DOCUMENT,
   FOUR_A_DOCUMENT,
   MISSING_AND_BLANK_DOCUMENT,
+  MULTI_OBJECTIVE_UNIT_DOCUMENT,
   UNSUPPORTED_SCANNED_DOCUMENT,
 } from './fixtures/lessonSourceManifestFixtures.ts';
 
@@ -595,6 +616,22 @@ test('does not require a 5E schema for block-oriented 4A or custom labels', () =
     result.manifest.units[1].steps.map((step) => step.sourceLabel),
     ['Launch', 'Practice'],
   );
+});
+
+test('preserves multiple legitimate objectives for one unit in source order', () => {
+  const result = buildLessonSourceManifest(MULTI_OBJECTIVE_UNIT_DOCUMENT);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.manifest.objectives.length, 3);
+  assert.deepEqual(result.manifest.objectives.map((objective) => objective.id), ['obj-001', 'obj-002', 'obj-003']);
+  assert.deepEqual(result.manifest.units.map((unit) => unit.objectiveIds.length), [2, 1]);
+  assert.deepEqual(result.manifest.units[0].objectiveIds, ['obj-001', 'obj-002']);
+  assert.match(result.manifest.objectives[0].rawText, /M1-OBJ-A/);
+  assert.match(result.manifest.objectives[1].rawText, /M1-OBJ-B/);
+  assert.equal(result.manifest.objectives[0].unitId, result.manifest.units[0].id);
+  assert.equal(result.manifest.objectives[1].unitId, result.manifest.units[0].id);
 });
 
 test('attaches explicit shared colspan fields to every covered unit', () => {
@@ -848,7 +885,7 @@ Implementation requirements:
 Implementation requirements:
 
 - A heading matching a unit marker starts a new unit.
-- A paragraph beginning with `Objective:` creates a unit objective.
+- A paragraph beginning with `Objective:` creates a unit objective. Multiple `Objective:` paragraphs under the same unit create multiple objectives in source order.
 - Other `Label: value` paragraphs create source steps under the current unit.
 - Preserve labels as source data.
 - Do not require 4A labels; labels are accepted because they are source-defined.
@@ -859,7 +896,10 @@ Implementation requirements:
 Validation requirements:
 
 - At least one unit.
-- Every unit has exactly one objective.
+- Every `SourceObjective` has exactly one owning `unitId`.
+- Every `unit.objectiveIds` entry references an objective whose `unitId` is that unit's `id`.
+- Units may have one or more objectives when the source provides them.
+- A unit with no objective is blocking only when peer units in the same detected source format have unit-owned objectives.
 - Every unit has at least one non-objective source step.
 - Objective IDs referenced by units exist in `manifest.objectives`.
 - `sourceOrder` values in objectives and steps are strictly increasing.
@@ -1451,9 +1491,10 @@ The implementer must return:
 2. Files changed.
 3. Manifest contract implemented.
 4. Sanitized fixtures added and what structural property each fixture proves.
-5. Exact `npm test` count and command output summary.
-6. Typecheck and build outcomes.
-7. Proof that prompt/model/image/layout/export files are unchanged.
-8. Proof that no private artifacts or extracted private text were committed.
-9. Deviations, unresolved risks, and assumptions.
-10. This exact limitation: `Gate 1 preserves uploaded source structure before AI generation; it does not yet create source-bound storyboards, semantic slide layouts, NotebookLM-like visuals, or editable scene rendering.`
+5. Objective count, source order, and `objectiveId` to `unitId` ownership proof, including the multi-objective fixture.
+6. Exact `npm test` count and command output summary.
+7. Typecheck and build outcomes.
+8. Proof that prompt/model/image/layout/export files are unchanged.
+9. Proof that no private artifacts or extracted private text were committed.
+10. Deviations, unresolved risks, and assumptions.
+11. This exact limitation: `Gate 1 preserves uploaded source structure before AI generation; it does not yet create source-bound storyboards, semantic slide layouts, NotebookLM-like visuals, or editable scene rendering.`
