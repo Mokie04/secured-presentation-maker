@@ -14,6 +14,7 @@ import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
 import { IMAGE_SEMANTIC_CACHE_VERSION } from './lib/imageSemantic';
 import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from './lib/branding';
+import { loadReusableSeedWhenAllowed, resolveK12GenerationRoutePolicy } from './lib/k12GenerationRoutePolicy';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -97,6 +98,7 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v38';
+const SOURCE_PRIMARY_ROUTING_V1_FLAG = import.meta.env.VITE_SOURCE_PRIMARY_ROUTING_V1;
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -3846,12 +3848,17 @@ const App: React.FC = () => {
         } 
         // DepEd Flows
         else if (teachingLevel === 'K-12') {
+            const routePolicy = resolveK12GenerationRoutePolicy(
+              dllContent,
+              SOURCE_PRIMARY_ROUTING_V1_FLAG,
+            );
             // DepEd Single Lesson Flow
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
                 setLoadingMessage(t.presentation.loadingSingleLesson);
                 const cacheKey = await buildGenerationCacheKey('k12-single-presentation', [
                   GENERATION_CACHE_VERSION,
+                  ...routePolicy.cacheKeyParts,
                   content,
                   DEFAULT_LESSON_FORMAT,
                   generationLanguage,
@@ -3896,13 +3903,16 @@ const App: React.FC = () => {
                 setLoadingMessage(t.presentation.loadingBlueprint);
                 const cacheKey = await buildGenerationCacheKey('k12-lesson-plan', [
                   GENERATION_CACHE_VERSION,
+                  ...routePolicy.cacheKeyParts,
                   content,
                   DEFAULT_LESSON_FORMAT,
                   generationLanguage,
                 ]);
 
-                const { getReusableK12LessonPlanSeed } = await loadReusableLessonSeeds();
-                const reusablePlan = getReusableK12LessonPlanSeed(content, generationLanguage);
+                const reusablePlan = await loadReusableSeedWhenAllowed(routePolicy, async () => {
+                  const { getReusableK12LessonPlanSeed } = await loadReusableLessonSeeds();
+                  return getReusableK12LessonPlanSeed(content, generationLanguage);
+                });
                 if (reusablePlan) {
                   const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
                   const imageSemanticScope = buildK12ImageSemanticScope(reusablePlan.blueprint);
@@ -4000,9 +4010,14 @@ const App: React.FC = () => {
         const isStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
         const planUnitPresentationTitle = buildPlanUnitPresentationTitle(lessonBlueprint, dayToGenerate);
         const content = dllContent.trim() || topicContext.trim();
+        const routePolicy = resolveK12GenerationRoutePolicy(
+          dllContent,
+          SOURCE_PRIMARY_ROUTING_V1_FLAG,
+        );
         const generationLanguage = getPresentationLanguageForGeneration(content);
         const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
           GENERATION_CACHE_VERSION,
+          ...routePolicy.cacheKeyParts,
           content,
           DEFAULT_LESSON_FORMAT,
           generationLanguage,
@@ -4073,8 +4088,14 @@ const App: React.FC = () => {
             return;
         }
 
-        const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
-        const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, generationLanguage);
+        const reusableSlides = await loadReusableSeedWhenAllowed(routePolicy, async () => {
+          const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
+          return getReusableK12PlanUnitSlidesSeed(
+            content,
+            dayToGenerate.dayNumber,
+            generationLanguage,
+          );
+        });
         if (reusableSlides && reusableSlides.length > 0) {
             await waitForReusableGenerationLoading(setLoadingProgress);
             setLoadingMessage(t.presentation.loadingTables);

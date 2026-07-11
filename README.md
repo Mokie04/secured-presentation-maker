@@ -60,6 +60,9 @@ APPSTORE_AUTH_ENABLED=false
 # Optional Gemini model overrides. Used only when the corresponding provider is Gemini:
 # VITE_GEMINI_TEXT_MODEL=gemini-2.0-flash-lite
 # VITE_GEMINI_IMAGE_MODEL=gemini-2.0-flash-image
+# Optional Gate 0 routing boundary. Uploaded K-12 files skip reusable seeds and use isolated browser text-cache keys.
+# Leave unset or false for the exact legacy route and cache behavior.
+# VITE_SOURCE_PRIMARY_ROUTING_V1=true
 # Optional shared generated text/image cache using Cloudflare R2:
 # R2_ACCOUNT_ID=your_cloudflare_account_id
 # R2_ACCESS_KEY_ID=your_r2_access_key_id
@@ -138,6 +141,8 @@ Set `AI_TEXT_PROVIDER=deepseek` and `DEEPSEEK_API_KEY` to use DeepSeek for lesso
 Set `AI_TEXT_PROVIDER=xai` and `XAI_API_KEY` to use xAI/Grok instead. Gemini can still be used for text by setting `AI_TEXT_PROVIDER=gemini` and `GEMINI_API_KEY`.
 
 ## Session Alignment
+
+`VITE_SOURCE_PRIMARY_ROUTING_V1=true` activates the reversible Gate 0 source-authority boundary. Uploaded K-12 content then bypasses reusable lesson seeds and uses route-scoped browser text-generation cache keys; topic-only generation remains on the legacy path. Unset or set the flag to `false` to use the previous routing and cache keys. Gate 0 does not change prompts, models, images, layouts, or export behavior.
 
 For K-12 uploaded lesson plans, per-session/day slide generation first extracts the selected `Session N` or `Day N` source block when those markers are present. That selected block is treated as the binding source for a presentation outline, and the slide deck is generated from that outline with the full lesson plan kept only as secondary context. Generated outlines and session decks are checked for weak source coverage or wrong-session/day title leakage and retried once with stricter alignment instructions before being shown.
 
