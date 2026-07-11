@@ -17,6 +17,7 @@ import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from './lib/branding';
 import { loadReusableSeedWhenAllowed, resolveK12GenerationRoutePolicy } from './lib/k12GenerationRoutePolicy';
 import { buildLessonSourceManifest, formatSourceManifestDiagnostics, resolveSourceManifestForGeneration, type LessonSourceManifestResult, type SourceDocumentFormat } from './lib/lessonSourceManifest';
 import { buildHtmlSourceDocument, buildPlainTextSourceDocument, type StructuredSourceDocument } from './lib/lessonSourceDocument';
+import { buildTeachingStoryboard, resolveTeachingStoryboardForGeneration } from './lib/teachingStoryboard';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -3894,6 +3895,19 @@ const App: React.FC = () => {
               setIsLoading(false);
               return;
             }
+            const teachingStoryboardResult = sourceManifestBoundary.manifest
+              ? buildTeachingStoryboard(sourceManifestBoundary.manifest)
+              : null;
+            const teachingStoryboardBoundary = resolveTeachingStoryboardForGeneration(
+              routePolicy,
+              sourceManifestBoundary.manifest,
+              teachingStoryboardResult,
+            );
+            if (teachingStoryboardBoundary.ok === false) {
+              setError(teachingStoryboardBoundary.message);
+              setIsLoading(false);
+              return;
+            }
             // DepEd Single Lesson Flow
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
@@ -4062,6 +4076,29 @@ const App: React.FC = () => {
         );
         if (sourceManifestBoundary.ok === false) {
           setError(sourceManifestBoundary.message);
+          setLessonBlueprint(prev => {
+              if (!prev) return null;
+              const newDays = [...prev.days];
+              newDays[dayIndex].generationStatus = 'pending';
+              return {...prev, days: newDays};
+          });
+          setIsLoading(false);
+          return;
+        }
+        const selectedSourceUnitId = sourceManifestBoundary.manifest?.units[dayIndex]?.id;
+        const teachingStoryboardResult = sourceManifestBoundary.manifest
+          ? buildTeachingStoryboard(
+              sourceManifestBoundary.manifest,
+              selectedSourceUnitId ? { selectedUnitIds: [selectedSourceUnitId] } : undefined,
+            )
+          : null;
+        const teachingStoryboardBoundary = resolveTeachingStoryboardForGeneration(
+          routePolicy,
+          sourceManifestBoundary.manifest,
+          teachingStoryboardResult,
+        );
+        if (teachingStoryboardBoundary.ok === false) {
+          setError(teachingStoryboardBoundary.message);
           setLessonBlueprint(prev => {
               if (!prev) return null;
               const newDays = [...prev.days];
