@@ -26,11 +26,18 @@
 
 ## Current Accepted Stack
 
-Accepted Gate 5 source-primary scene delivery is reached through:
+Accepted Gate 5 source-primary scene delivery is currently reached after Gate 1 and Gate 2 preflight. In `App.tsx`, both K-12 paths resolve the source route, then immediately call source-manifest and teaching-storyboard boundaries before the Gate 5 scene boundary:
+
+- single lesson flow: `resolveK12GenerationRoutePolicy(...)` around `App.tsx:3896`, then `resolveSourceManifestForGeneration(...)`, then `resolveTeachingStoryboardForGeneration(...)`, then `resolveEndToEndValidatedScenePresentationForGeneration(...)`;
+- daily unit flow: `resolveK12GenerationRoutePolicy(...)` around `App.tsx:4118`, then `resolveSourceManifestForGeneration(...)`, then `resolveTeachingStoryboardForGeneration(...)`, then `resolveEndToEndValidatedScenePresentationForGeneration(...)`.
+
+Gate 6 therefore cannot be inserted only immediately before the Gate 5 scene boundary. If an uploaded-file user is not eligible for source-primary compiled scenes, downstream code must see an effective legacy route before Gate 1/2 preflight.
+
+The accepted Gate 5 scene boundary still receives an effective source-primary route only for rollout-eligible users:
 
 ```ts
 resolveEndToEndValidatedScenePresentationForGeneration(
-  routePolicy,
+  effectiveRoutePolicy,
   SEMANTIC_SLIDES_V1_FLAG,
   DECK_VISUAL_SYSTEM_V1_FLAG,
   END_TO_END_VALIDATION_V1_FLAG,
@@ -43,7 +50,33 @@ resolveEndToEndValidatedScenePresentationForGeneration(
 );
 ```
 
-Gate 6 must wrap or guard this call without moving legacy cache lookup, quota increment, reusable seeds, AI calls, image processing, or delivery earlier than accepted Gate 5.
+Gate 6 must compute the rollout/effective-route decision immediately after `resolveK12GenerationRoutePolicy(...)` and before `resolveSourceManifestForGeneration(...)` in both K-12 flows:
+
+```ts
+const originalRoutePolicy = resolveK12GenerationRoutePolicy(
+  dllContent,
+  SOURCE_PRIMARY_ROUTING_V1_FLAG,
+);
+const rolloutDecision = resolveSourcePrimarySceneRolloutEligibility(
+  originalRoutePolicy,
+  parseSourcePrimarySceneRolloutStage(SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG),
+  {
+    isAdmin: isAuthorizedAdmin,
+    optedInToSourcePrimaryScenes,
+    stableBucketSeed: safeSourceHashPrefix,
+  },
+);
+const effectiveRoutePolicy = rolloutDecision.effectiveRoutePolicy;
+
+const sourceManifestBoundary = resolveSourceManifestForGeneration(
+  effectiveRoutePolicy,
+  lessonSourceManifestResult,
+);
+```
+
+Gate 6 must preserve the original route policy for rollout telemetry and diagnostics. All downstream generation, including Gate 1/2 preflight, legacy cache keys, reusable-seed eligibility, quota ordering, AI-call ordering, image processing, and delivery, must use `effectiveRoutePolicy`.
+
+`safeSourceHashPrefix` may be derived only from an already-valid manifest/provenance object, for example `lessonSourceManifestResult.ok === true ? lessonSourceManifestResult.manifest.provenance.sourceHash.slice(0, 12) : undefined`. If that value is unavailable, canary stages must be ineligible and use the effective legacy route. Gate 6 must not derive canary seeds from raw uploaded lesson text, extracted source text, prompts, teacher notes, file paths, teacher names, learner data, or school information.
 
 Gate 6 must consume only privacy-safe metadata already available from:
 
@@ -99,8 +132,21 @@ Eligibility rules:
 - Topic-only and legacy routes bypass Gate 6 unchanged.
 - `internal` requires admin/internal preview context.
 - `beta` requires explicit per-user or per-session opt-in. Opt-in state must not contain raw lesson text.
-- Canary selection uses a stable, privacy-safe hash seed built from route name, source hash prefix, and a stable non-PII user/install bucket when available. If no safe stable seed exists, canary eligibility is false.
-- A user who is not eligible for the active rollout stage must continue on the accepted legacy path by returning no compiled scene presentation from the Gate 6 scene boundary.
+- Canary selection uses a stable, privacy-safe hash seed built from route name, source hash prefix, and a stable non-PII user/install bucket when available. If a source hash prefix is unavailable without relying on a valid manifest/provenance result, canary eligibility is false. Gate 6 must not read raw source text directly to make a canary decision.
+- A user who is not eligible for the active rollout stage must continue on the accepted legacy path by using an effective legacy route policy before Gate 1 source-manifest preflight.
+- The original route policy remains available only for rollout telemetry/diagnostics.
+- The effective route policy is the only policy passed to `resolveSourceManifestForGeneration(...)`, `resolveTeachingStoryboardForGeneration(...)`, the Gate 5 scene boundary, cache-key construction, reusable-seed loading, quota-gated generation, image processing, and delivery.
+- For `off`, malformed flag values, `internal` non-admin, `beta` not opted in, canary out-of-bucket, or missing safe canary seed:
+  - `effectiveRoutePolicy.mode` is `legacy`;
+  - `effectiveRoutePolicy.inputOrigin` preserves the original input origin, including `uploaded-file`;
+  - `effectiveRoutePolicy.allowReusableSeeds` is `true`;
+  - `effectiveRoutePolicy.cacheKeyParts` is `[]`;
+  - source manifest validation is not required;
+  - teaching storyboard build/validation is not run;
+  - the Gate 5 scene boundary is not called;
+  - legacy cache key, reusable-seed eligibility, quota ordering, AI-call ordering, image processing, and delivery behavior are preserved.
+- For eligible source-primary users, `effectiveRoutePolicy` remains the original source-primary route. Those users proceed through Gate 1 manifest validation, Gate 2 storyboard validation, Gate 3 semantic scenes, Gate 4 visual-system/assets, and Gate 5 hard validation before delivery or successful cache write.
+- Eligible stages may visibly block on Gate 1, Gate 2, or Gate 5 validation because those users are explicitly receiving the source-primary route.
 - Gate 6 must never bypass Gate 5 validation for an eligible source-primary scene deck.
 
 Disable and rollback order:
@@ -375,7 +421,7 @@ Required controls:
 
 Expected files for the later Gate 6 implementation:
 
-- Modify: `App.tsx` only to insert the Gate 6 rollout decision before the existing Gate 5 source-primary scene boundary calls and to pass redacted telemetry events.
+- Modify: `App.tsx` only to insert the Gate 6 rollout/effective-route decision immediately after `resolveK12GenerationRoutePolicy(...)` and before `resolveSourceManifestForGeneration(...)` in both K-12 single lesson and daily unit flows, then pass redacted telemetry events.
 - Create: `lib/sourcePrimarySceneRollout.ts` for rollout-stage parsing, eligibility, canary hashing, and rollback-safe disabled behavior.
 - Create: `lib/sourcePrimarySceneTelemetry.ts` for redacted event construction and privacy validation.
 - Create: `lib/sourcePrimarySceneCacheEnvelope.ts` only if source-primary scene caching is implemented in Gate 6; otherwise do not touch cache write behavior.
@@ -415,14 +461,18 @@ Forbidden files unless a reviewed amendment narrows scope:
 - `internal`, `beta`, `5`, `5%`, `canary-5`, `25`, `25%`, `canary-25`, `100`, `100%`, and `all` parse to the expected stage.
 - Topic-only and legacy routes remain unchanged for every stage.
 - Source-primary uploaded-file route is eligible only when the active stage permits it.
+- Every rollout decision returns both `originalRoutePolicy` and `effectiveRoutePolicy`.
+- Ineligible uploaded-file source-primary decisions return an effective legacy route policy with `allowReusableSeeds: true` and empty `cacheKeyParts`.
 
 ### Rollback path
 
-- Disabled Gate 6 returns the exact accepted legacy/delegated behavior.
+- Disabled Gate 6 with uploaded content and source-primary routing enabled falls back to the effective legacy route before source manifest/storyboard preflight.
 - `internal` blocks non-admin users.
-- `beta` blocks users without explicit opt-in.
-- Canary stages exclude users outside deterministic buckets.
+- `beta` without opt-in falls back to the effective legacy route before source manifest/storyboard preflight.
+- Canary stages exclude users outside deterministic buckets and fall back to the effective legacy route before source manifest/storyboard preflight.
+- Canary stages with no safe stable seed fall back to the effective legacy route before source manifest/storyboard preflight.
 - Lower-gate disabled behavior remains unchanged.
+- Eligible source-primary decisions keep the original source-primary route and still require Gate 1, Gate 2, and Gate 5 validation before delivery/cache success.
 
 ### Telemetry redaction
 
@@ -439,9 +489,12 @@ Forbidden files unless a reviewed amendment narrows scope:
 
 ### Disabled-route unchanged behavior
 
-- `VITE_SOURCE_PRIMARY_SCENE_ROLLOUT_V1=off` preserves exact accepted Gate 5 off-path behavior.
+- `VITE_SOURCE_PRIMARY_SCENE_ROLLOUT_V1=off` preserves exact legacy uploaded-file behavior before Gate 1/2 preflight.
 - `VITE_SEMANTIC_SLIDES_V1=false` preserves legacy route.
 - `VITE_SOURCE_PRIMARY_ROUTING_V1=false` preserves exact legacy seed/cache eligibility.
+- Single lesson and daily unit flows use the same effective-route decision helper.
+- Ineligible Gate 6 decisions do not call `resolveSourceManifestForGeneration(...)`, `buildTeachingStoryboard(...)`, `resolveTeachingStoryboardForGeneration(...)`, or `resolveEndToEndValidatedScenePresentationForGeneration(...)` with a source-primary policy.
+- Cache lookup, quota increment, reusable-seed loading, AI calls, image processing, and delivery remain in the accepted legacy order for ineligible decisions.
 
 ### Provider, prompt, and model invariants
 
@@ -459,10 +512,11 @@ Forbidden files unless a reviewed amendment narrows scope:
 - Test: `tests/sourcePrimarySceneRollout.test.ts`
 
 **Interfaces:**
-- Consumes: `Pick<K12GenerationRoutePolicy, 'mode' | 'inputOrigin'>`
+- Consumes: `K12GenerationRoutePolicy`
 - Produces:
   - `parseSourcePrimarySceneRolloutStage(flagValue: unknown): SourcePrimarySceneRolloutStage`
   - `resolveSourcePrimarySceneRolloutEligibility(policy, stage, context): SourcePrimarySceneRolloutDecision`
+  - `toLegacyEffectiveRoutePolicy(policy: K12GenerationRoutePolicy): K12GenerationRoutePolicy`
 
 - [ ] **Step 1: Write failing flag matrix tests**
 
@@ -494,6 +548,34 @@ test('keeps topic-only and legacy routes ineligible for Gate 6 scene rollout', (
   assert.equal(resolveSourcePrimarySceneRolloutEligibility(topicPolicy, 'all', {}).eligible, false);
   assert.equal(resolveSourcePrimarySceneRolloutEligibility(legacyPolicy, 'all', {}).eligible, false);
 });
+
+test('falls back to effective legacy route for ineligible uploaded source-primary users', () => {
+  const originalPolicy = resolveK12GenerationRoutePolicy('uploaded text', 'true');
+
+  for (const decision of [
+    resolveSourcePrimarySceneRolloutEligibility(originalPolicy, 'off', {}),
+    resolveSourcePrimarySceneRolloutEligibility(originalPolicy, 'beta', { optedInToSourcePrimaryScenes: false }),
+    resolveSourcePrimarySceneRolloutEligibility(originalPolicy, 'canary-5', {}),
+  ]) {
+    assert.equal(decision.eligible, false);
+    assert.deepEqual(decision.originalRoutePolicy, originalPolicy);
+    assert.deepEqual(decision.effectiveRoutePolicy, {
+      inputOrigin: 'uploaded-file',
+      mode: 'legacy',
+      allowReusableSeeds: true,
+      cacheKeyParts: [],
+    });
+  }
+});
+
+test('keeps source-primary effective route only for eligible rollout users', () => {
+  const originalPolicy = resolveK12GenerationRoutePolicy('uploaded text', 'true');
+  const decision = resolveSourcePrimarySceneRolloutEligibility(originalPolicy, 'all', {});
+
+  assert.equal(decision.eligible, true);
+  assert.deepEqual(decision.originalRoutePolicy, originalPolicy);
+  assert.deepEqual(decision.effectiveRoutePolicy, originalPolicy);
+});
 ```
 
 - [ ] **Step 2: Run the focused test and observe missing module failure**
@@ -522,6 +604,8 @@ export type SourcePrimarySceneRolloutContext = {
 export type SourcePrimarySceneRolloutDecision = {
   eligible: boolean;
   stage: SourcePrimarySceneRolloutStage;
+  originalRoutePolicy: K12GenerationRoutePolicy;
+  effectiveRoutePolicy: K12GenerationRoutePolicy;
   reason:
     | 'rollout_off'
     | 'route_not_source_primary_uploaded'
@@ -534,11 +618,20 @@ export type SourcePrimarySceneRolloutDecision = {
     | 'all_eligible'
     | 'missing_stable_bucket_seed';
 };
+
+export const toLegacyEffectiveRoutePolicy = (
+  policy: K12GenerationRoutePolicy,
+): K12GenerationRoutePolicy => ({
+  inputOrigin: policy.inputOrigin,
+  mode: 'legacy',
+  allowReusableSeeds: true,
+  cacheKeyParts: [],
+});
 ```
 
 - [ ] **Step 4: Implement deterministic canary hashing without dependencies**
 
-Use a stable 32-bit FNV-1a hash over a privacy-safe seed string. Return canary eligibility only when `stableBucketSeed` is present and contains no whitespace-heavy source-like text.
+Use a stable 32-bit FNV-1a hash over a privacy-safe seed string. Return canary eligibility only when `stableBucketSeed` is present and contains no whitespace-heavy source-like text. If the implementation cannot obtain a source hash prefix from an already-valid manifest/provenance result, leave `stableBucketSeed` undefined and return the `missing_stable_bucket_seed` effective legacy decision. Do not read raw source text to build the canary seed.
 
 - [ ] **Step 5: Run tests**
 
@@ -609,20 +702,26 @@ Expected: all tests pass.
 - Consumes:
   - `parseSourcePrimarySceneRolloutStage`
   - `resolveSourcePrimarySceneRolloutEligibility`
+  - `SourcePrimarySceneRolloutDecision.effectiveRoutePolicy`
   - accepted Gate 5 `resolveEndToEndValidatedScenePresentationForGeneration`
 - Produces:
-  - source-primary scene route is attempted only when Gate 6 decision is eligible;
-  - ineligible source-primary uploaded-file requests continue to accepted legacy path without cache/quota/seed ordering regressions.
+  - Gate 6 decision runs immediately after `resolveK12GenerationRoutePolicy(...)` and before `resolveSourceManifestForGeneration(...)`;
+  - Gate 1, Gate 2, and Gate 5 are attempted only when Gate 6 decision is eligible and `effectiveRoutePolicy.mode === 'source-primary'`;
+  - ineligible uploaded-file source-primary requests continue to accepted legacy path without source-manifest/storyboard preflight and without cache/quota/seed ordering regressions.
 
 - [ ] **Step 1: Add boundary tests**
 
 Tests must prove:
 
-- `off` delegates to legacy path and does not call Gate 5 scene boundary;
+- `off` with uploaded content and source-primary routing enabled uses the effective legacy route before source manifest/storyboard preflight;
 - `internal` requires admin context;
-- `beta` requires opt-in;
+- `beta` without opt-in uses the effective legacy route before source manifest/storyboard preflight;
 - `canary-5` and `canary-25` use deterministic bucket decisions;
+- `canary-5` or `canary-25` without a safe stable seed uses the effective legacy route before source manifest/storyboard preflight;
 - `all` allows eligible uploaded-file source-primary route;
+- eligible source-primary route still requires Gate 1, Gate 2, and Gate 5 validation;
+- K-12 single lesson and daily unit flows both use the same `effectiveRoutePolicy` decision;
+- ineligible decisions preserve legacy cache key, reusable-seed eligibility, quota ordering, AI-call ordering, image processing, and delivery behavior;
 - topic-only remains unchanged.
 
 - [ ] **Step 2: Add `SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG` in `App.tsx`**
@@ -631,9 +730,42 @@ Tests must prove:
 const SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG = import.meta.env.VITE_SOURCE_PRIMARY_SCENE_ROLLOUT_V1;
 ```
 
-- [ ] **Step 3: Insert the Gate 6 decision immediately before each accepted Gate 5 boundary call**
+- [ ] **Step 3: Insert the Gate 6 decision immediately after route policy resolution in both K-12 flows**
 
-Do not move cache lookup, quota increment, reusable seed calls, AI calls, image processing, or delivery earlier.
+In the single lesson flow, place the decision immediately after:
+
+```ts
+const originalRoutePolicy = resolveK12GenerationRoutePolicy(
+  dllContent,
+  SOURCE_PRIMARY_ROUTING_V1_FLAG,
+);
+```
+
+In the daily unit flow, place the same decision immediately after:
+
+```ts
+const originalRoutePolicy = resolveK12GenerationRoutePolicy(
+  dllContent,
+  SOURCE_PRIMARY_ROUTING_V1_FLAG,
+);
+```
+
+Then use:
+
+```ts
+const routePolicy = rolloutDecision.effectiveRoutePolicy;
+```
+
+for every downstream call that currently receives `routePolicy`, including:
+
+- `resolveSourceManifestForGeneration(...)`;
+- `buildTeachingStoryboard(...)` conditions based on `sourceManifestBoundary.manifest`;
+- `resolveTeachingStoryboardForGeneration(...)`;
+- `resolveEndToEndValidatedScenePresentationForGeneration(...)`;
+- legacy cache-key construction through `routePolicy.cacheKeyParts`;
+- `loadReusableSeedWhenAllowed(...)`.
+
+Keep `rolloutDecision.originalRoutePolicy` only for redacted rollout telemetry and diagnostics. Do not move cache lookup, quota increment, reusable seed calls, AI calls, image processing, or delivery earlier.
 
 - [ ] **Step 4: Run tests and typecheck**
 
