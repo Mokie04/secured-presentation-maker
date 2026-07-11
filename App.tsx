@@ -15,6 +15,8 @@ import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } fro
 import { IMAGE_SEMANTIC_CACHE_VERSION } from './lib/imageSemantic';
 import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from './lib/branding';
 import { loadReusableSeedWhenAllowed, resolveK12GenerationRoutePolicy } from './lib/k12GenerationRoutePolicy';
+import { buildLessonSourceManifest, formatSourceManifestDiagnostics, resolveSourceManifestForGeneration, type LessonSourceManifestResult, type SourceDocumentFormat } from './lib/lessonSourceManifest';
+import { buildHtmlSourceDocument, buildPlainTextSourceDocument, type StructuredSourceDocument } from './lib/lessonSourceDocument';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -682,6 +684,36 @@ const htmlToStructuredText = (html: string): string => {
 
   return blocks.join('\n\n').trim();
 };
+
+const hashUploadedSourceValue = async (value: string | ArrayBuffer): Promise<string> => {
+  const bytes = typeof value === 'string'
+    ? new TextEncoder().encode(value)
+    : new Uint8Array(value);
+
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  let hash = 5381;
+  for (const byte of bytes) {
+    hash = ((hash << 5) + hash) ^ byte;
+  }
+  return `fallback-${(hash >>> 0).toString(16)}`;
+};
+
+const getSourceDocumentFormat = (fileExtension: string): SourceDocumentFormat => {
+  if (fileExtension === '.docx') return 'docx';
+  if (fileExtension === '.pdf') return 'pdf';
+  if (fileExtension === '.md') return 'md';
+  return 'txt';
+};
+
+const shouldApplySourcePrimaryUploadPreflight = (): boolean => (
+  resolveK12GenerationRoutePolicy('uploaded lesson source', SOURCE_PRIMARY_ROUTING_V1_FLAG).mode === 'source-primary'
+);
 
 const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
@@ -3155,6 +3187,7 @@ const getPptxContentTypography = (slide: Slide, hasImage: boolean, isEvidenceLay
 
 const App: React.FC = () => {
   const [dllContent, setDllContent] = useState<string>('');
+  const [lessonSourceManifestResult, setLessonSourceManifestResult] = useState<LessonSourceManifestResult | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [topicContext, setTopicContext] = useState<string>('');
   const [objectivesContext, setObjectivesContext] = useState<string>('');
@@ -3852,6 +3885,15 @@ const App: React.FC = () => {
               dllContent,
               SOURCE_PRIMARY_ROUTING_V1_FLAG,
             );
+            const sourceManifestBoundary = resolveSourceManifestForGeneration(
+              routePolicy,
+              lessonSourceManifestResult,
+            );
+            if (sourceManifestBoundary.ok === false) {
+              setError(sourceManifestBoundary.message);
+              setIsLoading(false);
+              return;
+            }
             // DepEd Single Lesson Flow
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
@@ -3988,7 +4030,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
+  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, t, lessonSourceManifestResult, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
 
   const handleGenerateDailySlides = useCallback(async (dayIndex: number) => {
     if (!lessonBlueprint) return;
@@ -4014,6 +4056,21 @@ const App: React.FC = () => {
           dllContent,
           SOURCE_PRIMARY_ROUTING_V1_FLAG,
         );
+        const sourceManifestBoundary = resolveSourceManifestForGeneration(
+          routePolicy,
+          lessonSourceManifestResult,
+        );
+        if (sourceManifestBoundary.ok === false) {
+          setError(sourceManifestBoundary.message);
+          setLessonBlueprint(prev => {
+              if (!prev) return null;
+              const newDays = [...prev.days];
+              newDays[dayIndex].generationStatus = 'pending';
+              return {...prev, days: newDays};
+          });
+          setIsLoading(false);
+          return;
+        }
         const generationLanguage = getPresentationLanguageForGeneration(content);
         const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
           GENERATION_CACHE_VERSION,
@@ -4179,7 +4236,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
+  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, t, lessonSourceManifestResult, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
 
   const handleGenerateAllDailySlides = useCallback(async () => {
     if (!lessonBlueprint || isLoading) return;
@@ -4264,6 +4321,7 @@ const App: React.FC = () => {
     setLessonBlueprint(null);
     setGeneratedPlanUnitSlidesByDay({});
     setDllContent('');
+    setLessonSourceManifestResult(null);
     setFileName(null);
     setCurrentSlide(0);
     setError(null);
@@ -4297,8 +4355,11 @@ const App: React.FC = () => {
 
     try {
         let text = '';
+        let sourceDocument: StructuredSourceDocument | null = null;
+        const sourceFormat = getSourceDocumentFormat(fileExtension);
         if (fileExtension === '.pdf') {
             const arrayBuffer = await file.arrayBuffer();
+            const sourceHash = await hashUploadedSourceValue(arrayBuffer);
             const pdfjsLib = await loadPdfJs();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             for (let i = 1; i <= pdf.numPages; i++) {
@@ -4308,34 +4369,104 @@ const App: React.FC = () => {
                 text += `\n\n--- Page ${i} ---\n${pageText}`;
             }
             if (!text.trim()) {
+                if (shouldApplySourcePrimaryUploadPreflight()) {
+                    sourceDocument = {
+                        format: 'pdf',
+                        fileName: file.name,
+                        sourceHash,
+                        byteLength: file.size,
+                        plainText: '',
+                        blocks: [],
+                        tables: [],
+                        isScanned: true,
+                    };
+                    const manifestResult = buildLessonSourceManifest(sourceDocument);
+                    const diagnostics = manifestResult.ok === true
+                        ? manifestResult.manifest.diagnostics
+                        : manifestResult.diagnostics;
+                    setLessonSourceManifestResult(manifestResult);
+                    setError(formatSourceManifestDiagnostics(diagnostics));
+                    setFileName(null);
+                    setDllContent('');
+                    return;
+                }
                 text = getKnownScannedPdfFallbackText(file, pdf.numPages);
             }
+            sourceDocument = buildPlainTextSourceDocument({
+                format: 'pdf',
+                fileName: file.name,
+                sourceHash,
+                byteLength: file.size,
+                text,
+            });
         } else if (fileExtension === '.docx') {
             const arrayBuffer = await file.arrayBuffer();
+            const sourceHash = await hashUploadedSourceValue(arrayBuffer);
             const mammoth = (await import('mammoth')).default;
             const result = await mammoth.convertToHtml(
                 { arrayBuffer },
                 { convertImage: mammoth.images.imgElement(async () => ({ src: '' })) }
             );
             text = htmlToStructuredText(result.value);
+            sourceDocument = buildHtmlSourceDocument({
+                format: 'docx',
+                fileName: file.name,
+                sourceHash,
+                byteLength: file.size,
+                html: result.value,
+                fallbackText: text,
+            });
 
             if (!text.trim()) {
                 const fallback = await mammoth.extractRawText({ arrayBuffer });
                 text = fallback.value;
+                sourceDocument = buildPlainTextSourceDocument({
+                    format: 'docx',
+                    fileName: file.name,
+                    sourceHash,
+                    byteLength: file.size,
+                    text,
+                });
             }
 
             if (!text.trim()) {
                 text = await extractAltChunkDocxText(arrayBuffer);
+                sourceDocument = buildPlainTextSourceDocument({
+                    format: 'docx',
+                    fileName: file.name,
+                    sourceHash,
+                    byteLength: file.size,
+                    text,
+                });
             }
         } else {
             text = await file.text();
+            sourceDocument = buildPlainTextSourceDocument({
+                format: sourceFormat,
+                fileName: file.name,
+                sourceHash: await hashUploadedSourceValue(text),
+                byteLength: file.size,
+                text,
+            });
         }
         if (!text.trim()) {
             setError(t.presentation.errorFileNoText.replace('{fileName}', file.name));
             setFileName(null);
             setDllContent('');
+            setLessonSourceManifestResult(null);
             return;
         }
+        if (!sourceDocument) {
+            sourceDocument = buildPlainTextSourceDocument({
+                format: sourceFormat,
+                fileName: file.name,
+                sourceHash: await hashUploadedSourceValue(text),
+                byteLength: file.size,
+                text,
+            });
+        }
+        const manifestResult = buildLessonSourceManifest(sourceDocument);
+        setLessonSourceManifestResult(manifestResult);
         getPresentationLanguageForGeneration(text, file.name);
         setDllContent(text);
     } catch (err) {
@@ -4343,6 +4474,7 @@ const App: React.FC = () => {
         setError(t.presentation.errorFileRead.replace('{fileName}', file.name));
         setFileName(null);
         setDllContent('');
+        setLessonSourceManifestResult(null);
     } finally {
         setIsLoading(false);
     }
@@ -4375,6 +4507,7 @@ const App: React.FC = () => {
   const clearFile = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setDllContent('');
+    setLessonSourceManifestResult(null);
     setFileName(null);
     if (fileInputRef.current) {
         fileInputRef.current.value = '';
