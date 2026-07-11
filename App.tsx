@@ -21,7 +21,7 @@ import { buildTeachingStoryboard, resolveTeachingStoryboardForGeneration } from 
 import CompiledSlideSceneView from './components/CompiledSlideSceneView';
 import { COMPILED_SLIDE_SCENE_VERSION, type CompiledScenePresentation, type CompiledSlideScene } from './lib/compiledSlideScene';
 import { compilePptxSceneOperations } from './lib/compiledScenePptx';
-import { resolveSemanticScenePresentationForGeneration } from './lib/semanticSlideSpec';
+import { resolveDeckVisualScenePresentationForGeneration } from './lib/deckVisualSceneBoundary';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -107,6 +107,7 @@ const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v38';
 const SOURCE_PRIMARY_ROUTING_V1_FLAG = import.meta.env.VITE_SOURCE_PRIMARY_ROUTING_V1;
 const SEMANTIC_SLIDES_V1_FLAG = import.meta.env.VITE_SEMANTIC_SLIDES_V1;
+const DECK_VISUAL_SYSTEM_V1_FLAG = import.meta.env.VITE_DECK_VISUAL_SYSTEM_V1;
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -3921,9 +3922,10 @@ const App: React.FC = () => {
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
                 setLoadingMessage(t.presentation.loadingSingleLesson);
-                const semanticSceneBoundary = resolveSemanticScenePresentationForGeneration(
+                const semanticSceneBoundary = await resolveDeckVisualScenePresentationForGeneration(
                   routePolicy,
                   SEMANTIC_SLIDES_V1_FLAG,
+                  DECK_VISUAL_SYSTEM_V1_FLAG,
                   teachingStoryboardBoundary.storyboard,
                   {
                     title: sourceManifestBoundary.manifest?.units.map((unit) => unit.sourceLabel).join(' / ') || 'Source-Aligned Lesson',
@@ -4158,9 +4160,10 @@ const App: React.FC = () => {
             .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
         );
 
-        const semanticSceneBoundary = resolveSemanticScenePresentationForGeneration(
+        const semanticSceneBoundary = await resolveDeckVisualScenePresentationForGeneration(
           routePolicy,
           SEMANTIC_SLIDES_V1_FLAG,
+          DECK_VISUAL_SYSTEM_V1_FLAG,
           teachingStoryboardBoundary.storyboard,
           {
             title: planUnitPresentationTitle,
@@ -4855,6 +4858,10 @@ const App: React.FC = () => {
                 }
                 if (operation.kind === 'addTable') {
                     slide.addTable(operation.rows, operation.options);
+                    return;
+                }
+                if (operation.kind === 'addImage') {
+                    slide.addImage({ data: operation.data, ...operation.options });
                     return;
                 }
                 slide.addNotes(operation.text);

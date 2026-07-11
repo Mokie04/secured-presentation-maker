@@ -4,6 +4,7 @@ export type PptxSceneOperation =
   | { kind: 'addText'; elementId: string; text: string; options: Record<string, unknown> }
   | { kind: 'addShape'; elementId: string; shape: string; options: Record<string, unknown> }
   | { kind: 'addTable'; elementId: string; rows: string[][]; options: Record<string, unknown> }
+  | { kind: 'addImage'; elementId: string; data: string; options: Record<string, unknown> }
   | { kind: 'addNotes'; text: string };
 
 const frameToPptxOptions = (frame: SceneElement['frame']): Record<string, number> => ({
@@ -78,6 +79,18 @@ const compileSceneElementToPptxOperation = (element: SceneElement): PptxSceneOpe
       options: {
         ...frameToPptxOptions(element.frame),
         line: { color: element.stroke, width: 1.5, beginArrowType: 'none', endArrowType: element.arrowEnd ? 'triangle' : 'none' },
+      },
+    }];
+  }
+
+  if (element.kind === 'image') {
+    return [{
+      kind: 'addImage',
+      elementId: element.id,
+      data: element.src,
+      options: {
+        ...frameToPptxOptions(element.frame),
+        altText: element.altText,
       },
     }];
   }

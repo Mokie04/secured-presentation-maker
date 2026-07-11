@@ -180,14 +180,12 @@ test('rejects low semantic-layout coverage', () => {
   assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'semantic_spec_generic_layout_coverage_low'), true);
 });
 
-test('rejects image asset requests in Gate 3', () => {
+test('Gate 3 builder emits no asset requests unless Gate 4 adds them', () => {
   const result = buildSemanticSlideSpecs(EVIDENCE_OUTPUT_STORYBOARD);
 
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  const invalid = [{ ...result.specs[0], assetRequests: [{ kind: 'image' }] as never }, ...result.specs.slice(1)];
-  const diagnostics = validateSemanticSlideSpecs(invalid, EVIDENCE_OUTPUT_STORYBOARD);
-  assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'semantic_spec_asset_request_forbidden'), true);
+  assert.equal(result.specs.every((spec) => spec.assetRequests.length === 0), true);
 });
 
 test('semantic scene route is source-primary and flag gated', () => {

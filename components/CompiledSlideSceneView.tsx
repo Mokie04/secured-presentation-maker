@@ -4,6 +4,7 @@ import type {
   SceneConnectorElement,
   SceneElement,
   SceneFrame,
+  SceneImageElement,
   SceneShapeElement,
   SceneTableElement,
   SceneTextElement,
@@ -116,11 +117,23 @@ const renderConnectorElement = (element: SceneConnectorElement) => (
   />
 );
 
+const renderImageElement = (element: SceneImageElement) => (
+  <img
+    key={element.id}
+    src={element.src}
+    alt={element.altText}
+    className="absolute object-contain"
+    style={frameStyle(element.frame)}
+    draggable={false}
+  />
+);
+
 const renderSceneElement = (element: SceneElement) => {
   if (element.kind === 'text') return renderTextElement(element);
   if (element.kind === 'shape') return renderShapeElement(element);
   if (element.kind === 'table') return renderTableElement(element);
   if (element.kind === 'connector') return renderConnectorElement(element);
+  if (element.kind === 'image') return renderImageElement(element);
   return null;
 };
 

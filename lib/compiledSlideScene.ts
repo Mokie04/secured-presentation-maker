@@ -4,6 +4,9 @@ import type {
   SemanticSlideSpec,
   SlideSlotValue,
 } from './semanticSlideSpec.ts';
+import type { DeckVisualSystem } from './deckVisualSystem.ts';
+import type { SceneAssetVisualRole } from './sceneAssetRequests.ts';
+import type { SceneResolvedAsset } from './sceneAssetResolver.ts';
 
 export const COMPILED_SLIDE_SCENE_VERSION = 'compiled-slide-scene-v1';
 
@@ -82,6 +85,12 @@ export type SceneImageElement = SceneElementBase & {
   kind: 'image';
   src: string;
   altText: string;
+  assetId: string;
+  visualRole: SceneAssetVisualRole;
+  sourceStepIds: string[];
+  storyboardScreenId: string;
+  semanticSlideSpecId: string;
+  noEmbeddedText: true;
 };
 
 export type SceneElement =
@@ -140,6 +149,13 @@ export type SceneValidationDiagnostic = {
 export type CompiledScenePresentationResult =
   | { ok: true; presentation: CompiledScenePresentation }
   | { ok: false; diagnostics: SceneValidationDiagnostic[] };
+
+export type CompileSemanticSlideSpecsOptions = {
+  title: string;
+  selectedUnitLabel?: string;
+  visualSystemsByUnitId?: Record<string, DeckVisualSystem>;
+  resolvedAssetsBySpecId?: Record<string, SceneResolvedAsset[]>;
+};
 
 export type SemanticLayoutDefinition = {
   id: SemanticLayoutId;
@@ -402,7 +418,7 @@ const makeConnector = (
 
 const asBulletText = (items: string[]): string => items.map((item) => `- ${item}`).join('\n');
 
-const buildSceneElements = (spec: SemanticSlideSpec, sceneId: string): SceneElement[] => {
+const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): SceneElement[] => {
   const title = slotText(spec.slots.title) || spec.accessibility.slidePurpose;
   const bodyItems = listItems(spec.slots.body);
   const successItems = listItems(spec.slots.successCriteria);
@@ -490,6 +506,107 @@ const buildSceneElements = (spec: SemanticSlideSpec, sceneId: string): SceneElem
   ];
 };
 
+const applyVisualSystemToElements = (
+  elements: readonly SceneElement[],
+  visualSystem?: DeckVisualSystem,
+): SceneElement[] => {
+  if (!visualSystem) return [...elements];
+  return elements.map((element) => {
+    if (element.kind === 'shape' && element.id.endsWith('-bg')) {
+      return {
+        ...element,
+        fill: visualSystem.palette.surface,
+        stroke: visualSystem.palette.surfaceMuted,
+        radius: visualSystem.shapeLanguage.cornerRadius,
+      };
+    }
+    if (element.kind === 'table') {
+      return {
+        ...element,
+        headerFill: visualSystem.palette.accentCool,
+        cellFill: visualSystem.palette.surface,
+        textColor: visualSystem.palette.ink,
+      };
+    }
+    if (element.kind === 'text') {
+      return {
+        ...element,
+        runs: element.runs.map((run) => ({
+          ...run,
+          color: run.color ?? visualSystem.palette.ink,
+        })),
+      };
+    }
+    if (element.kind === 'connector') {
+      return {
+        ...element,
+        stroke: visualSystem.palette.mutedInk,
+      };
+    }
+    return element;
+  });
+};
+
+const isRenderedImageAsset = (asset: SceneResolvedAsset): boolean => (
+  asset.kind !== 'native' && asset.kind !== 'omitted' && Boolean(asset.src)
+);
+
+const imageElementForAsset = (
+  spec: SemanticSlideSpec,
+  sceneId: string,
+  asset: SceneResolvedAsset,
+  index: number,
+  readingOrder: number,
+): SceneImageElement | null => {
+  const request = spec.assetRequests.find((item) => item.id === asset.requestId);
+  if (!request || !asset.src) return null;
+  return {
+    id: `${sceneId}-asset-${index + 1}`,
+    kind: 'image',
+    frame: { x: 968, y: 500, w: 214, h: 122 },
+    editable: true,
+    readingOrder,
+    src: asset.src,
+    altText: asset.altText,
+    assetId: asset.requestId,
+    visualRole: request.visualRole,
+    sourceStepIds: [...asset.sourceStepIds],
+    storyboardScreenId: asset.storyboardScreenId,
+    semanticSlideSpecId: asset.semanticSlideSpecId,
+    noEmbeddedText: true,
+  };
+};
+
+const addResolvedAssetElements = (
+  elements: readonly SceneElement[],
+  spec: SemanticSlideSpec,
+  sceneId: string,
+  assets: readonly SceneResolvedAsset[] = [],
+): SceneElement[] => {
+  const renderedAssets = assets.filter(isRenderedImageAsset);
+  if (renderedAssets.length === 0) return [...elements];
+  const maxReadingOrder = elements.reduce((max, element) => Math.max(max, element.readingOrder), 0);
+  const imageElements = renderedAssets
+    .slice(0, 2)
+    .map((asset, index) => imageElementForAsset(spec, sceneId, asset, index, maxReadingOrder + index + 1))
+    .filter((element): element is SceneImageElement => Boolean(element));
+  return [...elements, ...imageElements];
+};
+
+const buildSceneElements = (
+  spec: SemanticSlideSpec,
+  sceneId: string,
+  visualSystem?: DeckVisualSystem,
+  assets: readonly SceneResolvedAsset[] = [],
+): SceneElement[] => (
+  addResolvedAssetElements(
+    applyVisualSystemToElements(buildBaseSceneElements(spec, sceneId), visualSystem),
+    spec,
+    sceneId,
+    assets,
+  )
+);
+
 const isVisibleTextElement = (element: SceneElement): element is SceneTextElement | SceneTableElement => (
   element.kind === 'text' || element.kind === 'table'
 );
@@ -534,6 +651,22 @@ const isFrameOffCanvas = (frame: SceneFrame): boolean => (
   || frame.y + frame.h > SCENE_HEIGHT
 );
 
+const isFullSlideRasterFrame = (frame: SceneFrame): boolean => (
+  frame.x <= 0
+  && frame.y <= 0
+  && frame.w >= SCENE_WIDTH
+  && frame.h >= SCENE_HEIGHT
+);
+
+const hasValidImageProvenance = (element: SceneImageElement, scene: CompiledSlideScene): boolean => (
+  Boolean(element.assetId)
+  && element.noEmbeddedText === true
+  && element.storyboardScreenId === scene.storyboardScreenId
+  && element.semanticSlideSpecId === scene.semanticSlideSpecId
+  && element.sourceStepIds.length > 0
+  && element.sourceStepIds.every((sourceStepId) => scene.sourceStepIds.includes(sourceStepId))
+);
+
 export const getSceneVisibleText = (scene: CompiledSlideScene): string[] => (
   scene.elements.flatMap(elementText).map(clampText).filter(Boolean)
 );
@@ -566,7 +699,12 @@ export const validateCompiledSlideScene = (scene: CompiledSlideScene): SceneVali
     }
 
     if (element.kind === 'image') {
-      diagnostics.push(sceneDiagnostic('scene_full_slide_raster_forbidden', `Image element ${element.id} is not allowed in Gate 3 scenes.`, { sceneId: scene.id, elementId: element.id }));
+      if (isFullSlideRasterFrame(element.frame)) {
+        diagnostics.push(sceneDiagnostic('scene_full_slide_raster_forbidden', `Image element ${element.id} uses a full-slide raster frame.`, { sceneId: scene.id, elementId: element.id }));
+      }
+      if (!hasValidImageProvenance(element, scene)) {
+        diagnostics.push(sceneDiagnostic('scene_contract_invalid', `Image element ${element.id} is missing source-backed asset provenance.`, { sceneId: scene.id, elementId: element.id }));
+      }
     }
   }
 
@@ -600,9 +738,15 @@ export const createPreviewSceneDescriptors = (scene: CompiledSlideScene): Previe
   }))
 );
 
-const compileSpecToScene = (spec: SemanticSlideSpec, index: number): CompiledSlideScene => {
+const compileSpecToScene = (
+  spec: SemanticSlideSpec,
+  index: number,
+  options: Pick<CompileSemanticSlideSpecsOptions, 'visualSystemsByUnitId' | 'resolvedAssetsBySpecId'> = {},
+): CompiledSlideScene => {
   const sceneId = `scene-${String(index + 1).padStart(3, '0')}`;
-  const elements = buildSceneElements(spec, sceneId);
+  const visualSystem = options.visualSystemsByUnitId?.[spec.unitId];
+  const resolvedAssets = options.resolvedAssetsBySpecId?.[spec.id] ?? [];
+  const elements = buildSceneElements(spec, sceneId, visualSystem, resolvedAssets);
   return {
     contractVersion: COMPILED_SLIDE_SCENE_VERSION,
     id: sceneId,
@@ -616,7 +760,7 @@ const compileSpecToScene = (spec: SemanticSlideSpec, index: number): CompiledSli
       height: SCENE_HEIGHT,
       aspect: '16:9',
     },
-    background: 'FFFFFF',
+    background: visualSystem?.palette.background ?? 'FFFFFF',
     elements,
     speakerNotes: spec.speakerNotes,
     readingOrder: elements.filter(isVisibleTextElement).sort((a, b) => a.readingOrder - b.readingOrder).map((element) => element.id),
@@ -625,9 +769,9 @@ const compileSpecToScene = (spec: SemanticSlideSpec, index: number): CompiledSli
 
 export const compileSemanticSlideSpecsToScenes = (
   specs: readonly SemanticSlideSpec[],
-  options: { title: string; selectedUnitLabel?: string },
+  options: CompileSemanticSlideSpecsOptions,
 ): CompiledScenePresentationResult => {
-  const scenes = specs.map((spec, index) => compileSpecToScene(spec, index));
+  const scenes = specs.map((spec, index) => compileSpecToScene(spec, index, options));
   const diagnostics = scenes.flatMap(validateCompiledSlideScene);
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'blocking')) return { ok: false, diagnostics };
   return {

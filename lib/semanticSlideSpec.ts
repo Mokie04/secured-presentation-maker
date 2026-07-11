@@ -1,4 +1,5 @@
 import type { K12GenerationRoutePolicy } from './k12GenerationRoutePolicy.ts';
+import type { SceneAssetRequest } from './sceneAssetRequests.ts';
 import {
   compileSemanticSlideSpecsToScenes,
   formatSceneValidationDiagnostics,
@@ -68,7 +69,7 @@ export type SemanticSlideSpec = {
   intent: SemanticSlideIntent;
   layoutId: SemanticLayoutId;
   slots: Record<string, SlideSlotValue>;
-  assetRequests: [];
+  assetRequests: SceneAssetRequest[];
   speakerNotes: string;
   accessibility: {
     readingOrder: string[];
@@ -256,13 +257,6 @@ export const validateSemanticSlideSpecs = (
       ));
     }
 
-    if (spec.assetRequests.length > 0) {
-      diagnostics.push(semanticDiagnostic(
-        'semantic_spec_asset_request_forbidden',
-        `Semantic slide ${spec.id} requests image assets, which Gate 3 does not implement.`,
-        { specId: spec.id, storyboardScreenId: screen.id },
-      ));
-    }
   }
 
   for (const screen of storyboard.screens) {
