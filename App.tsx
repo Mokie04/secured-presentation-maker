@@ -21,7 +21,7 @@ import { buildTeachingStoryboard, resolveTeachingStoryboardForGeneration } from 
 import CompiledSlideSceneView from './components/CompiledSlideSceneView';
 import { COMPILED_SLIDE_SCENE_VERSION, type CompiledScenePresentation, type CompiledSlideScene } from './lib/compiledSlideScene';
 import { compilePptxSceneOperations } from './lib/compiledScenePptx';
-import { resolveDeckVisualScenePresentationForGeneration } from './lib/deckVisualSceneBoundary';
+import { resolveEndToEndValidatedScenePresentationForGeneration } from './lib/endToEndSceneBoundary';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -108,6 +108,7 @@ const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v38';
 const SOURCE_PRIMARY_ROUTING_V1_FLAG = import.meta.env.VITE_SOURCE_PRIMARY_ROUTING_V1;
 const SEMANTIC_SLIDES_V1_FLAG = import.meta.env.VITE_SEMANTIC_SLIDES_V1;
 const DECK_VISUAL_SYSTEM_V1_FLAG = import.meta.env.VITE_DECK_VISUAL_SYSTEM_V1;
+const END_TO_END_VALIDATION_V1_FLAG = import.meta.env.VITE_END_TO_END_VALIDATION_V1;
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -3922,10 +3923,12 @@ const App: React.FC = () => {
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
                 setLoadingMessage(t.presentation.loadingSingleLesson);
-                const semanticSceneBoundary = await resolveDeckVisualScenePresentationForGeneration(
+                const semanticSceneBoundary = await resolveEndToEndValidatedScenePresentationForGeneration(
                   routePolicy,
                   SEMANTIC_SLIDES_V1_FLAG,
                   DECK_VISUAL_SYSTEM_V1_FLAG,
+                  END_TO_END_VALIDATION_V1_FLAG,
+                  sourceManifestBoundary.manifest,
                   teachingStoryboardBoundary.storyboard,
                   {
                     title: sourceManifestBoundary.manifest?.units.map((unit) => unit.sourceLabel).join(' / ') || 'Source-Aligned Lesson',
@@ -4160,10 +4163,12 @@ const App: React.FC = () => {
             .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
         );
 
-        const semanticSceneBoundary = await resolveDeckVisualScenePresentationForGeneration(
+        const semanticSceneBoundary = await resolveEndToEndValidatedScenePresentationForGeneration(
           routePolicy,
           SEMANTIC_SLIDES_V1_FLAG,
           DECK_VISUAL_SYSTEM_V1_FLAG,
+          END_TO_END_VALIDATION_V1_FLAG,
+          sourceManifestBoundary.manifest,
           teachingStoryboardBoundary.storyboard,
           {
             title: planUnitPresentationTitle,

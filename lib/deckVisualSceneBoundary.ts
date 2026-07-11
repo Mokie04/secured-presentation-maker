@@ -24,6 +24,7 @@ import {
   type SceneAssetAdapters,
   type SceneAssetBudget,
   type SceneAssetResolverDiagnostic,
+  type SceneResolvedAsset,
 } from './sceneAssetResolver.ts';
 import {
   buildSemanticSlideSpecs,
@@ -42,8 +43,20 @@ export type DeckVisualSceneBoundaryDiagnostic =
   | SemanticSlideDiagnostic
   | SceneValidationDiagnostic;
 
+export type DeckVisualSceneBoundaryArtifacts = {
+  semanticSpecs: SemanticSlideSpec[];
+  visualSystems: DeckVisualSystemBundle;
+  assetRequests: SceneAssetRequest[];
+  resolvedAssetsBySpecId: Record<string, SceneResolvedAsset[]>;
+};
+
 export type DeckVisualSceneBoundary =
-  | { ok: true; presentation: CompiledScenePresentation | null; visualSystems?: DeckVisualSystemBundle }
+  | {
+      ok: true;
+      presentation: CompiledScenePresentation | null;
+      visualSystems?: DeckVisualSystemBundle;
+      validationArtifacts?: DeckVisualSceneBoundaryArtifacts;
+    }
   | { ok: false; message: string; diagnostics: DeckVisualSceneBoundaryDiagnostic[] };
 
 export type DeckVisualSceneBoundaryOptions = {
@@ -51,6 +64,7 @@ export type DeckVisualSceneBoundaryOptions = {
   selectedUnitLabel?: string;
   budget?: SceneAssetBudget;
   adapters?: SceneAssetAdapters;
+  includeValidationArtifacts?: boolean;
 };
 
 const groupSpecsWithRequests = (
@@ -149,9 +163,21 @@ export const resolveDeckVisualScenePresentationForGeneration = async (
     };
   }
 
-  return {
+  const success: DeckVisualSceneBoundary = {
     ok: true,
     presentation: sceneResult.presentation,
     visualSystems: visualSystemsResult.bundle,
+  };
+
+  if (!options.includeValidationArtifacts) return success;
+
+  return {
+    ...success,
+    validationArtifacts: {
+      semanticSpecs: specsWithRequests,
+      visualSystems: visualSystemsResult.bundle,
+      assetRequests: requestsResult.requests,
+      resolvedAssetsBySpecId,
+    },
   };
 };
