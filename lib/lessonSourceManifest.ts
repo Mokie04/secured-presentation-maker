@@ -118,9 +118,16 @@ type UnitColumn = {
   columnIndex: number;
 };
 
+type UnitRegistry = {
+  byLabel: Map<string, SourceUnit>;
+  byOrdinal: Map<number, SourceUnit>;
+};
+
 const MAX_SOURCE_TEXT_LENGTH = 1_000_000;
-const OBJECTIVE_LABEL_REGEX = /\b(?:objective|objectives|layunin|layunin sa pagkatuto)\b/i;
+const OBJECTIVE_LABEL_REGEX = /^(?:learning\s+objectives?|objectives?|layunin(?:\s+sa\s+pagkatuto)?)\b/i;
 const UNIT_HEADING_REGEX = /^(?:learning\s+session|session|day|araw|custom\s+unit|lesson)\s+\d+\b/i;
+const BARE_UNIT_ORDINAL_REGEX = /^\d{1,2}$/;
+const UNIT_HEADER_CONTEXT_REGEX = /\b(?:no\.\s*of\s*)?(?:learning\s+)?(?:sessions?|days?|lessons?)\b/i;
 const FIELD_ROW_LABELS = new Set([
   'shared materials',
   'materials',
@@ -144,7 +151,7 @@ export const hasBlockingSourceDiagnostics = (diagnostics: SourceDiagnostic[]): b
 export const formatSourceManifestDiagnostics = (diagnostics: SourceDiagnostic[]): string => {
   const blocking = diagnostics.filter((diagnostic) => diagnostic.severity === 'blocking');
   const selected = blocking.length > 0 ? blocking : diagnostics;
-  return selected.map((diagnostic) => diagnostic.message).join(' ');
+  return Array.from(new Set(selected.map((diagnostic) => diagnostic.message))).join(' ');
 };
 
 export const resolveSourceManifestForGeneration = (
@@ -317,9 +324,20 @@ const expandTable = (table: SourceDocumentTable): ExpandedTable => {
   return { rows, diagnostics };
 };
 
-const isUnitLabel = (value: string): boolean => {
+const getUnitOrdinal = (value: string): number | null => {
   const label = normalizeText(value);
-  return UNIT_HEADING_REGEX.test(label) || /\b\d+\b/.test(label);
+  const explicitMatch = label.match(/^(?:learning\s+session|session|day|araw|custom\s+unit|lesson)\s+(\d{1,2})\b/i);
+  const bareMatch = label.match(BARE_UNIT_ORDINAL_REGEX);
+  const ordinal = explicitMatch?.[1] ?? bareMatch?.[0];
+  return ordinal ? Number.parseInt(ordinal, 10) : null;
+};
+
+const normalizeUnitIdentityLabel = (label: string): string => normalizeText(label).toLowerCase();
+
+const isUnitLabel = (value: string, rowLabel = ''): boolean => {
+  const label = normalizeText(value);
+  if (UNIT_HEADING_REGEX.test(label)) return true;
+  return BARE_UNIT_ORDINAL_REGEX.test(label) && UNIT_HEADER_CONTEXT_REGEX.test(rowLabel);
 };
 
 const getSortedRowIndexes = (table: ExpandedTable): number[] => (
@@ -330,14 +348,16 @@ const findUnitHeaderRow = (table: ExpandedTable): { rowIndex: number; columns: A
   for (const rowIndex of getSortedRowIndexes(table)) {
     const row = table.rows.get(rowIndex);
     if (!row) continue;
+    const rowLabel = normalizeText(row.get(0)?.cell.text || '');
     const columns = Array.from(row.entries())
       .filter(([columnIndex]) => columnIndex > 0)
+      .filter(([columnIndex, expanded]) => expanded.cell.columnSpan === 1 && expanded.originColumnIndex === columnIndex)
       .sort(([a], [b]) => a - b)
       .map(([columnIndex, expanded]) => ({
         columnIndex,
         label: normalizeText(expanded.cell.text),
       }))
-      .filter((column) => column.label && isUnitLabel(column.label));
+      .filter((column) => column.label && isUnitLabel(column.label, rowLabel));
 
     if (columns.length >= 2) return { rowIndex, columns };
   }
@@ -418,7 +438,7 @@ const isObjectiveLabel = (label: string): boolean => OBJECTIVE_LABEL_REGEX.test(
 const isFieldRowLabel = (label: string): boolean => {
   const normalized = normalizeText(label).toLowerCase();
   if (FIELD_ROW_LABELS.has(normalized)) return true;
-  return /\b(?:standard|competenc|resource|material|reflection)\b/i.test(normalized);
+  return /\b(?:standard|competenc|resources?|materials?|reflection)\b/i.test(normalized);
 };
 
 const buildManifestFromTables = (document: StructuredSourceDocument): LessonSourceManifestResult | null => {
@@ -426,6 +446,10 @@ const buildManifestFromTables = (document: StructuredSourceDocument): LessonSour
 
   const manifest = createManifest(document);
   const diagnostics: SourceDiagnostic[] = [];
+  const unitRegistry: UnitRegistry = {
+    byLabel: new Map(),
+    byOrdinal: new Map(),
+  };
 
   for (const table of document.tables) {
     const expandedTable = expandTable(table);
@@ -435,16 +459,8 @@ const buildManifestFromTables = (document: StructuredSourceDocument): LessonSour
     const header = findUnitHeaderRow(expandedTable);
     if (!header) continue;
 
-    const unitColumns: UnitColumn[] = header.columns.map((column, index) => {
-      const unit: SourceUnit = {
-        id: padId('unit', manifest.units.length + 1),
-        sourceOrdinal: manifest.units.length + 1,
-        sourceLabel: column.label,
-        objectiveIds: [],
-        steps: [],
-        fields: {},
-      };
-      manifest.units.push(unit);
+    const unitColumns: UnitColumn[] = header.columns.map((column) => {
+      const unit = getOrCreateUnitForColumn(manifest, unitRegistry, column.label);
       return { unit, columnIndex: column.columnIndex };
     });
 
@@ -504,6 +520,34 @@ const buildManifestFromTables = (document: StructuredSourceDocument): LessonSour
   }
 
   return { ok: true, manifest: finalizeManifest(manifest) };
+};
+
+const getOrCreateUnitForColumn = (
+  manifest: MutableManifest,
+  registry: UnitRegistry,
+  label: string,
+): SourceUnit => {
+  const labelIdentity = normalizeUnitIdentityLabel(label);
+  const ordinal = getUnitOrdinal(label);
+  const existingUnit = registry.byLabel.get(labelIdentity) ?? (ordinal ? registry.byOrdinal.get(ordinal) : undefined);
+  if (existingUnit) {
+    registry.byLabel.set(labelIdentity, existingUnit);
+    if (ordinal) registry.byOrdinal.set(ordinal, existingUnit);
+    return existingUnit;
+  }
+
+  const unit: SourceUnit = {
+    id: padId('unit', manifest.units.length + 1),
+    sourceOrdinal: manifest.units.length + 1,
+    sourceLabel: label,
+    objectiveIds: [],
+    steps: [],
+    fields: {},
+  };
+  manifest.units.push(unit);
+  registry.byLabel.set(labelIdentity, unit);
+  if (ordinal) registry.byOrdinal.set(ordinal, unit);
+  return unit;
 };
 
 const collectObjectiveRowDiagnostics = (
@@ -635,15 +679,16 @@ const validateManifest = (
   }
 
   const anyUnitHasObjectives = manifest.units.some((unit) => unit.objectiveIds.length > 0);
-  for (const unit of manifest.units) {
-    if (unit.objectiveIds.length === 0 && anyUnitHasObjectives) {
-      diagnostics.push({
-        code: 'source_unit_missing_objective',
-        severity: 'blocking',
-        message: `The uploaded source is missing a unit-owned objective for ${unit.sourceLabel}.`,
-      });
-    }
+  const unitsMissingObjectives = manifest.units.filter((unit) => unit.objectiveIds.length === 0 && anyUnitHasObjectives);
+  if (unitsMissingObjectives.length > 0) {
+    diagnostics.push({
+      code: 'source_unit_missing_objective',
+      severity: 'blocking',
+      message: formatMissingObjectiveDiagnostic(unitsMissingObjectives),
+    });
+  }
 
+  for (const unit of manifest.units) {
     if (unit.steps.length === 0) {
       diagnostics.push({
         code: 'source_contract_invalid',
@@ -670,6 +715,16 @@ const validateManifest = (
   validateStepOwnershipSentinels(manifest, diagnostics);
 
   return diagnostics;
+};
+
+const formatMissingObjectiveDiagnostic = (units: SourceUnit[]): string => {
+  if (units.length === 1) {
+    return `The uploaded source is missing a unit-owned objective for ${units[0].sourceLabel}.`;
+  }
+
+  return `The uploaded source is missing a unit-owned objective for ${units.length} source units: ${units
+    .map((unit) => unit.sourceLabel)
+    .join(', ')}.`;
 };
 
 const validateMonotonicSourceOrder = (

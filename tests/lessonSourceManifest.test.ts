@@ -17,7 +17,9 @@ import {
   FIVE_SESSION_MATRIX_DOCUMENT,
   FOUR_A_DOCUMENT,
   MISSING_AND_BLANK_DOCUMENT,
+  MULTI_TABLE_SESSION_DOCUMENT,
   MULTI_OBJECTIVE_UNIT_DOCUMENT,
+  REPEATED_MISSING_OBJECTIVE_DOCUMENT,
   UNSUPPORTED_SCANNED_DOCUMENT,
 } from './fixtures/lessonSourceManifestFixtures.ts';
 
@@ -41,6 +43,75 @@ test('builds a five-session manifest with one objective per source unit', () => 
   );
   assert.match(result.manifest.objectives[0].rawText, /S1-OBJ-CIRCUIT-A/);
   assert.match(result.manifest.objectives[4].rawText, /S5-OBJ-CIRCUIT-E/);
+});
+
+test('reuses matching session units when objectives and learning experiences are in separate tables', () => {
+  const result = buildLessonSourceManifest(MULTI_TABLE_SESSION_DOCUMENT);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.manifest.units.length, 5);
+  assert.deepEqual(
+    result.manifest.units.map((unit) => unit.sourceLabel),
+    ['Learning Session 1', 'Learning Session 2', 'Learning Session 3', 'Learning Session 4', 'Learning Session 5'],
+  );
+  assert.equal(result.manifest.objectives.length, 5);
+
+  for (const [index, unit] of result.manifest.units.entries()) {
+    const objective = result.manifest.objectives.find((candidate) => candidate.id === unit.objectiveIds[0]);
+    assert.equal(unit.objectiveIds.length, 1);
+    assert.equal(objective?.unitId, unit.id);
+    assert.equal(unit.steps.length, 3);
+    assert.equal(unit.steps.every((step) => step.unitId === unit.id), true);
+    assert.match(objective?.rawText || '', new RegExp(`MT-S${index + 1}-OBJ`));
+    assert.match(unit.steps[0].rawBlocks.join('\n'), new RegExp(`MT-S${index + 1}-OBSERVE`));
+    assert.match(unit.steps[1].rawBlocks.join('\n'), new RegExp(`MT-S${index + 1}-PRACTICE`));
+  }
+
+  const sourceOrders = [
+    ...result.manifest.objectives.map((objective) => objective.sourceOrder),
+    ...result.manifest.units.flatMap((unit) => unit.steps.map((step) => step.sourceOrder)),
+  ].sort((a, b) => a - b);
+  assert.deepEqual(sourceOrders, Array.from({ length: sourceOrders.length }, (_, index) => index + 1));
+});
+
+test('does not treat a Grade 9 title cell as a unit header because it contains a number', () => {
+  const result = buildLessonSourceManifest(MULTI_TABLE_SESSION_DOCUMENT);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.manifest.units.some((unit) => /Grade 9 Science/i.test(unit.sourceLabel)), false);
+  assert.equal(result.manifest.units[0].sourceLabel, 'Learning Session 1');
+});
+
+test('treats descriptive objective mentions as steps or fields, not objective rows', () => {
+  const result = buildLessonSourceManifest(MULTI_TABLE_SESSION_DOCUMENT);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.manifest.objectives.length, 5);
+  assert.equal(
+    result.manifest.objectives.some((objective) => /meet the learning objectives|reaching our objectives/i.test(objective.rawText)),
+    false,
+  );
+
+  for (const [index, unit] of result.manifest.units.entries()) {
+    assert.equal(unit.objectiveIds.length, 1);
+    assert.equal(unit.steps.some((step) => /Flow to help learners meet the learning objectives/i.test(step.sourceLabel)), true);
+    assert.match(
+      unit.steps.find((step) => /Flow to help learners meet the learning objectives/i.test(step.sourceLabel))?.rawBlocks.join('\n') || '',
+      new RegExp(`MT-S${index + 1}-FLOW`),
+    );
+
+    const resourceField = Object.values(unit.fields).find(
+      (field) => /Learning Resources for reaching our objectives/i.test(field.label),
+    );
+    assert.equal(resourceField?.state, 'present');
+    assert.match(resourceField?.value || '', /Reusable/);
+  }
 });
 
 test('keeps 5E labels as source data while assigning monotonic step ids', () => {
@@ -129,6 +200,25 @@ test('rejects ambiguous objective ownership visibly', () => {
   assert.equal(hasBlockingSourceDiagnostics(result.diagnostics), true);
   assert.equal(result.diagnostics[0].code, 'source_structure_ambiguous');
   assert.match(formatSourceManifestDiagnostics(result.diagnostics), /objective/i);
+});
+
+test('summarizes repeated missing-objective diagnostics instead of repeating one sentence per unit', () => {
+  const result = buildLessonSourceManifest(REPEATED_MISSING_OBJECTIVE_DOCUMENT);
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  const missingObjectiveDiagnostics = result.diagnostics.filter(
+    (diagnostic) => diagnostic.code === 'source_unit_missing_objective',
+  );
+  assert.equal(missingObjectiveDiagnostics.length, 1);
+  assert.match(missingObjectiveDiagnostics[0].message, /3 source units/i);
+  assert.match(missingObjectiveDiagnostics[0].message, /Learning Session 2/);
+  assert.match(missingObjectiveDiagnostics[0].message, /Learning Session 4/);
+
+  const formatted = formatSourceManifestDiagnostics(result.diagnostics);
+  const repeatedPhraseCount = formatted.match(/missing a unit-owned objective/g)?.length || 0;
+  assert.equal(repeatedPhraseCount, 1);
 });
 
 test('rejects unsupported scanned input visibly', () => {

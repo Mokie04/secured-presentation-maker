@@ -136,6 +136,162 @@ export const FIVE_SESSION_MATRIX_DOCUMENT: StructuredSourceDocument = {
   ],
 };
 
+export const MULTI_TABLE_SESSION_DOCUMENT: StructuredSourceDocument = {
+  format: 'docx',
+  fileName: 'sanitized-multi-table-session.docx',
+  sourceHash: 'fixture-multi-table-session-source-hash',
+  byteLength: 14000,
+  plainText: [
+    'Grade 9 Science: Sanitized systems title',
+    'Learning Session 1 objective sentinel MT-S1-OBJ',
+    'Learning Session 5 activity sentinel MT-S5-PRACTICE',
+  ].join('\n'),
+  blocks: [],
+  tables: [
+    {
+      id: 'table-objectives',
+      sourceOrder: 1,
+      rows: [
+        {
+          index: 0,
+          cells: [
+            cell('table-objectives', 0, 0, 'Lesson Title'),
+            cell('table-objectives', 0, 1, 'Grade 9 Science: Sanitized systems title', 5),
+          ],
+        },
+        {
+          index: 1,
+          cells: [
+            cell('table-objectives', 1, 0, 'No. of Sessions'),
+            cell('table-objectives', 1, 1, 'Learning Session 1'),
+            cell('table-objectives', 1, 2, 'Learning Session 2'),
+            cell('table-objectives', 1, 3, 'Learning Session 3'),
+            cell('table-objectives', 1, 4, 'Learning Session 4'),
+            cell('table-objectives', 1, 5, 'Learning Session 5'),
+          ],
+        },
+        {
+          index: 2,
+          cells: [
+            cell('table-objectives', 2, 0, 'Learning Objectives'),
+            cell('table-objectives', 2, 1, 'MT-S1-OBJ Compare one observable change.'),
+            cell('table-objectives', 2, 2, 'MT-S2-OBJ Explain one evidence pattern.'),
+            cell('table-objectives', 2, 3, 'MT-S3-OBJ Model one cause-and-effect link.'),
+            cell('table-objectives', 2, 4, 'MT-S4-OBJ Predict one changed condition.'),
+            cell('table-objectives', 2, 5, 'MT-S5-OBJ Defend one evidence-based claim.'),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'table-experience',
+      sourceOrder: 2,
+      rows: [
+        {
+          index: 0,
+          cells: [
+            cell('table-experience', 0, 0, 'Learning Experience'),
+            cell('table-experience', 0, 1, 'Learning Session 1'),
+            cell('table-experience', 0, 2, 'Learning Session 2'),
+            cell('table-experience', 0, 3, 'Learning Session 3'),
+            cell('table-experience', 0, 4, 'Learning Session 4'),
+            cell('table-experience', 0, 5, 'Learning Session 5'),
+          ],
+        },
+        {
+          index: 1,
+          cells: [
+            cell('table-experience', 1, 0, 'Observe'),
+            cell('table-experience', 1, 1, 'MT-S1-OBSERVE Learners compare two safe samples.'),
+            cell('table-experience', 1, 2, 'MT-S2-OBSERVE Learners inspect an evidence card.'),
+            cell('table-experience', 1, 3, 'MT-S3-OBSERVE Learners trace one model arrow.'),
+            cell('table-experience', 1, 4, 'MT-S4-OBSERVE Learners test one changed case.'),
+            cell('table-experience', 1, 5, 'MT-S5-OBSERVE Learners rank three claims.'),
+          ],
+        },
+        {
+          index: 2,
+          cells: [
+            cell('table-experience', 2, 0, 'Practice'),
+            cell('table-experience', 2, 1, 'MT-S1-PRACTICE Learners record one comparison.'),
+            cell('table-experience', 2, 2, 'MT-S2-PRACTICE Learners write one evidence sentence.'),
+            cell('table-experience', 2, 3, 'MT-S3-PRACTICE Learners revise one model note.'),
+            cell('table-experience', 2, 4, 'MT-S4-PRACTICE Learners explain one prediction.'),
+            cell('table-experience', 2, 5, 'MT-S5-PRACTICE Learners defend the selected claim.'),
+          ],
+        },
+        {
+          index: 3,
+          cells: [
+            cell('table-experience', 3, 0, 'Flow to help learners meet the learning objectives'),
+            cell('table-experience', 3, 1, 'MT-S1-FLOW Learners connect the comparison to the claim.'),
+            cell('table-experience', 3, 2, 'MT-S2-FLOW Learners connect evidence to the pattern.'),
+            cell('table-experience', 3, 3, 'MT-S3-FLOW Learners connect model parts to the cause.'),
+            cell('table-experience', 3, 4, 'MT-S4-FLOW Learners connect the changed case to a prediction.'),
+            cell('table-experience', 3, 5, 'MT-S5-FLOW Learners connect ranked claims to the defense.'),
+          ],
+        },
+        {
+          index: 4,
+          cells: [
+            cell('table-experience', 4, 0, 'Learning Resources for reaching our objectives'),
+            cell('table-experience', 4, 1, 'Reusable card set A.'),
+            cell('table-experience', 4, 2, 'Reusable card set B.'),
+            cell('table-experience', 4, 3, 'Reusable model cards.'),
+            cell('table-experience', 4, 4, 'Reusable prediction cards.'),
+            cell('table-experience', 4, 5, 'Reusable claim cards.'),
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+export const REPEATED_MISSING_OBJECTIVE_DOCUMENT: StructuredSourceDocument = {
+  ...FIVE_SESSION_MATRIX_DOCUMENT,
+  fileName: 'sanitized-repeated-missing-objectives.docx',
+  sourceHash: 'fixture-repeated-missing-objectives-source-hash',
+  plainText: 'Sanitized source with one objective and repeated missing objective units.',
+  tables: [
+    {
+      id: 'table-missing-objectives',
+      sourceOrder: 1,
+      rows: [
+        {
+          index: 0,
+          cells: [
+            cell('table-missing-objectives', 0, 0, 'Field'),
+            cell('table-missing-objectives', 0, 1, 'Learning Session 1'),
+            cell('table-missing-objectives', 0, 2, 'Learning Session 2'),
+            cell('table-missing-objectives', 0, 3, 'Learning Session 3'),
+            cell('table-missing-objectives', 0, 4, 'Learning Session 4'),
+          ],
+        },
+        {
+          index: 1,
+          cells: [
+            cell('table-missing-objectives', 1, 0, 'Learning Objectives'),
+            cell('table-missing-objectives', 1, 1, 'RM-S1-OBJ Identify one classroom-safe observation.'),
+            cell('table-missing-objectives', 1, 2, ''),
+            cell('table-missing-objectives', 1, 3, ''),
+            cell('table-missing-objectives', 1, 4, ''),
+          ],
+        },
+        {
+          index: 2,
+          cells: [
+            cell('table-missing-objectives', 2, 0, 'Activity'),
+            cell('table-missing-objectives', 2, 1, 'RM-S1-ACT Compare one card pair.'),
+            cell('table-missing-objectives', 2, 2, 'RM-S2-ACT Sort two evidence cards.'),
+            cell('table-missing-objectives', 2, 3, 'RM-S3-ACT Explain one model arrow.'),
+            cell('table-missing-objectives', 2, 4, 'RM-S4-ACT Defend one revision.'),
+          ],
+        },
+      ],
+    },
+  ],
+};
+
 export const FOUR_A_DOCUMENT: StructuredSourceDocument = {
   format: 'txt',
   fileName: 'sanitized-4a.txt',
