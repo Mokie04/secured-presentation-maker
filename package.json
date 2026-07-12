@@ -8,6 +8,7 @@
     "dev:vercel": "npx vercel dev",
     "build": "vite build",
     "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
     "preview": "vite preview",
     "upload:curated-images": "node scripts/upload-curated-r2-images.mjs",
     "generate:r2-images": "node --experimental-strip-types scripts/generate-r2-images.ts"

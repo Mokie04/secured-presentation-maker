@@ -14,6 +14,16 @@ import { useUsageTracker } from './useUsageTracker';
 import { buildGenerationCacheKey, getCachedGeneration, setCachedGeneration } from './lib/generationCache';
 import { IMAGE_SEMANTIC_CACHE_VERSION } from './lib/imageSemantic';
 import { SAYUNA_IMAGE_WATERMARK_LOGO_URL } from './lib/branding';
+import { loadReusableSeedWhenAllowed, resolveK12GenerationRoutePolicy } from './lib/k12GenerationRoutePolicy';
+import { buildLessonSourceManifest, formatSourceManifestDiagnostics, resolveSourceManifestForGeneration, type LessonSourceManifestResult, type SourceDocumentFormat } from './lib/lessonSourceManifest';
+import { buildHtmlSourceDocument, buildPlainTextSourceDocument, type StructuredSourceDocument } from './lib/lessonSourceDocument';
+import { buildTeachingStoryboard, resolveTeachingStoryboardForGeneration } from './lib/teachingStoryboard';
+import CompiledSlideSceneView from './components/CompiledSlideSceneView';
+import { COMPILED_SLIDE_SCENE_VERSION, type CompiledScenePresentation, type CompiledSlideScene } from './lib/compiledSlideScene';
+import { compilePptxSceneOperations } from './lib/compiledScenePptx';
+import { resolveEndToEndValidatedScenePresentationForGeneration } from './lib/endToEndSceneBoundary';
+import { buildSourcePrimarySceneTelemetryEvent } from './lib/sourcePrimarySceneTelemetry';
+import { resolveSourcePrimarySceneRolloutForGeneration, shouldRunSourcePrimaryScenePreflight } from './lib/sourcePrimarySceneRollout';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -97,6 +107,11 @@ const fetchSessionOnce = (endpoint: string): Promise<SessionCheckResult> => {
 const DEFAULT_LESSON_FORMAT = 'K-12';
 const DEFAULT_PLAN_UNIT_LABEL = 'Day';
 const GENERATION_CACHE_VERSION = 'lesson-plan-cache-v38';
+const SOURCE_PRIMARY_ROUTING_V1_FLAG = import.meta.env.VITE_SOURCE_PRIMARY_ROUTING_V1;
+const SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG = import.meta.env.VITE_SOURCE_PRIMARY_SCENE_ROLLOUT_V1;
+const SEMANTIC_SLIDES_V1_FLAG = import.meta.env.VITE_SEMANTIC_SLIDES_V1;
+const DECK_VISUAL_SYSTEM_V1_FLAG = import.meta.env.VITE_DECK_VISUAL_SYSTEM_V1;
+const END_TO_END_VALIDATION_V1_FLAG = import.meta.env.VITE_END_TO_END_VALIDATION_V1;
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -680,6 +695,44 @@ const htmlToStructuredText = (html: string): string => {
 
   return blocks.join('\n\n').trim();
 };
+
+const hashUploadedSourceValue = async (value: string | ArrayBuffer): Promise<string> => {
+  const bytes = typeof value === 'string'
+    ? new TextEncoder().encode(value)
+    : new Uint8Array(value);
+
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const digest = await crypto.subtle.digest('SHA-256', bytes);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+
+  let hash = 5381;
+  for (const byte of bytes) {
+    hash = ((hash << 5) + hash) ^ byte;
+  }
+  return `fallback-${(hash >>> 0).toString(16)}`;
+};
+
+const getSourceDocumentFormat = (fileExtension: string): SourceDocumentFormat => {
+  if (fileExtension === '.docx') return 'docx';
+  if (fileExtension === '.pdf') return 'pdf';
+  if (fileExtension === '.md') return 'md';
+  return 'txt';
+};
+
+const shouldApplySourcePrimaryUploadPreflight = (): boolean => (
+  resolveK12GenerationRoutePolicy('uploaded lesson source', SOURCE_PRIMARY_ROUTING_V1_FLAG).mode === 'source-primary'
+);
+
+const getSafeSourcePrimarySceneBucketSeed = (
+  manifestResult: LessonSourceManifestResult | null,
+): string | undefined => (
+  manifestResult?.ok === true
+    ? manifestResult.manifest.provenance.sourceHash.slice(0, 12)
+    : undefined
+);
 
 const ZIP_LOCAL_FILE_HEADER_SIGNATURE = 0x04034b50;
 const ZIP_CENTRAL_DIRECTORY_SIGNATURE = 0x02014b50;
@@ -3153,12 +3206,15 @@ const getPptxContentTypography = (slide: Slide, hasImage: boolean, isEvidenceLay
 
 const App: React.FC = () => {
   const [dllContent, setDllContent] = useState<string>('');
+  const [lessonSourceManifestResult, setLessonSourceManifestResult] = useState<LessonSourceManifestResult | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [topicContext, setTopicContext] = useState<string>('');
   const [objectivesContext, setObjectivesContext] = useState<string>('');
   const [presentation, setPresentation] = useState<Presentation | null>(null);
+  const [compiledScenePresentation, setCompiledScenePresentation] = useState<CompiledScenePresentation | null>(null);
   const [lessonBlueprint, setLessonBlueprint] = useState<LessonBlueprint | null>(null);
   const [generatedPlanUnitSlidesByDay, setGeneratedPlanUnitSlidesByDay] = useState<Record<number, Slide[]>>({});
+  const [generatedPlanUnitSceneSlidesByDay, setGeneratedPlanUnitSceneSlidesByDay] = useState<Record<number, CompiledSlideScene[]>>({});
   const [currentSlide, setCurrentSlide] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [loadingMessage, setLoadingMessage] = useState<string>('');
@@ -3815,6 +3871,7 @@ const App: React.FC = () => {
             if (cachedPresentation) {
               await waitForCacheHitLoading(setLoadingProgress);
               const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, generationLanguage, cacheKey, imageSemanticScope);
+              setCompiledScenePresentation(null);
               setPresentation({ ...cachedPresentation, slides: refreshedSlides });
               setCurrentSlide(0);
               await finishLoadingProgress(setLoadingProgress);
@@ -3838,6 +3895,7 @@ const App: React.FC = () => {
             );
             const finalPresentation = { ...fullPresentation, slides: finalSlides };
 
+            setCompiledScenePresentation(null);
             setPresentation(finalPresentation);
             await setCachedGeneration(cacheKey, finalPresentation);
             setCurrentSlide(0);
@@ -3846,12 +3904,102 @@ const App: React.FC = () => {
         } 
         // DepEd Flows
         else if (teachingLevel === 'K-12') {
+            const originalRoutePolicy = resolveK12GenerationRoutePolicy(
+              dllContent,
+              SOURCE_PRIMARY_ROUTING_V1_FLAG,
+            );
+            const rolloutDecision = resolveSourcePrimarySceneRolloutForGeneration(
+              depEdMode === 'single' ? 'k12-single-lesson' : 'k12-weekly-plan',
+              originalRoutePolicy,
+              SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG,
+              {
+                isAdmin: adminGenerationLimitBypassed,
+                stableBucketSeed: getSafeSourcePrimarySceneBucketSeed(lessonSourceManifestResult),
+              },
+            );
+            const routePolicy = rolloutDecision.effectiveRoutePolicy;
+            const runSourcePrimaryScenePreflight = shouldRunSourcePrimaryScenePreflight(rolloutDecision);
+            void buildSourcePrimarySceneTelemetryEvent({
+              decision: rolloutDecision,
+              sourceHash: lessonSourceManifestResult?.ok === true
+                ? lessonSourceManifestResult.manifest.provenance.sourceHash
+                : undefined,
+            });
+            const sourceManifestBoundary = runSourcePrimaryScenePreflight
+              ? resolveSourceManifestForGeneration(
+                  routePolicy,
+                  lessonSourceManifestResult,
+                )
+              : { ok: true as const, manifest: null };
+            if (sourceManifestBoundary.ok === false) {
+              setError(sourceManifestBoundary.message);
+              setIsLoading(false);
+              return;
+            }
+            const teachingStoryboardResult = runSourcePrimaryScenePreflight && sourceManifestBoundary.manifest
+              ? buildTeachingStoryboard(sourceManifestBoundary.manifest)
+              : null;
+            const teachingStoryboardBoundary = runSourcePrimaryScenePreflight
+              ? resolveTeachingStoryboardForGeneration(
+                  routePolicy,
+                  sourceManifestBoundary.manifest,
+                  teachingStoryboardResult,
+                )
+              : { ok: true as const, storyboard: null };
+            if (teachingStoryboardBoundary.ok === false) {
+              setError(teachingStoryboardBoundary.message);
+              setIsLoading(false);
+              return;
+            }
             // DepEd Single Lesson Flow
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
                 setLoadingMessage(t.presentation.loadingSingleLesson);
+                if (runSourcePrimaryScenePreflight) {
+                  const semanticSceneBoundary = await resolveEndToEndValidatedScenePresentationForGeneration(
+                    routePolicy,
+                    SEMANTIC_SLIDES_V1_FLAG,
+                    DECK_VISUAL_SYSTEM_V1_FLAG,
+                    END_TO_END_VALIDATION_V1_FLAG,
+                    sourceManifestBoundary.manifest,
+                    teachingStoryboardBoundary.storyboard,
+                    {
+                      title: sourceManifestBoundary.manifest?.units.map((unit) => unit.sourceLabel).join(' / ') || 'Source-Aligned Lesson',
+                      selectedUnitLabel: sourceManifestBoundary.manifest?.units[0]?.sourceLabel,
+                    },
+                  );
+                  void buildSourcePrimarySceneTelemetryEvent({
+                    decision: rolloutDecision,
+                    validationReport: semanticSceneBoundary.validationReport,
+                    sourceHash: lessonSourceManifestResult?.ok === true
+                      ? lessonSourceManifestResult.manifest.provenance.sourceHash
+                      : undefined,
+                  });
+                  if (semanticSceneBoundary.ok === false) {
+                    setError(semanticSceneBoundary.message);
+                    setIsLoading(false);
+                    return;
+                  }
+                  if (semanticSceneBoundary.presentation) {
+                    const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+                    if (!hasQuota) {
+                      setIsLoading(false);
+                      setError(t.presentation.errorGenerationLimit);
+                      return;
+                    }
+                    shouldRollbackGeneration = !adminGenerationLimitBypassed;
+                    setCompiledScenePresentation(semanticSceneBoundary.presentation);
+                    setPresentation(null);
+                    setCurrentSlide(0);
+                    await finishLoadingProgress(setLoadingProgress);
+                    setAppStep('presenting');
+                    shouldRollbackGeneration = false;
+                    return;
+                  }
+                }
                 const cacheKey = await buildGenerationCacheKey('k12-single-presentation', [
                   GENERATION_CACHE_VERSION,
+                  ...routePolicy.cacheKeyParts,
                   content,
                   DEFAULT_LESSON_FORMAT,
                   generationLanguage,
@@ -3861,6 +4009,7 @@ const App: React.FC = () => {
                 if (cachedPresentation) {
                   await waitForCacheHitLoading(setLoadingProgress);
                   const refreshedSlides = await refreshSlidesWithCachedImages(cachedPresentation.slides, generationLanguage, cacheKey, imageSemanticScope);
+                  setCompiledScenePresentation(null);
                   setPresentation({ ...cachedPresentation, slides: refreshedSlides });
                   setCurrentSlide(0);
                   await finishLoadingProgress(setLoadingProgress);
@@ -3884,6 +4033,7 @@ const App: React.FC = () => {
                 );
                 const finalPresentation = { ...fullPresentation, slides: finalSlides };
 
+                setCompiledScenePresentation(null);
                 setPresentation(finalPresentation);
                 await setCachedGeneration(cacheKey, finalPresentation);
                 setCurrentSlide(0);
@@ -3896,13 +4046,16 @@ const App: React.FC = () => {
                 setLoadingMessage(t.presentation.loadingBlueprint);
                 const cacheKey = await buildGenerationCacheKey('k12-lesson-plan', [
                   GENERATION_CACHE_VERSION,
+                  ...routePolicy.cacheKeyParts,
                   content,
                   DEFAULT_LESSON_FORMAT,
                   generationLanguage,
                 ]);
 
-                const { getReusableK12LessonPlanSeed } = await loadReusableLessonSeeds();
-                const reusablePlan = getReusableK12LessonPlanSeed(content, generationLanguage);
+                const reusablePlan = await loadReusableSeedWhenAllowed(routePolicy, async () => {
+                  const { getReusableK12LessonPlanSeed } = await loadReusableLessonSeeds();
+                  return getReusableK12LessonPlanSeed(content, generationLanguage);
+                });
                 if (reusablePlan) {
                   const blueprintWithStatus = resetBlueprintStatus(reusablePlan.blueprint);
                   const imageSemanticScope = buildK12ImageSemanticScope(reusablePlan.blueprint);
@@ -3919,6 +4072,7 @@ const App: React.FC = () => {
                     slides: processedInitialSlides,
                   };
 
+                  setCompiledScenePresentation(null);
                   setLessonBlueprint(blueprintWithStatus);
                   setPresentation(initialPresentation);
                   await setCachedGeneration(cacheKey, {
@@ -3940,6 +4094,7 @@ const App: React.FC = () => {
                   const shouldTreatAsComplete = cachedPlan.blueprint.days.every((day) => day.generationStatus === 'done')
                     && refreshedInitialSlides.length > 2;
                   setLessonBlueprint(shouldTreatAsComplete ? completeBlueprintStatus(cachedPlan.blueprint) : resetBlueprintStatus(cachedPlan.blueprint));
+                  setCompiledScenePresentation(null);
                   setPresentation({ ...cachedPlan.initialPresentation, slides: refreshedInitialSlides });
                   await finishLoadingProgress(setLoadingProgress);
                   setAppStep(shouldTreatAsComplete ? 'presenting' : 'planning');
@@ -3960,6 +4115,7 @@ const App: React.FC = () => {
                     slides: processedInitialSlides
                 };
 
+                setCompiledScenePresentation(null);
                 setPresentation(initialPresentation);
                 await setCachedGeneration(cacheKey, { blueprint, initialPresentation });
 
@@ -3978,7 +4134,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
+  }, [dllContent, topicContext, objectivesContext, teachingLevel, depEdMode, t, lessonSourceManifestResult, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
 
   const handleGenerateDailySlides = useCallback(async (dayIndex: number) => {
     if (!lessonBlueprint) return;
@@ -4000,9 +4156,156 @@ const App: React.FC = () => {
         const isStandalonePlanUnitDeck = shouldUseStandalonePlanUnitDeck(lessonBlueprint);
         const planUnitPresentationTitle = buildPlanUnitPresentationTitle(lessonBlueprint, dayToGenerate);
         const content = dllContent.trim() || topicContext.trim();
+        const originalRoutePolicy = resolveK12GenerationRoutePolicy(
+          dllContent,
+          SOURCE_PRIMARY_ROUTING_V1_FLAG,
+        );
+        const rolloutDecision = resolveSourcePrimarySceneRolloutForGeneration(
+          'k12-daily-unit',
+          originalRoutePolicy,
+          SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG,
+          {
+            isAdmin: adminGenerationLimitBypassed,
+            stableBucketSeed: getSafeSourcePrimarySceneBucketSeed(lessonSourceManifestResult),
+          },
+        );
+        const routePolicy = rolloutDecision.effectiveRoutePolicy;
+        const runSourcePrimaryScenePreflight = shouldRunSourcePrimaryScenePreflight(rolloutDecision);
+        void buildSourcePrimarySceneTelemetryEvent({
+          decision: rolloutDecision,
+          sourceHash: lessonSourceManifestResult?.ok === true
+            ? lessonSourceManifestResult.manifest.provenance.sourceHash
+            : undefined,
+        });
+        const sourceManifestBoundary = runSourcePrimaryScenePreflight
+          ? resolveSourceManifestForGeneration(
+              routePolicy,
+              lessonSourceManifestResult,
+            )
+          : { ok: true as const, manifest: null };
+        if (sourceManifestBoundary.ok === false) {
+          setError(sourceManifestBoundary.message);
+          setLessonBlueprint(prev => {
+              if (!prev) return null;
+              const newDays = [...prev.days];
+              newDays[dayIndex].generationStatus = 'pending';
+              return {...prev, days: newDays};
+          });
+          setIsLoading(false);
+          return;
+        }
+        const selectedSourceUnitId = sourceManifestBoundary.manifest?.units[dayIndex]?.id;
+        const teachingStoryboardResult = runSourcePrimaryScenePreflight && sourceManifestBoundary.manifest
+          ? buildTeachingStoryboard(
+              sourceManifestBoundary.manifest,
+              selectedSourceUnitId ? { selectedUnitIds: [selectedSourceUnitId] } : undefined,
+            )
+          : null;
+        const teachingStoryboardBoundary = runSourcePrimaryScenePreflight
+          ? resolveTeachingStoryboardForGeneration(
+              routePolicy,
+              sourceManifestBoundary.manifest,
+              teachingStoryboardResult,
+            )
+          : { ok: true as const, storyboard: null };
+        if (teachingStoryboardBoundary.ok === false) {
+          setError(teachingStoryboardBoundary.message);
+          setLessonBlueprint(prev => {
+              if (!prev) return null;
+              const newDays = [...prev.days];
+              newDays[dayIndex].generationStatus = 'pending';
+              return {...prev, days: newDays};
+          });
+          setIsLoading(false);
+          return;
+        }
+        setLoadingMessage(
+          t.presentation.loadingDailySlides
+            .replace('{unitLabel}', unitLabel)
+            .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
+        );
+
+        if (runSourcePrimaryScenePreflight) {
+          const semanticSceneBoundary = await resolveEndToEndValidatedScenePresentationForGeneration(
+            routePolicy,
+            SEMANTIC_SLIDES_V1_FLAG,
+            DECK_VISUAL_SYSTEM_V1_FLAG,
+            END_TO_END_VALIDATION_V1_FLAG,
+            sourceManifestBoundary.manifest,
+            teachingStoryboardBoundary.storyboard,
+            {
+              title: planUnitPresentationTitle,
+              selectedUnitLabel: sourceManifestBoundary.manifest?.units[dayIndex]?.sourceLabel,
+            },
+          );
+          void buildSourcePrimarySceneTelemetryEvent({
+            decision: rolloutDecision,
+            validationReport: semanticSceneBoundary.validationReport,
+            sourceHash: lessonSourceManifestResult?.ok === true
+              ? lessonSourceManifestResult.manifest.provenance.sourceHash
+              : undefined,
+          });
+          if (semanticSceneBoundary.ok === false) {
+            setError(semanticSceneBoundary.message);
+            setLessonBlueprint(prev => {
+                if (!prev) return null;
+                const newDays = [...prev.days];
+                newDays[dayIndex].generationStatus = 'pending';
+                return {...prev, days: newDays};
+            });
+            setIsLoading(false);
+            return;
+          }
+          if (semanticSceneBoundary.presentation) {
+            const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+            if (!hasQuota) {
+              setError(t.presentation.errorGenerationLimit);
+              setLessonBlueprint(prev => {
+                  if (!prev) return null;
+                  const newDays = [...prev.days];
+                  newDays[dayIndex].generationStatus = 'pending';
+                  return {...prev, days: newDays};
+              });
+              return;
+            }
+
+            shouldRollbackGeneration = !adminGenerationLimitBypassed;
+            const sceneIndexOfNewDay = isStandalonePlanUnitDeck ? 0 : (compiledScenePresentation?.scenes.length ?? 0);
+            setGeneratedPlanUnitSceneSlidesByDay(prev => ({
+                ...prev,
+                [dayToGenerate.dayNumber]: semanticSceneBoundary.presentation.scenes,
+            }));
+            setGeneratedPlanUnitSlidesByDay(prev => {
+                const next = { ...prev };
+                delete next[dayToGenerate.dayNumber];
+                return next;
+            });
+            setCompiledScenePresentation(prev => ({
+                kind: 'compiled-scene-presentation',
+                contractVersion: semanticSceneBoundary.presentation.contractVersion,
+                title: isStandalonePlanUnitDeck ? semanticSceneBoundary.presentation.title : (prev?.title ?? lessonBlueprint.mainTitle),
+                scenes: isStandalonePlanUnitDeck
+                    ? semanticSceneBoundary.presentation.scenes
+                    : [...(prev?.scenes ?? []), ...semanticSceneBoundary.presentation.scenes],
+            }));
+            setPresentation(null);
+            setLessonBlueprint(prev => {
+                if (!prev) return null;
+                const newDays = [...prev.days];
+                newDays[dayIndex].generationStatus = 'done';
+                return {...prev, days: newDays};
+            });
+            setCurrentSlide(sceneIndexOfNewDay);
+            await finishLoadingProgress(setLoadingProgress);
+            setAppStep('presenting');
+            shouldRollbackGeneration = false;
+            return;
+          }
+        }
         const generationLanguage = getPresentationLanguageForGeneration(content);
         const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
           GENERATION_CACHE_VERSION,
+          ...routePolicy.cacheKeyParts,
           content,
           DEFAULT_LESSON_FORMAT,
           generationLanguage,
@@ -4024,12 +4327,6 @@ const App: React.FC = () => {
           dayToGenerate.dayNumber,
         ]);
         const imageSemanticScope = buildK12ImageSemanticScope(lessonBlueprint, dayToGenerate, unitLabel);
-
-        setLoadingMessage(
-          t.presentation.loadingDailySlides
-            .replace('{unitLabel}', unitLabel)
-            .replace('{dayNumber}', dayToGenerate.dayNumber.toString())
-        );
 
         const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
         if (!hasQuota) {
@@ -4054,6 +4351,12 @@ const App: React.FC = () => {
                 ...prev,
                 [dayToGenerate.dayNumber]: refreshedSlides,
             }));
+            setGeneratedPlanUnitSceneSlidesByDay(prev => {
+                const next = { ...prev };
+                delete next[dayToGenerate.dayNumber];
+                return next;
+            });
+            setCompiledScenePresentation(null);
             setPresentation(prev => ({
                 title: isStandalonePlanUnitDeck ? planUnitPresentationTitle : (prev?.title ?? lessonBlueprint.mainTitle),
                 slides: isStandalonePlanUnitDeck ? refreshedSlides : [...(prev?.slides ?? []), ...refreshedSlides]
@@ -4073,8 +4376,14 @@ const App: React.FC = () => {
             return;
         }
 
-        const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
-        const reusableSlides = getReusableK12PlanUnitSlidesSeed(content, dayToGenerate.dayNumber, generationLanguage);
+        const reusableSlides = await loadReusableSeedWhenAllowed(routePolicy, async () => {
+          const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
+          return getReusableK12PlanUnitSlidesSeed(
+            content,
+            dayToGenerate.dayNumber,
+            generationLanguage,
+          );
+        });
         if (reusableSlides && reusableSlides.length > 0) {
             await waitForReusableGenerationLoading(setLoadingProgress);
             setLoadingMessage(t.presentation.loadingTables);
@@ -4088,6 +4397,12 @@ const App: React.FC = () => {
                 ...prev,
                 [dayToGenerate.dayNumber]: finalSlides,
             }));
+            setGeneratedPlanUnitSceneSlidesByDay(prev => {
+                const next = { ...prev };
+                delete next[dayToGenerate.dayNumber];
+                return next;
+            });
+            setCompiledScenePresentation(null);
             setPresentation(prev => ({
                 title: isStandalonePlanUnitDeck ? planUnitPresentationTitle : (prev?.title ?? lessonBlueprint.mainTitle),
                 slides: isStandalonePlanUnitDeck ? finalSlides : [...(prev?.slides ?? []), ...finalSlides]
@@ -4125,6 +4440,12 @@ const App: React.FC = () => {
             ...prev,
             [dayToGenerate.dayNumber]: finalSlides,
         }));
+        setGeneratedPlanUnitSceneSlidesByDay(prev => {
+            const next = { ...prev };
+            delete next[dayToGenerate.dayNumber];
+            return next;
+        });
+        setCompiledScenePresentation(null);
         setPresentation(prev => ({
             title: isStandalonePlanUnitDeck ? planUnitPresentationTitle : (prev?.title ?? lessonBlueprint.mainTitle),
             slides: isStandalonePlanUnitDeck ? finalSlides : [...(prev?.slides ?? []), ...finalSlides]
@@ -4158,7 +4479,7 @@ const App: React.FC = () => {
         setIsLoading(false);
         setLoadingProgress(null);
     }
-  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, t, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
+  }, [lessonBlueprint, dllContent, topicContext, theme, presentation, compiledScenePresentation, t, lessonSourceManifestResult, adminGenerationLimitBypassed, tryIncrementCount, decrementCount, refreshSlidesWithCachedImages, getPresentationLanguageForGeneration]);
 
   const handleGenerateAllDailySlides = useCallback(async () => {
     if (!lessonBlueprint || isLoading) return;
@@ -4175,9 +4496,26 @@ const App: React.FC = () => {
     if (!lessonBlueprint) return;
     const day = lessonBlueprint.days[dayIndex];
     if (!day) return;
+    const sceneSlides = generatedPlanUnitSceneSlidesByDay[day.dayNumber];
+    if (sceneSlides && sceneSlides.length > 0) {
+      setCompiledScenePresentation({
+        kind: 'compiled-scene-presentation',
+        contractVersion: COMPILED_SLIDE_SCENE_VERSION,
+        title: shouldUseStandalonePlanUnitDeck(lessonBlueprint)
+          ? buildPlanUnitPresentationTitle(lessonBlueprint, day)
+          : lessonBlueprint.mainTitle,
+        scenes: sceneSlides,
+      });
+      setPresentation(null);
+      setCurrentSlide(0);
+      setAppStep('presenting');
+      return;
+    }
+
     const slides = generatedPlanUnitSlidesByDay[day.dayNumber];
     if (!slides || slides.length === 0) return;
 
+    setCompiledScenePresentation(null);
     setPresentation({
       title: shouldUseStandalonePlanUnitDeck(lessonBlueprint)
         ? buildPlanUnitPresentationTitle(lessonBlueprint, day)
@@ -4186,14 +4524,15 @@ const App: React.FC = () => {
     });
     setCurrentSlide(0);
     setAppStep('presenting');
-  }, [generatedPlanUnitSlidesByDay, lessonBlueprint]);
+  }, [generatedPlanUnitSceneSlidesByDay, generatedPlanUnitSlidesByDay, lessonBlueprint]);
 
   const handleNextSlide = useCallback(() => {
-    if (presentation && currentSlide < presentation.slides.length - 1) {
+    const activeSlideCount = compiledScenePresentation?.scenes.length ?? presentation?.slides.length ?? 0;
+    if (currentSlide < activeSlideCount - 1) {
       setTransitionDirection('next');
       setCurrentSlide(prev => prev + 1);
     }
-  }, [presentation, currentSlide]);
+  }, [compiledScenePresentation, presentation, currentSlide]);
 
   const handlePrevSlide = useCallback(() => {
     if (currentSlide > 0) {
@@ -4203,7 +4542,8 @@ const App: React.FC = () => {
   }, [currentSlide]);
   
   useEffect(() => {
-    if (appStep !== 'presenting' || !presentation) return;
+    const activeSlideCount = compiledScenePresentation?.scenes.length ?? presentation?.slides.length ?? 0;
+    if (appStep !== 'presenting' || activeSlideCount === 0) return;
     const handleKeyDown = (e: KeyboardEvent) => {
         if (e.key === 'ArrowRight' || e.key === ' ') {
             e.preventDefault();
@@ -4217,9 +4557,16 @@ const App: React.FC = () => {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [appStep, presentation, handleNextSlide, handlePrevSlide]);
+  }, [appStep, compiledScenePresentation, presentation, handleNextSlide, handlePrevSlide]);
   
   const handleUpdateSpeakerNotes = (newNotes: string) => {
+    if (compiledScenePresentation) {
+      const updatedScenes = [...compiledScenePresentation.scenes];
+      if (!updatedScenes[currentSlide]) return;
+      updatedScenes[currentSlide] = { ...updatedScenes[currentSlide], speakerNotes: newNotes };
+      setCompiledScenePresentation({ ...compiledScenePresentation, scenes: updatedScenes });
+      return;
+    }
     if (!presentation) return;
     const updatedSlides = [...presentation.slides];
     updatedSlides[currentSlide] = { ...updatedSlides[currentSlide], speakerNotes: newNotes };
@@ -4240,9 +4587,12 @@ const App: React.FC = () => {
 
   const handleReset = () => {
     setPresentation(null);
+    setCompiledScenePresentation(null);
     setLessonBlueprint(null);
     setGeneratedPlanUnitSlidesByDay({});
+    setGeneratedPlanUnitSceneSlidesByDay({});
     setDllContent('');
+    setLessonSourceManifestResult(null);
     setFileName(null);
     setCurrentSlide(0);
     setError(null);
@@ -4276,8 +4626,11 @@ const App: React.FC = () => {
 
     try {
         let text = '';
+        let sourceDocument: StructuredSourceDocument | null = null;
+        const sourceFormat = getSourceDocumentFormat(fileExtension);
         if (fileExtension === '.pdf') {
             const arrayBuffer = await file.arrayBuffer();
+            const sourceHash = await hashUploadedSourceValue(arrayBuffer);
             const pdfjsLib = await loadPdfJs();
             const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
             for (let i = 1; i <= pdf.numPages; i++) {
@@ -4287,34 +4640,104 @@ const App: React.FC = () => {
                 text += `\n\n--- Page ${i} ---\n${pageText}`;
             }
             if (!text.trim()) {
+                if (shouldApplySourcePrimaryUploadPreflight()) {
+                    sourceDocument = {
+                        format: 'pdf',
+                        fileName: file.name,
+                        sourceHash,
+                        byteLength: file.size,
+                        plainText: '',
+                        blocks: [],
+                        tables: [],
+                        isScanned: true,
+                    };
+                    const manifestResult = buildLessonSourceManifest(sourceDocument);
+                    const diagnostics = manifestResult.ok === true
+                        ? manifestResult.manifest.diagnostics
+                        : manifestResult.diagnostics;
+                    setLessonSourceManifestResult(manifestResult);
+                    setError(formatSourceManifestDiagnostics(diagnostics));
+                    setFileName(null);
+                    setDllContent('');
+                    return;
+                }
                 text = getKnownScannedPdfFallbackText(file, pdf.numPages);
             }
+            sourceDocument = buildPlainTextSourceDocument({
+                format: 'pdf',
+                fileName: file.name,
+                sourceHash,
+                byteLength: file.size,
+                text,
+            });
         } else if (fileExtension === '.docx') {
             const arrayBuffer = await file.arrayBuffer();
+            const sourceHash = await hashUploadedSourceValue(arrayBuffer);
             const mammoth = (await import('mammoth')).default;
             const result = await mammoth.convertToHtml(
                 { arrayBuffer },
                 { convertImage: mammoth.images.imgElement(async () => ({ src: '' })) }
             );
             text = htmlToStructuredText(result.value);
+            sourceDocument = buildHtmlSourceDocument({
+                format: 'docx',
+                fileName: file.name,
+                sourceHash,
+                byteLength: file.size,
+                html: result.value,
+                fallbackText: text,
+            });
 
             if (!text.trim()) {
                 const fallback = await mammoth.extractRawText({ arrayBuffer });
                 text = fallback.value;
+                sourceDocument = buildPlainTextSourceDocument({
+                    format: 'docx',
+                    fileName: file.name,
+                    sourceHash,
+                    byteLength: file.size,
+                    text,
+                });
             }
 
             if (!text.trim()) {
                 text = await extractAltChunkDocxText(arrayBuffer);
+                sourceDocument = buildPlainTextSourceDocument({
+                    format: 'docx',
+                    fileName: file.name,
+                    sourceHash,
+                    byteLength: file.size,
+                    text,
+                });
             }
         } else {
             text = await file.text();
+            sourceDocument = buildPlainTextSourceDocument({
+                format: sourceFormat,
+                fileName: file.name,
+                sourceHash: await hashUploadedSourceValue(text),
+                byteLength: file.size,
+                text,
+            });
         }
         if (!text.trim()) {
             setError(t.presentation.errorFileNoText.replace('{fileName}', file.name));
             setFileName(null);
             setDllContent('');
+            setLessonSourceManifestResult(null);
             return;
         }
+        if (!sourceDocument) {
+            sourceDocument = buildPlainTextSourceDocument({
+                format: sourceFormat,
+                fileName: file.name,
+                sourceHash: await hashUploadedSourceValue(text),
+                byteLength: file.size,
+                text,
+            });
+        }
+        const manifestResult = buildLessonSourceManifest(sourceDocument);
+        setLessonSourceManifestResult(manifestResult);
         getPresentationLanguageForGeneration(text, file.name);
         setDllContent(text);
     } catch (err) {
@@ -4322,6 +4745,7 @@ const App: React.FC = () => {
         setError(t.presentation.errorFileRead.replace('{fileName}', file.name));
         setFileName(null);
         setDllContent('');
+        setLessonSourceManifestResult(null);
     } finally {
         setIsLoading(false);
     }
@@ -4354,6 +4778,7 @@ const App: React.FC = () => {
   const clearFile = (e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setDllContent('');
+    setLessonSourceManifestResult(null);
     setFileName(null);
     if (fileInputRef.current) {
         fileInputRef.current.value = '';
@@ -4481,7 +4906,7 @@ const App: React.FC = () => {
   }, [rasterizeSvgForPptx]);
 
   const handleExportAsPPTX = useCallback(async () => {
-    if (!presentation) return;
+    if (!presentation && !compiledScenePresentation) return;
 
     setError(null);
     setIsExporting(true);
@@ -4492,7 +4917,56 @@ const App: React.FC = () => {
         const pptx = new PptxGenJS();
         pptx.layout = 'LAYOUT_16x9';
         pptx.author = 'SAYUNA AI Presentation Maker';
-        pptx.title = presentation.title;
+        pptx.title = compiledScenePresentation?.title ?? presentation?.title ?? 'presentation';
+
+        if (compiledScenePresentation) {
+            const applySceneOperation = (
+                slide: any,
+                operation: ReturnType<typeof compilePptxSceneOperations>[number],
+            ) => {
+                if (operation.kind === 'addText') {
+                    slide.addText(operation.text, operation.options);
+                    return;
+                }
+                if (operation.kind === 'addShape') {
+                    slide.addShape(operation.shape, operation.options);
+                    return;
+                }
+                if (operation.kind === 'addTable') {
+                    slide.addTable(operation.rows, operation.options);
+                    return;
+                }
+                if (operation.kind === 'addImage') {
+                    slide.addImage({ data: operation.data, ...operation.options });
+                    return;
+                }
+                slide.addNotes(operation.text);
+            };
+
+            for (let i = 0; i < compiledScenePresentation.scenes.length; i++) {
+                setExportMessage(t.presentation.exportingSlideMessage.replace('{current}', (i + 1).toString()).replace('{total}', compiledScenePresentation.scenes.length.toString()));
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                const scene = compiledScenePresentation.scenes[i];
+                const slide = pptx.addSlide({ masterName: 'BLANK' });
+                slide.background = { color: scene.background };
+                for (const operation of compilePptxSceneOperations(scene)) {
+                    applySceneOperation(slide, operation);
+                }
+            }
+
+            const safeTitle = compiledScenePresentation.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            const writeStartedAt = performance.now();
+            await pptx.writeFile({ fileName: `${safeTitle}_presentation.pptx` });
+            console.info('Scene PPTX export completed.', {
+                slideCount: compiledScenePresentation.scenes.length,
+                writeMs: Math.round(performance.now() - writeStartedAt),
+                totalMs: Math.round(performance.now() - exportStartedAt),
+            });
+            return;
+        }
+
+        if (!presentation) return;
 
         const computedStyle = getComputedStyle(document.body);
         const backgroundColor = computedStyle.getPropertyValue('--bg-surface').trim().replace('#', '');
@@ -4757,7 +5231,7 @@ const App: React.FC = () => {
         setIsExporting(false);
         setExportMessage('');
     }
-  }, [presentation, lessonBlueprint, theme, t, resolveImageForPptx, applySayunaWatermarkToImageData]);
+  }, [compiledScenePresentation, presentation, lessonBlueprint, theme, t, resolveImageForPptx, applySayunaWatermarkToImageData]);
 
   const handleRegenerateImage = useCallback(async (slideIndex: number, newPrompt: string) => {
     const trimmedPrompt = newPrompt.trim();
@@ -4920,6 +5394,10 @@ const App: React.FC = () => {
     const hasCompletedAllPlanUnits = lessonBlueprint.days.every((day) => day.generationStatus === 'done');
     const isGeneratingPlanUnit = lessonBlueprint.days.some((day) => day.generationStatus === 'loading');
     const pendingPlanUnitCount = lessonBlueprint.days.filter((day) => day.generationStatus !== 'done').length;
+    const activePresentationSlideCount = compiledScenePresentation?.scenes.length ?? presentation?.slides.length ?? 0;
+    const hasGeneratedPlanUnitDeckForDay = (dayNumber: number): boolean => Boolean(
+      generatedPlanUnitSlidesByDay[dayNumber]?.length || generatedPlanUnitSceneSlidesByDay[dayNumber]?.length
+    );
     const generationSlotsAvailable = adminGenerationLimitBypassed
       ? Number.POSITIVE_INFINITY
       : Math.max(0, limits.generations - generations);
@@ -4973,7 +5451,7 @@ const App: React.FC = () => {
                                     <CheckCircle2Icon className="w-5 h-5" />
                                     {t.presentation.completeStatus}
                                 </div>
-                                {usesStandalonePlanUnitDeck && generatedPlanUnitSlidesByDay[day.dayNumber]?.length > 0 && (
+                                {usesStandalonePlanUnitDeck && hasGeneratedPlanUnitDeckForDay(day.dayNumber) && (
                                     <button
                                         onClick={() => handleViewGeneratedPlanUnit(index)}
                                         className="px-4 py-2 text-sm font-semibold bg-brand text-brand-contrast rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all"
@@ -5003,7 +5481,7 @@ const App: React.FC = () => {
                 )}
                  <button 
                     onClick={() => { setCurrentSlide(0); setAppStep('presenting'); }} 
-                    disabled={!presentation || presentation.slides.length === 0 || !hasGeneratedPlanUnit}
+                    disabled={activePresentationSlideCount === 0 || !hasGeneratedPlanUnit}
                     className="px-6 py-3 text-base font-semibold bg-brand text-brand-contrast rounded-lg shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                      {t.presentation.viewPresentationButton}
@@ -5020,7 +5498,12 @@ const App: React.FC = () => {
   };
 
   const renderPresentationView = () => {
-    if (!presentation || !presentation.slides || presentation.slides.length === 0) {
+    const sceneSlides = compiledScenePresentation?.scenes ?? [];
+    const legacySlides = presentation?.slides ?? [];
+    const isSceneMode = sceneSlides.length > 0;
+    const activeSlideCount = isSceneMode ? sceneSlides.length : legacySlides.length;
+
+    if (activeSlideCount === 0) {
       return (
         <div className="w-full max-w-4xl bg-surface p-8 rounded-2xl shadow-neumorphic-outset animate-fade-in text-center">
             <h2 className="text-2xl font-bold text-primary mb-4">Presentation Error</h2>
@@ -5034,9 +5517,10 @@ const App: React.FC = () => {
     }
 
     const isPlanViewAvailable = lessonBlueprint !== null;
-    const { slides } = presentation;
+    const activeScene = isSceneMode ? sceneSlides[currentSlide] : null;
+    const activeSlide = isSceneMode ? null : legacySlides[currentSlide];
 
-    if (!slides[currentSlide]) {
+    if ((isSceneMode && !activeScene) || (!isSceneMode && !activeSlide)) {
         console.error("Error: currentSlide index is out of bounds. Resetting to 0.");
         setCurrentSlide(0);
         return null;
@@ -5047,14 +5531,21 @@ const App: React.FC = () => {
         <div className={`w-full transition-all duration-300 ${isFullScreen ? 'fixed inset-0 z-[100] bg-surface' : 'relative'}`}>
             <div className={`relative w-full ${isFullScreen ? 'h-full flex items-center justify-center' : ''}`}>
                 <div className={`${isFullScreen ? 'w-[95vw] h-auto' : 'w-full'}`}>
-                    <SlideComponent 
-                        slide={slides[currentSlide]} 
-                        slideIndex={currentSlide} 
-                        direction={transitionDirection}
-                        onRegenerateImage={handleRegenerateImage}
-                        onUploadImage={handleUploadImage}
-                        onUpdateImageOverlays={handleUpdateImageOverlays}
-                    />
+                    {isSceneMode && activeScene ? (
+                        <CompiledSlideSceneView
+                            scene={activeScene}
+                            direction={transitionDirection}
+                        />
+                    ) : activeSlide ? (
+                        <SlideComponent
+                            slide={activeSlide}
+                            slideIndex={currentSlide}
+                            direction={transitionDirection}
+                            onRegenerateImage={handleRegenerateImage}
+                            onUploadImage={handleUploadImage}
+                            onUpdateImageOverlays={handleUpdateImageOverlays}
+                        />
+                    ) : null}
                 </div>
             </div>
         </div>
@@ -5067,7 +5558,7 @@ const App: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-center mb-4">
                         <span className="text-sm font-semibold text-secondary bg-surface px-3 py-1.5 rounded-full shadow-neumorphic-inset">
-                            Slide {currentSlide + 1} / {slides.length}
+                            Slide {currentSlide + 1} / {activeSlideCount}
                         </span>
                         <div className="flex gap-2">
                             <button
@@ -5092,7 +5583,7 @@ const App: React.FC = () => {
                         <button onClick={handlePrevSlide} disabled={currentSlide === 0} className="p-4 bg-surface text-primary rounded-full shadow-neumorphic-outset-sm hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                             <ArrowLeftIcon className="w-6 h-6" />
                         </button>
-                        <button onClick={handleNextSlide} disabled={currentSlide === slides.length - 1} className="p-4 bg-brand text-brand-contrast rounded-full shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                        <button onClick={handleNextSlide} disabled={currentSlide === activeSlideCount - 1} className="p-4 bg-brand text-brand-contrast rounded-full shadow-neumorphic-outset hover:shadow-neumorphic-inset transition-all disabled:opacity-50 disabled:cursor-not-allowed">
                             <ArrowRightIcon className="w-6 h-6" />
                         </button>
                     </div>
@@ -5124,7 +5615,7 @@ const App: React.FC = () => {
                       <span className="text-xs uppercase tracking-[0.15em] text-secondary font-bold">Live Notes</span>
                     </div>
                     <textarea
-                        value={slides[currentSlide].speakerNotes}
+                        value={isSceneMode ? (activeScene?.speakerNotes ?? '') : (activeSlide?.speakerNotes ?? '')}
                         onChange={(e) => handleUpdateSpeakerNotes(e.target.value)}
                         placeholder={t.presentation.speakerNotesPlaceholder}
                         className="w-full h-48 p-4 text-base bg-surface rounded-lg shadow-neumorphic-inset outline-none focus:ring-2 focus:ring-brand transition-all custom-scrollbar"
