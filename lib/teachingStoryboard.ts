@@ -151,9 +151,12 @@ const stripTeacherScriptForVisibleText = (value: string): string => (
   normalizeText(value)
     .replace(/^the\s+teacher\s+will\s+ask\s+(?:learners|students)\s+to\s+/i, '')
     .replace(/^the\s+teacher\s+asks?\s+(?:learners|students)\s+to\s+/i, '')
-    .replace(/^ask\s+(?:learners|students)\s+to\s+/i, '')
-    .replace(/^learners\s+will\s+/i, '')
-    .replace(/^students\s+will\s+/i, '')
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+(?:ask|guide|instruct|direct|prompt|invite|have|let|tell|support|encourage)\s+(?:the\s+)?(?:learners|students|class)\s+to\s+/i, '')
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+(?:model|show|demonstrate)\s+how\s+(?:the\s+)?(?:learners|students)\s+/i, '')
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+/i, '')
+    .replace(/^ask\s+(?:the\s+)?(?:learners|students)\s+to\s+/i, '')
+    .replace(/^(?:the\s+)?learners\s+will\s+/i, '')
+    .replace(/^(?:the\s+)?students\s+will\s+/i, '')
 );
 
 const normalizeVisibleText = (value: string): string => {

@@ -10,7 +10,9 @@ export const TEACHER_SCRIPT_DOCUMENT: StructuredSourceDocument = {
     { id: 'ts001', kind: 'heading', text: 'Day 1', sourceOrder: 1, sourceLocation: { blockId: 'ts001' } },
     { id: 'ts002', kind: 'paragraph', text: 'Objective: TS-OBJ-A Choose a first test based on evidence.', sourceOrder: 2, sourceLocation: { blockId: 'ts002' } },
     { id: 'ts003', kind: 'paragraph', text: 'Launch: The teacher will ask learners to choose the first meter reading and explain why.', sourceOrder: 3, sourceLocation: { blockId: 'ts003' } },
-    { id: 'ts004', kind: 'paragraph', text: 'Output: Submit one claim and one reading as the exit ticket.', sourceOrder: 4, sourceLocation: { blockId: 'ts004' } },
+    { id: 'ts004', kind: 'paragraph', text: 'Guided practice: The teacher will guide the learners to compare two sanitized evidence cards.', sourceOrder: 4, sourceLocation: { blockId: 'ts004' } },
+    { id: 'ts005', kind: 'paragraph', text: 'Teacher modeling: Teacher will model how students explain one evidence choice.', sourceOrder: 5, sourceLocation: { blockId: 'ts005' } },
+    { id: 'ts006', kind: 'paragraph', text: 'Output: Submit one claim and one reading as the exit ticket.', sourceOrder: 6, sourceLocation: { blockId: 'ts006' } },
   ],
   tables: [],
 };

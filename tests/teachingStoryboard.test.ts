@@ -95,6 +95,10 @@ test('removes visible teacher-script while retaining source action in notes', ()
     .join('\n');
   assert.equal(detectVisibleTeacherScript(visibleText), false);
   assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /teacher will ask learners/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /teacher will guide the learners/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /Teacher will model/i);
+  assert.match(visibleText, /Compare two sanitized evidence cards/);
+  assert.match(visibleText, /Explain one evidence choice/);
 });
 
 test('attaches required evidence and outputs to source-backed screens', () => {
