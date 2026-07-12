@@ -161,7 +161,7 @@ test('blocks blank-response wording invented by both storyboard and scene when s
       scenes: fixture.presentation.scenes.map((scene) => scene.storyboardScreenId === targetScreen.id
         ? {
             ...scene,
-            elements: scene.elements.map((element) => element.kind === 'text' && element.role === 'prompt'
+            elements: scene.elements.map((element) => element.kind === 'text' && element.role !== 'title'
               ? { ...element, runs: [{ ...element.runs[0], text: 'Complete an invented blank response field.' }] }
               : element),
           }

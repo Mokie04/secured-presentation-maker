@@ -96,6 +96,16 @@ test('validates every compiled element is inside the 16:9 canvas', () => {
   }
 });
 
+test('renders compacted learning targets once while retaining the objective text', () => {
+  const result = compileSemanticSlideSpecsToScenes(specsFrom(), { title: 'Fixture Deck' });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const visibleText = getSceneVisibleText(result.presentation.scenes[0]);
+  assert.equal(visibleText.filter((text) => text === 'Learning Targets').length, 1);
+  assert.equal(visibleText.filter((text) => text.includes('EO-OBJ-A Use observations')).length, 1);
+});
+
 test('represents visible text as editable text or table elements', () => {
   const result = compileSemanticSlideSpecsToScenes(specsFrom(), { title: 'Fixture Deck' });
 
@@ -156,7 +166,11 @@ test('compiles dense storyboard continuations without overflow or rasterized tex
 
   assert.equal(result.ok, true);
   if (!result.ok) return;
-  assert.equal(result.presentation.scenes.length > DENSE_STORYBOARD.screens.length, true);
+  assert.equal(result.presentation.scenes.length >= DENSE_STORYBOARD.screens.length, true);
+  assert.equal(result.presentation.scenes.length <= DENSE_STORYBOARD.screens.length * 2 + 2, true);
+  for (const screen of DENSE_STORYBOARD.screens) {
+    assert.equal(result.presentation.scenes.filter((scene) => scene.storyboardScreenId === screen.id).length <= 3, true);
+  }
   assert.equal(result.presentation.scenes.flatMap((scene) => validateCompiledSlideScene(scene))
     .some((diagnostic) => diagnostic.code === 'scene_text_overflow'), false);
   assert.equal(result.presentation.scenes.flatMap((scene) => scene.elements)
@@ -233,6 +247,7 @@ test('accounts for preview cell padding when estimating table text fit', () => {
     ...exitSpec,
     slots: {
       ...exitSpec.slots,
+      body: { kind: 'list' as const, items: ['Keep this source-backed prompt visible.'] },
       requirements: {
         kind: 'list' as const,
         items: [
@@ -285,6 +300,66 @@ test('adds only bounded source-backed image elements when resolved assets are su
   assert.equal(image.semanticSlideSpecId, request.semanticSlideSpecId);
   assert.equal(image.frame.w < 1280 && image.frame.h < 720, true);
   assert.deepEqual(validateCompiledSlideScene(result.presentation.scenes[1]), []);
+});
+
+test('keeps bounded assets disjoint from editable text and table content', () => {
+  const specs = specsFrom();
+  const request = assetRequestForSpec(specs[1]);
+  const specWithRequest = { ...specs[1], assetRequests: [request] };
+  const result = compileSemanticSlideSpecsToScenes(
+    [specWithRequest],
+    {
+      title: 'Fixture Deck',
+      resolvedAssetsBySpecId: {
+        [specWithRequest.id]: [resolvedAssetForRequest(request)],
+      },
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const image = scene.elements.find((element) => element.kind === 'image');
+  assert.ok(image);
+  const editableContent = scene.elements.filter((element) => element.kind === 'text' || element.kind === 'table');
+  const overlaps = editableContent.some((element) => (
+    image.frame.x < element.frame.x + element.frame.w
+    && image.frame.x + image.frame.w > element.frame.x
+    && image.frame.y < element.frame.y + element.frame.h
+    && image.frame.y + image.frame.h > element.frame.y
+  ));
+  assert.equal(overlaps, false);
+});
+
+test('omits an optional resolved asset when a full-width table leaves no collision-free frame', () => {
+  const specs = specsFrom();
+  const baseSpec = specs[1];
+  const request = assetRequestForSpec(baseSpec);
+  const specWithRequest = {
+    ...baseSpec,
+    assetRequests: [request],
+    slots: {
+      ...baseSpec.slots,
+      requirements: {
+        kind: 'list' as const,
+        items: ['Evidence: first source-backed record.', 'Evidence: second source-backed record.'],
+      },
+    },
+  };
+  const result = compileSemanticSlideSpecsToScenes(
+    [specWithRequest],
+    {
+      title: 'Fixture Deck',
+      resolvedAssetsBySpecId: {
+        [specWithRequest.id]: [resolvedAssetForRequest(request)],
+      },
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.presentation.scenes[0].elements.some((element) => element.kind === 'image'), false);
+  assert.deepEqual(validateCompiledSlideScene(result.presentation.scenes[0]), []);
 });
 
 test('compiles a valid editable scene when optional assets are omitted', () => {

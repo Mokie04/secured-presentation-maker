@@ -216,17 +216,44 @@ const buildSlotsForScreen = (screen: StoryboardScreen): Record<string, SlideSlot
   const task = normalizeText(screen.learnerContent.task ?? '');
   const questions = screen.learnerContent.questions.map(normalizeText).filter(Boolean);
   const directions = screen.learnerContent.directions.map(normalizeText).filter(Boolean);
-  const successCriteria = screen.learnerContent.successCriteria.map(normalizeText).filter(Boolean);
-  const requirements = [
-    ...screen.requiredEvidence.map((item) => `Evidence: ${normalizeLearnerFacingRequirement(item)}`),
-    ...screen.requiredOutputs.map((item) => `Output: ${normalizeLearnerFacingRequirement(item)}`),
-  ];
+  const body = uniqueNormalized([prompt, task, ...questions, ...directions]);
+  const successCriteria = uniqueNormalized(screen.learnerContent.successCriteria);
+  const successCriteriaSet = new Set(successCriteria);
+  const requirementKindsByContent = new Map<string, Set<'Evidence' | 'Output'>>();
+  for (const [kind, items] of [
+    ['Evidence', screen.requiredEvidence],
+    ['Output', screen.requiredOutputs],
+  ] as const) {
+    for (const item of items) {
+      const content = normalizeLearnerFacingRequirement(item);
+      if (!content) continue;
+      const kinds = requirementKindsByContent.get(content) ?? new Set<'Evidence' | 'Output'>();
+      kinds.add(kind);
+      requirementKindsByContent.set(content, kinds);
+    }
+  }
+  const requirementContent = [...requirementKindsByContent.keys()];
+  const requirements = requirementContent.map((content) => {
+    const kinds = requirementKindsByContent.get(content);
+    const labels = [
+      kinds?.has('Evidence') ? 'Evidence' : '',
+      kinds?.has('Output') ? 'output' : '',
+      successCriteriaSet.has(content) ? 'success criterion' : '',
+    ].filter(Boolean);
+    const label = labels.join('/');
+    return `${label}: ${content}`;
+  });
+  const requirementContentSet = new Set(requirementContent);
+  const compactBody = body.filter((item) => (
+    !requirementContentSet.has(item) && !successCriteriaSet.has(item)
+  ));
+  const compactSuccessCriteria = successCriteria.filter((item) => !requirementContentSet.has(item));
 
   return {
     title: { kind: 'text', text: normalizeText(screen.learnerTitle) },
-    body: { kind: 'list', items: uniqueNormalized([prompt, task, ...questions, ...directions]) },
-    requirements: { kind: 'list', items: uniqueNormalized(requirements) },
-    successCriteria: { kind: 'list', items: uniqueNormalized(successCriteria) },
+    body: { kind: 'list', items: compactBody },
+    requirements: { kind: 'list', items: requirements },
+    successCriteria: { kind: 'list', items: compactSuccessCriteria },
   };
 };
 

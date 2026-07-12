@@ -46,6 +46,37 @@ test('preserves complete source coverage across dense continuation scenes', asyn
   assert.equal(result.report.scenes.uneditableVisibleTextCount, 0);
   assert.equal(result.report.scenes.fullSlideRasterCount, 0);
   assert.equal(result.report.storyboard.teacherScriptViolationCount, 0);
+  assert.equal(result.report.scenes.renderedSceneCount <= fixture.storyboard.screens.length * 2 + 2, true);
+  assert.equal(result.report.diagnostics.some((diagnostic) => diagnostic.code === 'e2e_scene_budget_exceeded'), false);
+});
+
+test('keeps delivery and cache success available for a nonblocking scene-budget warning', async () => {
+  const fixture = await buildEvidenceOutputEndToEndFixture();
+  const lastScene = fixture.presentation.scenes.at(-1);
+  assert.ok(lastScene);
+  const presentation = {
+    ...fixture.presentation,
+    scenes: [
+      ...fixture.presentation.scenes,
+      ...Array.from({ length: 10 }, (_, index) => ({
+        ...lastScene,
+        id: `scene-warning-${String(index + 1).padStart(3, '0')}`,
+        elements: lastScene.elements.map((element) => ({
+          ...element,
+          id: `${element.id}-warning-${String(index + 1).padStart(3, '0')}`,
+        })),
+        readingOrder: lastScene.readingOrder.map((id) => `${id}-warning-${String(index + 1).padStart(3, '0')}`),
+      })),
+    ],
+  };
+
+  const result = validateEndToEndScenePresentation({ ...fixture, presentation });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.report.scenes.sceneBudgetWarningCount, 1);
+  assert.equal(result.report.scenes.blocking, 0);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, true);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, true);
 });
 
 test('returns exact Gate 4 behavior when Gate 5 flag is disabled', async () => {

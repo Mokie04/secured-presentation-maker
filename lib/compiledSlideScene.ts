@@ -419,11 +419,24 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
   const bodyItems = listItems(spec.slots.body);
   const successItems = listItems(spec.slots.successCriteria);
   const requirements = listItems(spec.slots.requirements);
-  const bodyText = asBulletText(bodyItems.length > 0 ? bodyItems : [spec.accessibility.slidePurpose]);
+  const bodyText = asBulletText(bodyItems);
   const successText = successItems.length > 0 ? asBulletText(successItems) : '';
   const baseId = `${sceneId}-el`;
 
   if (spec.layoutId === 'evidence-capture-board' || spec.layoutId === 'exit-ticket-card') {
+    if (bodyItems.length === 0 && successItems.length === 0) {
+      const elements: SceneElement[] = [
+        makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
+        makeText(`${baseId}-title`, 1, { x: 82, y: 72, w: 1116, h: 70 }, title, 'title', 34, { bold: true }),
+      ];
+      if (requirements.length === 1) {
+        elements.push(makeShape(`${baseId}-requirement-card`, 2, { x: 86, y: 164, w: 1108, h: 450 }, 'F0FDFA', '99F6E4'));
+        elements.push(makeText(`${baseId}-requirement`, 3, { x: 126, y: 204, w: 1028, h: 360 }, asBulletText(requirements), 'body', 22));
+      } else {
+        elements.push(makeTable(`${baseId}-table`, 2, { x: 86, y: 158, w: 1108, h: 474 }, ['#', 'Required evidence or output'], requirementRows(spec)));
+      }
+      return elements;
+    }
     return [
       makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
       makeText(`${baseId}-title`, 1, { x: 82, y: 72, w: 1116, h: 70 }, title, 'title', 34, { bold: true }),
@@ -441,7 +454,8 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
   }
 
   if (spec.layoutId === 'learning-targets-stack') {
-    const targets = bodyItems.length > 0 ? bodyItems : [title];
+    const targets = bodyItems.length > 0 ? bodyItems : successItems.length > 0 ? successItems : [title];
+    const separateSuccessText = bodyItems.length > 0 ? successText : '';
     const cardHeight = Math.min(132, Math.max(86, Math.floor(396 / Math.max(targets.length, 1))));
     const elements: SceneElement[] = [
       makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
@@ -452,8 +466,8 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
       elements.push(makeShape(`${baseId}-target-card-${index + 1}`, 2 + index * 2, { x: 96, y, w: 1088, h: cardHeight }, 'EEF2FF', 'C7D2FE'));
       elements.push(makeText(`${baseId}-target-text-${index + 1}`, 3 + index * 2, { x: 128, y: y + 22, w: 1024, h: cardHeight - 36 }, target, 'body', 24));
     });
-    if (successText) {
-      elements.push(makeText(`${baseId}-criteria`, 12, { x: 104, y: 604, w: 1072, h: 62 }, successText, 'note', 18));
+    if (separateSuccessText) {
+      elements.push(makeText(`${baseId}-criteria`, 12, { x: 104, y: 604, w: 1072, h: 62 }, separateSuccessText, 'note', 18));
     }
     return elements;
   }
@@ -483,12 +497,31 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
   }
 
   if (spec.layoutId === 'prompt-card' || spec.layoutId === 'question-reveal-pair') {
+    const criteriaText = successText || asBulletText(requirements);
+    if (!criteriaText) {
+      return [
+        makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
+        makeText(`${baseId}-title`, 1, { x: 84, y: 74, w: 1112, h: 70 }, title, 'title', 34, { bold: true }),
+        makeShape(`${baseId}-prompt-card`, 2, { x: 96, y: 168, w: 1088, h: 446 }, 'F0FDFA', '99F6E4'),
+        makeText(`${baseId}-prompt`, 3, { x: 138, y: 210, w: 1004, h: 352 }, bodyText, 'prompt', 25),
+      ];
+    }
     return [
       makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
       makeText(`${baseId}-title`, 1, { x: 84, y: 74, w: 1112, h: 70 }, title, 'title', 34, { bold: true }),
       makeShape(`${baseId}-prompt-card`, 2, { x: 116, y: 174, w: 1048, h: 292 }, 'F0FDFA', '99F6E4'),
       makeText(`${baseId}-prompt`, 3, { x: 158, y: 222, w: 964, h: 194 }, bodyText, 'prompt', 27),
-      makeText(`${baseId}-criteria`, 4, { x: 134, y: 516, w: 1012, h: 100 }, successText || asBulletText(requirements), 'body', 21),
+      makeText(`${baseId}-criteria`, 4, { x: 134, y: 516, w: 1012, h: 100 }, criteriaText, 'body', 21),
+    ];
+  }
+
+  const criteriaText = successText || asBulletText(requirements);
+  if (!criteriaText) {
+    return [
+      makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
+      makeText(`${baseId}-title`, 1, { x: 82, y: 74, w: 1116, h: 70 }, title, 'title', 34, { bold: true }),
+      makeShape(`${baseId}-task-card`, 2, { x: 86, y: 164, w: 1108, h: 450 }, 'EEF2FF', 'C7D2FE'),
+      makeText(`${baseId}-task`, 3, { x: 126, y: 206, w: 1028, h: 350 }, bodyText, 'body', 23),
     ];
   }
 
@@ -498,7 +531,7 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
     makeShape(`${baseId}-task-card`, 2, { x: 86, y: 170, w: 528, h: 376 }, 'EEF2FF', 'C7D2FE'),
     makeText(`${baseId}-task`, 3, { x: 126, y: 220, w: 448, h: 256 }, bodyText, 'body', 24),
     makeShape(`${baseId}-criteria-card`, 4, { x: 666, y: 170, w: 528, h: 376 }, 'F0FDF4', 'BBF7D0'),
-    makeText(`${baseId}-criteria`, 5, { x: 706, y: 220, w: 448, h: 256 }, successText || asBulletText(requirements), 'body', 23),
+    makeText(`${baseId}-criteria`, 5, { x: 706, y: 220, w: 448, h: 256 }, criteriaText, 'body', 23),
   ];
 };
 
@@ -553,13 +586,14 @@ const imageElementForAsset = (
   asset: SceneResolvedAsset,
   index: number,
   readingOrder: number,
+  frame: SceneFrame,
 ): SceneImageElement | null => {
   const request = spec.assetRequests.find((item) => item.id === asset.requestId);
   if (!request || !asset.src) return null;
   return {
     id: `${sceneId}-asset-${index + 1}`,
     kind: 'image',
-    frame: { x: 968, y: 500, w: 214, h: 122 },
+    frame,
     editable: true,
     readingOrder,
     src: asset.src,
@@ -573,6 +607,20 @@ const imageElementForAsset = (
   };
 };
 
+const framesOverlap = (a: SceneFrame, b: SceneFrame): boolean => (
+  a.x < b.x + b.w
+  && a.x + a.w > b.x
+  && a.y < b.y + b.h
+  && a.y + a.h > b.y
+);
+
+const ASSET_FRAME_CANDIDATES: readonly SceneFrame[] = [
+  { x: 968, y: 574, w: 214, h: 80 },
+  { x: 968, y: 154, w: 214, h: 96 },
+  { x: 80, y: 574, w: 214, h: 80 },
+  { x: 968, y: 270, w: 214, h: 96 },
+];
+
 const addResolvedAssetElements = (
   elements: readonly SceneElement[],
   spec: SemanticSlideSpec,
@@ -582,10 +630,19 @@ const addResolvedAssetElements = (
   const renderedAssets = assets.filter(isRenderedImageAsset);
   if (renderedAssets.length === 0) return [...elements];
   const maxReadingOrder = elements.reduce((max, element) => Math.max(max, element.readingOrder), 0);
-  const imageElements = renderedAssets
-    .slice(0, 2)
-    .map((asset, index) => imageElementForAsset(spec, sceneId, asset, index, maxReadingOrder + index + 1))
-    .filter((element): element is SceneImageElement => Boolean(element));
+  const occupiedFrames = elements
+    .filter((element) => element.kind === 'text' || element.kind === 'table')
+    .map((element) => element.frame);
+  const imageElements: SceneImageElement[] = [];
+  for (const [index, asset] of renderedAssets.slice(0, 2).entries()) {
+    const frame = ASSET_FRAME_CANDIDATES.find((candidate) => (
+      [...occupiedFrames, ...imageElements.map((element) => element.frame)]
+        .every((occupied) => !framesOverlap(candidate, occupied))
+    ));
+    if (!frame) continue;
+    const element = imageElementForAsset(spec, sceneId, asset, index, maxReadingOrder + index + 1, frame);
+    if (element) imageElements.push(element);
+  }
   return [...elements, ...imageElements];
 };
 

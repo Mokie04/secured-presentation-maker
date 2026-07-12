@@ -28,6 +28,7 @@ export type EndToEndDiagnosticCode =
   | 'e2e_teacher_script_visible'
   | 'e2e_visual_system_invalid'
   | 'e2e_asset_invalid'
+  | 'e2e_scene_budget_exceeded'
   | 'e2e_scene_render_invalid'
   | 'e2e_preview_text_not_editable'
   | 'e2e_pptx_round_trip_invalid'
@@ -73,6 +74,7 @@ export type RenderValidationSummary = ValidationSummary & {
   unreadableTextCount: number;
   uneditableVisibleTextCount: number;
   fullSlideRasterCount: number;
+  sceneBudgetWarningCount: number;
 };
 
 export type PptxRoundTripSummary = ValidationSummary & {
