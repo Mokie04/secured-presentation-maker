@@ -17,10 +17,13 @@ export type SourcePrimarySceneRolloutContext = {
   isAdmin?: boolean;
   optedInToSourcePrimaryScenes?: boolean;
   stableBucketSeed?: string;
+  isProduction?: boolean;
+  productionArmedFlagValue?: unknown;
 };
 
 export type SourcePrimarySceneRolloutReason =
   | 'rollout_off'
+  | 'production_not_armed'
   | 'route_not_source_primary_uploaded'
   | 'internal_admin'
   | 'internal_non_admin'
@@ -65,6 +68,7 @@ const UNSAFE_STABLE_BUCKET_SEED_PATTERNS = [
   /@/,
   /(?:\/|\\|\.docx\b|\.pptx\b|\.pdf\b|\.txt\b|\.md\b)/i,
 ];
+const TRUE_LIKE_FLAG_VALUES = new Set(['1', 'true', 'yes', 'on']);
 
 export const parseSourcePrimarySceneRolloutStage = (
   flagValue: unknown,
@@ -94,6 +98,10 @@ const isSafeStableBucketSeed = (value: string | undefined): value is string => {
   if (!value || !SAFE_STABLE_BUCKET_SEED_PATTERN.test(value)) return false;
   return !UNSAFE_STABLE_BUCKET_SEED_PATTERNS.some((pattern) => pattern.test(value));
 };
+
+const isTrueLikeFlagValue = (value: unknown): boolean => (
+  TRUE_LIKE_FLAG_VALUES.has(String(value ?? '').trim().toLowerCase())
+);
 
 export const getSourcePrimarySceneCanaryBucket = (stableBucketSeed: string): number => {
   let hash = 0x811c9dc5;
@@ -145,6 +153,10 @@ export const resolveSourcePrimarySceneRolloutEligibility = (
       originalRoutePolicy: policy,
       effectiveRoutePolicy: policy,
     };
+  }
+
+  if (context.isProduction && !isTrueLikeFlagValue(context.productionArmedFlagValue)) {
+    return ineligibleDecision(policy, 'off', 'production_not_armed');
   }
 
   if (stage === 'off') return ineligibleDecision(policy, stage, 'rollout_off');

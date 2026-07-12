@@ -77,6 +77,70 @@ test('falls back to effective legacy route before source manifest and storyboard
   }
 });
 
+test('production requires explicit source-primary arming before lower-gate preflight', () => {
+  const originalPolicy = resolveK12GenerationRoutePolicy('uploaded text', 'true');
+
+  for (const productionArmedFlagValue of [undefined, '', 'false', '0', 'off']) {
+    const decision = resolveSourcePrimarySceneRolloutForGeneration(
+      'k12-single-lesson',
+      originalPolicy,
+      'all',
+      { isProduction: true, productionArmedFlagValue },
+    );
+
+    assert.equal(decision.eligible, false);
+    assert.equal(decision.stage, 'off');
+    assert.equal(decision.reason, 'production_not_armed');
+    assert.deepEqual(decision.originalRoutePolicy, originalPolicy);
+    assert.deepEqual(decision.effectiveRoutePolicy, {
+      inputOrigin: 'uploaded-file',
+      mode: 'legacy',
+      allowReusableSeeds: true,
+      cacheKeyParts: [],
+    });
+    assert.equal(shouldRunSourcePrimaryScenePreflight(decision), false);
+    assert.deepEqual(resolveSourceManifestForGeneration(decision.effectiveRoutePolicy, null), {
+      ok: true,
+      manifest: null,
+    });
+  }
+});
+
+test('production allows source-primary only when explicitly armed', () => {
+  const originalPolicy = resolveK12GenerationRoutePolicy('uploaded text', 'true');
+
+  const decision = resolveSourcePrimarySceneRolloutForGeneration(
+    'k12-single-lesson',
+    originalPolicy,
+    'all',
+    { isProduction: true, productionArmedFlagValue: 'true' },
+  );
+
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.stage, 'all');
+  assert.equal(decision.reason, 'all_eligible');
+  assert.deepEqual(decision.originalRoutePolicy, originalPolicy);
+  assert.deepEqual(decision.effectiveRoutePolicy, originalPolicy);
+  assert.equal(shouldRunSourcePrimaryScenePreflight(decision), true);
+});
+
+test('non-production source-primary rollout behavior does not require production arming', () => {
+  const originalPolicy = resolveK12GenerationRoutePolicy('uploaded text', 'true');
+
+  const decision = resolveSourcePrimarySceneRolloutForGeneration(
+    'k12-single-lesson',
+    originalPolicy,
+    'all',
+    { isProduction: false },
+  );
+
+  assert.equal(decision.eligible, true);
+  assert.equal(decision.stage, 'all');
+  assert.equal(decision.reason, 'all_eligible');
+  assert.deepEqual(decision.effectiveRoutePolicy, originalPolicy);
+  assert.equal(shouldRunSourcePrimaryScenePreflight(decision), true);
+});
+
 test('internal, beta, and all stages keep source-primary route only for eligible users', () => {
   const originalPolicy = resolveK12GenerationRoutePolicy('uploaded text', 'true');
 
