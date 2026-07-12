@@ -14,7 +14,9 @@ import {
 import { buildSemanticSlideSpecs } from '../../lib/semanticSlideSpec.ts';
 import { buildTeachingStoryboard } from '../../lib/teachingStoryboard.ts';
 import {
+  DENSE_STORYBOARD_DOCUMENT,
   EVIDENCE_OUTPUT_DOCUMENT,
+  SOURCE_BACKED_BLANK_TASK_DOCUMENT,
   TEACHER_SCRIPT_DOCUMENT,
 } from './teachingStoryboardFixtures.ts';
 import {
@@ -83,6 +85,8 @@ export const buildEvidenceOutputEndToEndFixture = () => materializeFixture(EVIDE
 export const buildTeacherScriptEndToEndFixture = () => materializeFixture(TEACHER_SCRIPT_DOCUMENT);
 export const buildFiveSessionEndToEndFixture = () => materializeFixture(FIVE_SESSION_MATRIX_DOCUMENT);
 export const buildMultiObjectiveEndToEndFixture = () => materializeFixture(MULTI_OBJECTIVE_UNIT_DOCUMENT);
+export const buildDenseStoryboardEndToEndFixture = () => materializeFixture(DENSE_STORYBOARD_DOCUMENT);
+export const buildSourceBackedBlankTaskEndToEndFixture = () => materializeFixture(SOURCE_BACKED_BLANK_TASK_DOCUMENT);
 
 export const flattenResolvedAssets = (resolvedAssetsBySpecId: Record<string, SceneResolvedAsset[]>): SceneResolvedAsset[] => (
   Object.values(resolvedAssetsBySpecId).flat()

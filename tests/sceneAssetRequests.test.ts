@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { buildDeckVisualSystems } from '../lib/deckVisualSystem.ts';
+import { buildSemanticSlideSpecs } from '../lib/semanticSlideSpec.ts';
 import {
   buildSceneAssetRequests,
   validateSceneAssetRequests,
   type SceneAssetRequest,
 } from '../lib/sceneAssetRequests.ts';
 import { EVIDENCE_OUTPUT_VISUAL_FIXTURE } from './fixtures/deckVisualSystemFixtures.ts';
+import { DENSE_STORYBOARD } from './fixtures/semanticSlideFixtures.ts';
 
 const requestFixture = () => {
   const visualSystems = buildDeckVisualSystems(EVIDENCE_OUTPUT_VISUAL_FIXTURE.storyboard, EVIDENCE_OUTPUT_VISUAL_FIXTURE.specs);
@@ -57,6 +59,26 @@ test('never asks providers to put text inside image briefs', () => {
     requests.every((request) => request.brief.negativeConstraints.some((constraint) => /no text/i.test(constraint))),
     true,
   );
+});
+
+test('creates at most one asset request for adjacent continuations of one storyboard screen', () => {
+  const semanticResult = buildSemanticSlideSpecs(DENSE_STORYBOARD);
+  assert.equal(semanticResult.ok, true);
+  if (!semanticResult.ok) return;
+  const visualSystems = buildDeckVisualSystems(DENSE_STORYBOARD, semanticResult.specs);
+  assert.equal(visualSystems.ok, true);
+  if (!visualSystems.ok) return;
+
+  const result = buildSceneAssetRequests(DENSE_STORYBOARD, semanticResult.specs, visualSystems.bundle);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const requestedScreenIds = result.requests.map((request) => request.storyboardScreenId);
+  assert.equal(new Set(requestedScreenIds).size, requestedScreenIds.length);
+  for (const request of result.requests) {
+    const firstSpec = semanticResult.specs.find((spec) => spec.storyboardScreenId === request.storyboardScreenId);
+    assert.equal(request.semanticSlideSpecId, firstSpec?.id);
+  }
 });
 
 test('rejects decorative or random asset requests', () => {

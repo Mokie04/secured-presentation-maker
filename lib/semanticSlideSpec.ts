@@ -2,6 +2,7 @@ import type { K12GenerationRoutePolicy } from './k12GenerationRoutePolicy.ts';
 import type { SceneAssetRequest } from './sceneAssetRequests.ts';
 import {
   compileSemanticSlideSpecsToScenes,
+  doesSemanticSlideSpecFitScene,
   formatSceneValidationDiagnostics,
   type CompiledScenePresentation,
   type SceneValidationDiagnostic,
@@ -124,6 +125,18 @@ const arraysEqual = (a: readonly string[], b: readonly string[]): boolean => (
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
+const uniqueNormalized = (values: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeText(value);
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+};
+
 const normalizeLearnerFacingRequirement = (value: string): string => (
   normalizeText(value)
     .replace(/\bthe\s+teacher\s+will\s+ask\s+(?:learners|students)\s+to\s+/i, '')
@@ -170,8 +183,35 @@ const selectLayoutId = (intent: SemanticSlideIntent, screen: StoryboardScreen): 
   return 'activity-board';
 };
 
+const DEFAULT_TITLE_BY_INTENT: Record<SemanticSlideIntent, string> = {
+  'title-context': 'Lesson Context',
+  'learning-targets': 'Learning Targets',
+  'prior-knowledge': 'Prior Knowledge',
+  'discussion-prompt': 'Discussion Prompt',
+  'activity-board': 'Learning Task',
+  'evidence-capture': 'Evidence Record',
+  'guided-example': 'Guided Example',
+  'comparison-matrix': 'Compare Ideas',
+  'process-flow': 'Learning Sequence',
+  question: 'Question',
+  'answer-reveal': 'Review the Answer',
+  'exit-ticket': 'Exit Response',
+  'wrap-up': 'Wrap-Up',
+};
+
+const buildLearnerFacingTitle = (
+  sourceTitle: string,
+  intent: SemanticSlideIntent,
+  continuation: boolean,
+): string => {
+  const normalized = normalizeText(sourceTitle);
+  const base = normalized.length <= 52 ? normalized : DEFAULT_TITLE_BY_INTENT[intent];
+  if (!continuation) return base || DEFAULT_TITLE_BY_INTENT[intent];
+  const continuationBase = base.length <= 38 ? base : DEFAULT_TITLE_BY_INTENT[intent];
+  return `${continuationBase || DEFAULT_TITLE_BY_INTENT[intent]} (continued)`;
+};
+
 const buildSlotsForScreen = (screen: StoryboardScreen): Record<string, SlideSlotValue> => {
-  const title = normalizeText(screen.learnerTitle);
   const prompt = normalizeText(screen.learnerContent.prompt ?? '');
   const task = normalizeText(screen.learnerContent.task ?? '');
   const questions = screen.learnerContent.questions.map(normalizeText).filter(Boolean);
@@ -183,11 +223,132 @@ const buildSlotsForScreen = (screen: StoryboardScreen): Record<string, SlideSlot
   ];
 
   return {
-    title: { kind: 'text', text: title },
-    body: { kind: 'list', items: [prompt, task, ...questions, ...directions].filter(Boolean) },
-    requirements: { kind: 'list', items: requirements },
-    successCriteria: { kind: 'list', items: successCriteria },
+    title: { kind: 'text', text: normalizeText(screen.learnerTitle) },
+    body: { kind: 'list', items: uniqueNormalized([prompt, task, ...questions, ...directions]) },
+    requirements: { kind: 'list', items: uniqueNormalized(requirements) },
+    successCriteria: { kind: 'list', items: uniqueNormalized(successCriteria) },
   };
+};
+
+type ContinuationSlotName = 'body' | 'requirements' | 'successCriteria';
+
+type ContinuationItem = {
+  slotName: ContinuationSlotName;
+  text: string;
+};
+
+const getListSlotItems = (
+  slots: Record<string, SlideSlotValue>,
+  slotName: ContinuationSlotName,
+): string[] => {
+  const slot = slots[slotName];
+  return slot?.kind === 'list' ? [...slot.items] : [];
+};
+
+const hasContinuationContent = (spec: SemanticSlideSpec): boolean => (
+  (['body', 'requirements', 'successCriteria'] as const)
+    .some((slotName) => getListSlotItems(spec.slots, slotName).length > 0)
+);
+
+const appendContinuationItem = (
+  spec: SemanticSlideSpec,
+  item: ContinuationItem,
+): SemanticSlideSpec => ({
+  ...spec,
+  slots: {
+    ...spec.slots,
+    [item.slotName]: {
+      kind: 'list',
+      items: [...getListSlotItems(spec.slots, item.slotName), item.text],
+    },
+  },
+});
+
+const emptyContinuationSpec = (
+  spec: SemanticSlideSpec,
+  sourceTitle: string,
+  continuation: boolean,
+): SemanticSlideSpec => ({
+  ...spec,
+  slots: {
+    ...spec.slots,
+    title: { kind: 'text', text: buildLearnerFacingTitle(sourceTitle, spec.intent, continuation) },
+    body: { kind: 'list', items: [] },
+    requirements: { kind: 'list', items: [] },
+    successCriteria: { kind: 'list', items: [] },
+  },
+});
+
+const largestFittingPrefix = (
+  spec: SemanticSlideSpec,
+  item: ContinuationItem,
+): { fitted: string; remainder: string } => {
+  const words = item.text.split(/\s+/).filter(Boolean);
+  let low = 1;
+  let high = words.length;
+  let fittedWordCount = 0;
+
+  while (low <= high) {
+    const midpoint = Math.floor((low + high) / 2);
+    const candidate = appendContinuationItem(spec, { ...item, text: words.slice(0, midpoint).join(' ') });
+    if (doesSemanticSlideSpecFitScene(candidate)) {
+      fittedWordCount = midpoint;
+      low = midpoint + 1;
+    } else {
+      high = midpoint - 1;
+    }
+  }
+
+  return {
+    fitted: words.slice(0, fittedWordCount).join(' '),
+    remainder: words.slice(fittedWordCount).join(' '),
+  };
+};
+
+const splitDenseSemanticSpec = (
+  baseSpec: SemanticSlideSpec,
+  sourceTitle: string,
+): SemanticSlideSpec[] => {
+  const contentItems = (['body', 'requirements', 'successCriteria'] as const)
+    .flatMap((slotName): ContinuationItem[] => getListSlotItems(baseSpec.slots, slotName)
+      .map((text) => ({ slotName, text })));
+  let current = emptyContinuationSpec(baseSpec, sourceTitle, false);
+  const pages: SemanticSlideSpec[] = [];
+
+  const startNextPage = (): void => {
+    if (hasContinuationContent(current)) pages.push(current);
+    current = emptyContinuationSpec(baseSpec, sourceTitle, pages.length > 0);
+  };
+
+  for (const contentItem of contentItems) {
+    let remaining = contentItem.text;
+    while (remaining) {
+      const candidate = appendContinuationItem(current, { ...contentItem, text: remaining });
+      if (doesSemanticSlideSpecFitScene(candidate)) {
+        current = candidate;
+        remaining = '';
+        continue;
+      }
+
+      if (hasContinuationContent(current)) {
+        startNextPage();
+        continue;
+      }
+
+      const split = largestFittingPrefix(current, { ...contentItem, text: remaining });
+      if (!split.fitted) {
+        current = candidate;
+        remaining = '';
+        continue;
+      }
+      current = appendContinuationItem(current, { ...contentItem, text: split.fitted });
+      remaining = split.remainder;
+      if (remaining) startNextPage();
+    }
+  }
+
+  if (hasContinuationContent(current) || pages.length === 0) pages.push(current);
+  return pages;
 };
 
 export const validateSemanticSlideSpecs = (
@@ -284,11 +445,12 @@ export const validateSemanticSlideSpecs = (
 };
 
 export const buildSemanticSlideSpecs = (storyboard: TeachingStoryboard): SemanticSlideSpecResult => {
-  const specs = storyboard.screens.map((screen, index): SemanticSlideSpec => {
+  let specNumber = 1;
+  const specs = storyboard.screens.flatMap((screen): SemanticSlideSpec[] => {
     const intent = inferSemanticIntent(screen);
-    return {
+    const baseSpec: SemanticSlideSpec = {
       contractVersion: SEMANTIC_SLIDE_SPEC_VERSION,
-      id: `semslide-${String(index + 1).padStart(3, '0')}`,
+      id: 'semslide-pending',
       unitId: screen.unitId,
       storyboardScreenId: screen.id,
       sourceStepIds: [...screen.sourceStepIds],
@@ -303,6 +465,10 @@ export const buildSemanticSlideSpecs = (storyboard: TeachingStoryboard): Semanti
         slidePurpose: screen.instructionalPurpose,
       },
     };
+    return splitDenseSemanticSpec(baseSpec, screen.learnerTitle).map((spec) => ({
+      ...spec,
+      id: `semslide-${String(specNumber++).padStart(3, '0')}`,
+    }));
   });
 
   const diagnostics = validateSemanticSlideSpecs(specs, storyboard);

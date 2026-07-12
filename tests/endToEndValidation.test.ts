@@ -8,7 +8,10 @@ import {
   validateEndToEndScenePresentation,
 } from '../lib/endToEndValidation.ts';
 import { resolveEndToEndValidatedScenePresentationForGeneration } from '../lib/endToEndSceneBoundary.ts';
-import { buildEvidenceOutputEndToEndFixture } from './fixtures/endToEndValidationFixtures.ts';
+import {
+  buildDenseStoryboardEndToEndFixture,
+  buildEvidenceOutputEndToEndFixture,
+} from './fixtures/endToEndValidationFixtures.ts';
 
 test('accepts only documented true-like Gate 5 flag values', () => {
   for (const value of ['1', 'true', 'TRUE', ' yes ', 'On']) {
@@ -30,6 +33,19 @@ test('builds a passing end-to-end validation report for a valid source-primary s
   assert.equal(result.report.scenes.fullSlideRasterCount, 0);
   assert.equal(result.report.cacheSafety.mayDeliverPresentation, true);
   assert.equal(result.report.cacheSafety.mayWriteSuccessCache, true);
+});
+
+test('preserves complete source coverage across dense continuation scenes', async () => {
+  const fixture = await buildDenseStoryboardEndToEndFixture();
+  const result = validateEndToEndScenePresentation(fixture);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.report.storyboard.sourceStepCoverageRatio, 1);
+  assert.equal(result.report.semanticSpecs.objectiveCoverageRatio, 1);
+  assert.equal(result.report.scenes.overflowCount, 0);
+  assert.equal(result.report.scenes.uneditableVisibleTextCount, 0);
+  assert.equal(result.report.scenes.fullSlideRasterCount, 0);
+  assert.equal(result.report.storyboard.teacherScriptViolationCount, 0);
 });
 
 test('returns exact Gate 4 behavior when Gate 5 flag is disabled', async () => {

@@ -327,11 +327,7 @@ const listItems = (slot: SlideSlotValue | undefined): string[] => {
 
 const requirementRows = (spec: SemanticSlideSpec): string[][] => {
   const requirements = listItems(spec.slots.requirements);
-  const body = listItems(spec.slots.body);
-  const sourceRows = requirements.length > 0 ? requirements : body;
-  return sourceRows.length > 0
-    ? sourceRows.map((item, index) => [`${index + 1}`, item])
-    : [['1', 'Source-backed learner response']];
+  return requirements.map((item, index) => [`${index + 1}`, item]);
 };
 
 const makeShape = (
@@ -437,7 +433,7 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
         `${baseId}-criteria`,
         4,
         { x: 88, y: 530, w: 1066, h: 104 },
-        successText || asBulletText(requirements),
+        successText,
         'body',
         22,
       ),
@@ -451,7 +447,7 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
       makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
       makeText(`${baseId}-title`, 1, { x: 82, y: 74, w: 1116, h: 66 }, title, 'title', 34, { bold: true }),
     ];
-    targets.slice(0, 4).forEach((target, index) => {
+    targets.forEach((target, index) => {
       const y = 168 + index * (cardHeight + 18);
       elements.push(makeShape(`${baseId}-target-card-${index + 1}`, 2 + index * 2, { x: 96, y, w: 1088, h: cardHeight }, 'EEF2FF', 'C7D2FE'));
       elements.push(makeText(`${baseId}-target-text-${index + 1}`, 3 + index * 2, { x: 128, y: y + 22, w: 1024, h: cardHeight - 36 }, target, 'body', 24));
@@ -464,7 +460,7 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
 
   if (spec.layoutId === 'guided-example-steps' || spec.layoutId === 'process-flow-horizontal') {
     const steps = bodyItems.length > 0 ? bodyItems : [spec.accessibility.slidePurpose];
-    const visibleSteps = steps.slice(0, 4);
+    const visibleSteps = steps;
     const cardWidth = Math.floor((1080 - Math.max(0, visibleSteps.length - 1) * 24) / Math.max(visibleSteps.length, 1));
     const elements: SceneElement[] = [
       makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
@@ -629,8 +625,16 @@ const validateTextFit = (scene: CompiledSlideScene, element: SceneTextElement | 
   const text = elementText(element).join('\n');
   if (!text.trim()) return [];
   if (element.kind === 'table') {
-    const rowCount = element.rows.length + 1;
-    const estimatedHeight = rowCount * element.fontSize * 1.65;
+    const columnCount = Math.max(1, element.headers.length, ...element.rows.map((row) => row.length));
+    const columnWidth = Math.max(1, element.frame.w / columnCount - 24);
+    const rowLineCounts = [element.headers, ...element.rows].map((row) => Math.max(
+      1,
+      ...row.map((cell) => estimateWrappedLineCount(cell, columnWidth, element.fontSize)),
+    ));
+    const estimatedHeight = rowLineCounts.reduce(
+      (height, lineCount) => height + lineCount * element.fontSize * 1.35 + 16,
+      0,
+    );
     return estimatedHeight > element.frame.h
       ? [sceneDiagnostic('scene_text_overflow', `Table ${element.id} does not fit in its scene frame.`, { sceneId: scene.id, elementId: element.id })]
       : [];
@@ -767,12 +771,45 @@ const compileSpecToScene = (
   };
 };
 
+const slotItemCount = (slot: SlideSlotValue): number => {
+  if (slot.kind === 'list') return slot.items.length;
+  if (slot.kind === 'cards') return slot.cards.length;
+  if (slot.kind === 'table') return slot.rows.length;
+  if (slot.kind === 'steps') return slot.steps.length;
+  return 1;
+};
+
+const validateSemanticSpecLayoutCapacity = (
+  spec: SemanticSlideSpec,
+  index: number,
+): SceneValidationDiagnostic[] => {
+  const layout = SEMANTIC_LAYOUT_DEFINITIONS.find((definition) => definition.id === spec.layoutId);
+  if (!layout || !Object.values(spec.slots).some((slot) => slotItemCount(slot) > layout.maxListItems)) {
+    return [];
+  }
+  const sceneId = `scene-${String(index + 1).padStart(3, '0')}`;
+  return [sceneDiagnostic(
+    'scene_text_overflow',
+    `Semantic slide ${spec.id} exceeds the item capacity for layout ${spec.layoutId}.`,
+    { sceneId },
+  )];
+};
+
+export const doesSemanticSlideSpecFitScene = (spec: SemanticSlideSpec): boolean => {
+  if (validateSemanticSpecLayoutCapacity(spec, 0).length > 0) return false;
+  return validateCompiledSlideScene(compileSpecToScene(spec, 0))
+    .every((diagnostic) => diagnostic.severity !== 'blocking');
+};
+
 export const compileSemanticSlideSpecsToScenes = (
   specs: readonly SemanticSlideSpec[],
   options: CompileSemanticSlideSpecsOptions,
 ): CompiledScenePresentationResult => {
   const scenes = specs.map((spec, index) => compileSpecToScene(spec, index, options));
-  const diagnostics = scenes.flatMap(validateCompiledSlideScene);
+  const diagnostics = [
+    ...specs.flatMap(validateSemanticSpecLayoutCapacity),
+    ...scenes.flatMap(validateCompiledSlideScene),
+  ];
   if (diagnostics.some((diagnostic) => diagnostic.severity === 'blocking')) return { ok: false, diagnostics };
   return {
     ok: true,

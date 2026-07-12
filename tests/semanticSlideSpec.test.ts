@@ -10,6 +10,7 @@ import {
   validateSemanticSlideSpecs,
 } from '../lib/semanticSlideSpec.ts';
 import {
+  DENSE_STORYBOARD,
   EVIDENCE_OUTPUT_STORYBOARD,
   FIVE_SESSION_STORYBOARD,
   MULTI_OBJECTIVE_STORYBOARD,
@@ -76,6 +77,59 @@ test('keeps teacher-script out of visible semantic slots', () => {
   if (!result.ok) return;
   const visible = JSON.stringify(result.specs.map((spec) => spec.slots));
   assert.doesNotMatch(visible, /the teacher will ask learners/i);
+});
+
+test('splits dense storyboard screens into adjacent source-bound continuation specs', () => {
+  const result = buildSemanticSlideSpecs(DENSE_STORYBOARD);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.specs.length > DENSE_STORYBOARD.screens.length, true);
+
+  for (const screen of DENSE_STORYBOARD.screens) {
+    const indices = result.specs
+      .map((spec, index) => spec.storyboardScreenId === screen.id ? index : -1)
+      .filter((index) => index >= 0);
+    assert.equal(indices.length >= 1, true);
+    assert.deepEqual(indices, Array.from({ length: indices.length }, (_, index) => indices[0] + index));
+    for (const index of indices) {
+      assert.deepEqual(result.specs[index].sourceStepIds, screen.sourceStepIds);
+      assert.deepEqual(result.specs[index].sourceObjectiveIds, screen.sourceObjectiveIds);
+    }
+
+    const screenSpecs = indices.map((index) => result.specs[index]);
+    const expectedBody = [...new Set([
+      screen.learnerContent.prompt,
+      screen.learnerContent.task,
+      ...screen.learnerContent.questions,
+      ...screen.learnerContent.directions,
+    ].filter((value): value is string => Boolean(value)).map((value) => value.replace(/\s+/g, ' ').trim()))].join(' ');
+    const actualBody = screenSpecs.flatMap((spec) => {
+      const slot = spec.slots.body;
+      return slot?.kind === 'list' ? slot.items : [];
+    }).join(' ');
+    assert.equal(actualBody, expectedBody);
+
+    const expectedRequirements = [
+      ...screen.requiredEvidence.map((item) => `Evidence: ${item}`),
+      ...screen.requiredOutputs.map((item) => `Output: ${item}`),
+    ].join(' ');
+    const actualRequirements = screenSpecs.flatMap((spec) => {
+      const slot = spec.slots.requirements;
+      return slot?.kind === 'list' ? slot.items : [];
+    }).join(' ');
+    assert.equal(actualRequirements, expectedRequirements);
+  }
+
+  assert.deepEqual(
+    result.specs.map((spec) => spec.id),
+    result.specs.map((_, index) => `semslide-${String(index + 1).padStart(3, '0')}`),
+  );
+  const visibleSlots = JSON.stringify(result.specs.map((spec) => spec.slots));
+  for (const sentinel of ['first source-backed observation', 'limitation in each alternative', 'provided evidence record', 'required output']) {
+    assert.match(visibleSlots, new RegExp(sentinel, 'i'));
+  }
+  assert.doesNotMatch(visibleSlots, /the teacher\s+(?:will\s+)?[a-z]+/i);
 });
 
 test('rejects semantic specs with missing storyboard mappings', () => {

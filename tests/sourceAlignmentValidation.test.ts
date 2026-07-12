@@ -6,6 +6,7 @@ import {
   buildEvidenceOutputEndToEndFixture,
   buildFiveSessionEndToEndFixture,
   buildMultiObjectiveEndToEndFixture,
+  buildSourceBackedBlankTaskEndToEndFixture,
   buildTeacherScriptEndToEndFixture,
 } from './fixtures/endToEndValidationFixtures.ts';
 
@@ -128,5 +129,71 @@ test('blocks visible teacher-script and blank-field invention', async () => {
   const result = validateSourceAlignment(invalid);
 
   assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'e2e_teacher_script_visible'), true);
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'e2e_blank_field_invented'), true);
+});
+
+test('allows source-backed blank-response wording without treating it as invented', async () => {
+  const fixture = await buildSourceBackedBlankTaskEndToEndFixture();
+  const result = validateSourceAlignment(fixture);
+
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'e2e_blank_field_invented'), false);
+});
+
+test('blocks blank-response wording invented by both storyboard and scene when source text does not support it', async () => {
+  const fixture = await buildEvidenceOutputEndToEndFixture();
+  const targetScreen = fixture.storyboard.screens[1];
+  const invalid = {
+    ...fixture,
+    storyboard: {
+      ...fixture.storyboard,
+      screens: fixture.storyboard.screens.map((screen) => screen.id === targetScreen.id
+        ? {
+            ...screen,
+            learnerContent: {
+              ...screen.learnerContent,
+              task: 'Complete an invented blank response field.',
+            },
+          }
+        : screen),
+    },
+    presentation: {
+      ...fixture.presentation,
+      scenes: fixture.presentation.scenes.map((scene) => scene.storyboardScreenId === targetScreen.id
+        ? {
+            ...scene,
+            elements: scene.elements.map((element) => element.kind === 'text' && element.role === 'prompt'
+              ? { ...element, runs: [{ ...element.runs[0], text: 'Complete an invented blank response field.' }] }
+              : element),
+          }
+        : scene),
+    },
+  };
+
+  const result = validateSourceAlignment(invalid);
+
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'e2e_blank_field_invented'), true);
+});
+
+test('does not let source-backed blank-space wording authorize invented missing-source wording', async () => {
+  const fixture = await buildSourceBackedBlankTaskEndToEndFixture();
+  const targetScene = fixture.presentation.scenes.find((scene) => scene.sourceStepIds.length > 0);
+  assert.ok(targetScene);
+  const invalid = {
+    ...fixture,
+    presentation: {
+      ...fixture.presentation,
+      scenes: fixture.presentation.scenes.map((scene) => scene.id === targetScene.id
+        ? {
+            ...scene,
+            elements: scene.elements.map((element) => element.kind === 'text' && element.role === 'body'
+              ? { ...element, runs: [{ ...element.runs[0], text: 'The required source is not provided. Create a replacement response.' }] }
+              : element),
+          }
+        : scene),
+    },
+  };
+
+  const result = validateSourceAlignment(invalid);
+
   assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'e2e_blank_field_invented'), true);
 });
