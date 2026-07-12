@@ -20,7 +20,9 @@ import {
   MULTI_TABLE_SESSION_DOCUMENT,
   MULTI_OBJECTIVE_UNIT_DOCUMENT,
   REPEATED_MISSING_OBJECTIVE_DOCUMENT,
+  UI_FLATTENED_MULTI_TABLE_DOCUMENT,
   UNSUPPORTED_SCANNED_DOCUMENT,
+  ZERO_OBJECTIVE_INSTRUCTIONAL_DOCUMENT,
 } from './fixtures/lessonSourceManifestFixtures.ts';
 
 test('builds a five-session manifest with one objective per source unit', () => {
@@ -125,6 +127,48 @@ test('treats declaration of AI use rows as source fields, not learner instructio
     assert.equal(unit.fields.declarationOfAiUse.state, 'present');
     assert.match(unit.fields.declarationOfAiUse.value, /Sanitized declaration/);
   }
+});
+
+test('recovers explicit row labels flattened by the browser DOCX adapter', () => {
+  const result = buildLessonSourceManifest(UI_FLATTENED_MULTI_TABLE_DOCUMENT);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.manifest.units.length, 5);
+  assert.equal(result.manifest.objectives.length, 5);
+  assert.deepEqual(result.manifest.units.map((unit) => unit.objectiveIds.length), [1, 1, 1, 1, 1]);
+  assert.deepEqual(result.manifest.units.map((unit) => unit.steps.length), [1, 1, 1, 1, 1]);
+
+  for (const unit of result.manifest.units) {
+    assert.equal(unit.steps.some((step) => /Declaration of AI use|Learning Objectives|Learning Resources/i.test(step.sourceLabel)), false);
+    assert.equal(unit.fields.declarationOfAiUse.state, 'present');
+    assert.equal(unit.fields.learningResources.state, 'present');
+  }
+
+  const orderedSourceIds = [
+    ...result.manifest.objectives,
+    ...result.manifest.units.flatMap((unit) => unit.steps),
+  ]
+    .sort((a, b) => a.sourceOrder - b.sourceOrder)
+    .map((item) => item.id);
+  assert.deepEqual(orderedSourceIds, [
+    'obj-001', 'obj-002', 'obj-003', 'obj-004', 'obj-005',
+    'step-001', 'step-002', 'step-003', 'step-004', 'step-005',
+  ]);
+});
+
+test('blocks instructional units when no unit-owned objectives are preserved', () => {
+  const result = buildLessonSourceManifest(ZERO_OBJECTIVE_INSTRUCTIONAL_DOCUMENT);
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+
+  const missingObjectiveDiagnostics = result.diagnostics.filter(
+    (diagnostic) => diagnostic.code === 'source_unit_missing_objective',
+  );
+  assert.equal(missingObjectiveDiagnostics.length, 1);
+  assert.match(missingObjectiveDiagnostics[0].message, /2 source units/i);
 });
 
 test('keeps 5E labels as source data while assigning monotonic step ids', () => {

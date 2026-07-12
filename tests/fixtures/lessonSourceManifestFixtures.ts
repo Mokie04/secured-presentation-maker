@@ -258,6 +258,124 @@ export const MULTI_TABLE_SESSION_DOCUMENT: StructuredSourceDocument = {
   ],
 };
 
+export const UI_FLATTENED_MULTI_TABLE_DOCUMENT: StructuredSourceDocument = {
+  format: 'docx',
+  fileName: 'sanitized-ui-flattened-sessions.docx',
+  sourceHash: 'fixture-ui-flattened-session-source-hash',
+  byteLength: 15000,
+  plainText: 'Sanitized browser-flattened five-session source.',
+  blocks: [],
+  tables: [
+    {
+      id: 'table-ui-source',
+      sourceOrder: 1,
+      rows: [
+        {
+          index: 0,
+          cells: [
+            cell('table-ui-source', 0, 0, 'No. of Sessions'),
+            cell('table-ui-source', 0, 1, 'Learning Session 1'),
+            cell('table-ui-source', 0, 2, 'Learning Session 2'),
+            cell('table-ui-source', 0, 3, 'Learning Session 3'),
+            cell('table-ui-source', 0, 4, 'Learning Session 4'),
+            cell('table-ui-source', 0, 5, 'Learning Session 5'),
+          ],
+        },
+        {
+          index: 1,
+          cells: [
+            cell('table-ui-source', 1, 0, 'Declaration of AI useThe teacher records a source-safe planning note.'),
+            cell('table-ui-source', 1, 1, 'Sanitized planning metadata only.', 5),
+          ],
+        },
+        {
+          index: 2,
+          cells: [
+            cell('table-ui-source', 2, 0, 'Learning ObjectivesLearners will use the source-defined criteria.'),
+            cell('table-ui-source', 2, 1, 'By the end of the session, learners will compare two source-backed observations.'),
+            cell('table-ui-source', 2, 2, 'By the end of the session, learners will explain one source-backed pattern.'),
+            cell('table-ui-source', 2, 3, 'By the end of the session, learners will organize one source-backed sequence.'),
+            cell('table-ui-source', 2, 4, 'By the end of the session, learners will test one source-backed claim.'),
+            cell('table-ui-source', 2, 5, 'By the end of the session, learners will defend one source-backed conclusion.'),
+          ],
+        },
+        {
+          index: 3,
+          cells: [
+            cell('table-ui-source', 3, 0, 'Learning ResourcesWhat source-safe materials support the task?'),
+            cell('table-ui-source', 3, 1, 'Reusable source card A.'),
+            cell('table-ui-source', 3, 2, 'Reusable source card B.'),
+            cell('table-ui-source', 3, 3, 'Reusable source card C.'),
+            cell('table-ui-source', 3, 4, 'Reusable source card D.'),
+            cell('table-ui-source', 3, 5, 'Reusable source card E.'),
+          ],
+        },
+      ],
+    },
+    {
+      id: 'table-ui-experience',
+      sourceOrder: 2,
+      rows: [
+        {
+          index: 0,
+          cells: [
+            cell('table-ui-experience', 0, 0, 'Learning Experience'),
+            cell('table-ui-experience', 0, 1, 'Learning Session 1'),
+            cell('table-ui-experience', 0, 2, 'Learning Session 2'),
+            cell('table-ui-experience', 0, 3, 'Learning Session 3'),
+            cell('table-ui-experience', 0, 4, 'Learning Session 4'),
+            cell('table-ui-experience', 0, 5, 'Learning Session 5'),
+          ],
+        },
+        {
+          index: 1,
+          cells: [
+            cell('table-ui-experience', 1, 0, 'FlowHow will the sequence support the source objective?'),
+            cell('table-ui-experience', 1, 1, 'The teacher checks the first source record before learners compare it.'),
+            cell('table-ui-experience', 1, 2, 'The teacher clarifies the second source pattern before learners explain it.'),
+            cell('table-ui-experience', 1, 3, 'The teacher presents the third source sequence before learners organize it.'),
+            cell('table-ui-experience', 1, 4, 'The teacher reviews the fourth source claim before learners test it.'),
+            cell('table-ui-experience', 1, 5, 'The teacher restates the fifth source criterion before learners defend it.'),
+          ],
+        },
+      ],
+    },
+  ],
+};
+
+export const ZERO_OBJECTIVE_INSTRUCTIONAL_DOCUMENT: StructuredSourceDocument = {
+  format: 'docx',
+  fileName: 'sanitized-zero-objective-instructional.docx',
+  sourceHash: 'fixture-zero-objective-instructional-source-hash',
+  byteLength: 4200,
+  plainText: 'Sanitized instructional source without an objective row.',
+  blocks: [],
+  tables: [
+    {
+      id: 'table-zero-objective',
+      sourceOrder: 1,
+      rows: [
+        {
+          index: 0,
+          cells: [
+            cell('table-zero-objective', 0, 0, 'Learning Experience'),
+            cell('table-zero-objective', 0, 1, 'Session 1'),
+            cell('table-zero-objective', 0, 2, 'Session 2'),
+          ],
+        },
+        {
+          index: 1,
+          cells: [
+            cell('table-zero-objective', 1, 0, 'Practice'),
+            cell('table-zero-objective', 1, 1, 'Compare two sanitized source cards.'),
+            cell('table-zero-objective', 1, 2, 'Explain one sanitized source pattern.'),
+          ],
+        },
+      ],
+    },
+  ],
+};
+
 export const REPEATED_MISSING_OBJECTIVE_DOCUMENT: StructuredSourceDocument = {
   ...FIVE_SESSION_MATRIX_DOCUMENT,
   fileName: 'sanitized-repeated-missing-objectives.docx',

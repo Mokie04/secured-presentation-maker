@@ -124,8 +124,15 @@ type UnitRegistry = {
 };
 
 const MAX_SOURCE_TEXT_LENGTH = 1_000_000;
-const OBJECTIVE_LABEL_REGEX = /^(?:learning\s+objectives?|objectives?|layunin(?:\s+sa\s+pagkatuto)?)\b/i;
-const DECLARATION_OF_AI_USE_LABEL_REGEX = /^declaration\s+of\s+ai\s+use\b/i;
+const OBJECTIVE_ROW_LABELS = [
+  'learning objectives',
+  'learning objective',
+  'objectives',
+  'objective',
+  'layunin sa pagkatuto',
+  'layunin',
+];
+const DECLARATION_OF_AI_USE_LABEL = 'declaration of ai use';
 const UNIT_HEADING_REGEX = /^(?:learning\s+session|session|day|araw|custom\s+unit|lesson)\s+\d+\b/i;
 const BARE_UNIT_ORDINAL_REGEX = /^\d{1,2}$/;
 const UNIT_HEADER_CONTEXT_REGEX = /\b(?:no\.\s*of\s*)?(?:learning\s+)?(?:sessions?|days?|lessons?)\b/i;
@@ -258,6 +265,21 @@ const finalizeManifest = (manifest: MutableManifest): LessonSourceManifest => {
 };
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
+
+const findExplicitLeadingLabel = (value: string, candidates: readonly string[]): string | null => {
+  const normalized = normalizeText(value);
+  const normalizedLower = normalized.toLowerCase();
+
+  for (const candidate of [...candidates].sort((a, b) => b.length - a.length)) {
+    if (!normalizedLower.startsWith(candidate)) continue;
+    const nextCharacter = normalized.charAt(candidate.length);
+    if (!nextCharacter || /[\s:;,.()[\]{}/-]/.test(nextCharacter) || /[A-Z]/.test(nextCharacter)) {
+      return normalized.slice(0, candidate.length);
+    }
+  }
+
+  return null;
+};
 
 const labelKey = (label: string): string => {
   const words = normalizeText(label)
@@ -435,20 +457,24 @@ const addField = (
   manifest._nextSourceOrder += 1;
 };
 
-const isObjectiveLabel = (label: string): boolean => OBJECTIVE_LABEL_REGEX.test(label);
+const isObjectiveLabel = (label: string): boolean => Boolean(findExplicitLeadingLabel(label, OBJECTIVE_ROW_LABELS));
 
 const isFieldRowLabel = (label: string): boolean => {
   const normalized = normalizeText(label).toLowerCase();
-  if (DECLARATION_OF_AI_USE_LABEL_REGEX.test(normalized)) return true;
+  if (findExplicitLeadingLabel(label, [DECLARATION_OF_AI_USE_LABEL])) return true;
+  if (findExplicitLeadingLabel(label, [...FIELD_ROW_LABELS])) return true;
   if (FIELD_ROW_LABELS.has(normalized)) return true;
   return /\b(?:standard|competenc|resources?|materials?|reflection)\b/i.test(normalized);
 };
 
-const normalizeFieldRowLabel = (label: string): string => (
-  DECLARATION_OF_AI_USE_LABEL_REGEX.test(label)
-    ? 'Declaration of AI use'
-    : label
-);
+const normalizeFieldRowLabel = (label: string): string => {
+  const explicitLabel = findExplicitLeadingLabel(label, [...FIELD_ROW_LABELS]);
+  if (!explicitLabel) return label;
+  if (explicitLabel.toLowerCase() === DECLARATION_OF_AI_USE_LABEL) return 'Declaration of AI use';
+
+  const normalized = normalizeText(label);
+  return /[A-Z]/.test(normalized.charAt(explicitLabel.length)) ? explicitLabel : label;
+};
 
 const buildManifestFromTables = (document: StructuredSourceDocument): LessonSourceManifestResult | null => {
   if (document.tables.length === 0) return null;
@@ -689,7 +715,10 @@ const validateManifest = (
   }
 
   const anyUnitHasObjectives = manifest.units.some((unit) => unit.objectiveIds.length > 0);
-  const unitsMissingObjectives = manifest.units.filter((unit) => unit.objectiveIds.length === 0 && anyUnitHasObjectives);
+  const unitsMissingObjectives = manifest.units.filter((unit) => (
+    unit.objectiveIds.length === 0
+    && (anyUnitHasObjectives || (manifest.objectives.length === 0 && unit.steps.length > 0))
+  ));
   if (unitsMissingObjectives.length > 0) {
     diagnostics.push({
       code: 'source_unit_missing_objective',
