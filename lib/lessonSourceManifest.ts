@@ -124,7 +124,7 @@ type UnitRegistry = {
 };
 
 const MAX_SOURCE_TEXT_LENGTH = 1_000_000;
-const OBJECTIVE_LABEL_REGEX = /\b(?:objective|objectives|layunin|layunin sa pagkatuto)\b/i;
+const OBJECTIVE_LABEL_REGEX = /^(?:learning\s+objectives?|objectives?|layunin(?:\s+sa\s+pagkatuto)?)\b/i;
 const UNIT_HEADING_REGEX = /^(?:learning\s+session|session|day|araw|custom\s+unit|lesson)\s+\d+\b/i;
 const BARE_UNIT_ORDINAL_REGEX = /^\d{1,2}$/;
 const UNIT_HEADER_CONTEXT_REGEX = /\b(?:no\.\s*of\s*)?(?:learning\s+)?(?:sessions?|days?|lessons?)\b/i;
@@ -438,7 +438,7 @@ const isObjectiveLabel = (label: string): boolean => OBJECTIVE_LABEL_REGEX.test(
 const isFieldRowLabel = (label: string): boolean => {
   const normalized = normalizeText(label).toLowerCase();
   if (FIELD_ROW_LABELS.has(normalized)) return true;
-  return /\b(?:standard|competenc|resource|material|reflection)\b/i.test(normalized);
+  return /\b(?:standard|competenc|resources?|materials?|reflection)\b/i.test(normalized);
 };
 
 const buildManifestFromTables = (document: StructuredSourceDocument): LessonSourceManifestResult | null => {

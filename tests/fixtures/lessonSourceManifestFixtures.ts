@@ -220,6 +220,28 @@ export const MULTI_TABLE_SESSION_DOCUMENT: StructuredSourceDocument = {
             cell('table-experience', 2, 5, 'MT-S5-PRACTICE Learners defend the selected claim.'),
           ],
         },
+        {
+          index: 3,
+          cells: [
+            cell('table-experience', 3, 0, 'Flow to help learners meet the learning objectives'),
+            cell('table-experience', 3, 1, 'MT-S1-FLOW Learners connect the comparison to the claim.'),
+            cell('table-experience', 3, 2, 'MT-S2-FLOW Learners connect evidence to the pattern.'),
+            cell('table-experience', 3, 3, 'MT-S3-FLOW Learners connect model parts to the cause.'),
+            cell('table-experience', 3, 4, 'MT-S4-FLOW Learners connect the changed case to a prediction.'),
+            cell('table-experience', 3, 5, 'MT-S5-FLOW Learners connect ranked claims to the defense.'),
+          ],
+        },
+        {
+          index: 4,
+          cells: [
+            cell('table-experience', 4, 0, 'Learning Resources for reaching our objectives'),
+            cell('table-experience', 4, 1, 'Reusable card set A.'),
+            cell('table-experience', 4, 2, 'Reusable card set B.'),
+            cell('table-experience', 4, 3, 'Reusable model cards.'),
+            cell('table-experience', 4, 4, 'Reusable prediction cards.'),
+            cell('table-experience', 4, 5, 'Reusable claim cards.'),
+          ],
+        },
       ],
     },
   ],

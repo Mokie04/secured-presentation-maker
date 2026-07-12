@@ -62,7 +62,7 @@ test('reuses matching session units when objectives and learning experiences are
     const objective = result.manifest.objectives.find((candidate) => candidate.id === unit.objectiveIds[0]);
     assert.equal(unit.objectiveIds.length, 1);
     assert.equal(objective?.unitId, unit.id);
-    assert.equal(unit.steps.length, 2);
+    assert.equal(unit.steps.length, 3);
     assert.equal(unit.steps.every((step) => step.unitId === unit.id), true);
     assert.match(objective?.rawText || '', new RegExp(`MT-S${index + 1}-OBJ`));
     assert.match(unit.steps[0].rawBlocks.join('\n'), new RegExp(`MT-S${index + 1}-OBSERVE`));
@@ -84,6 +84,34 @@ test('does not treat a Grade 9 title cell as a unit header because it contains a
 
   assert.equal(result.manifest.units.some((unit) => /Grade 9 Science/i.test(unit.sourceLabel)), false);
   assert.equal(result.manifest.units[0].sourceLabel, 'Learning Session 1');
+});
+
+test('treats descriptive objective mentions as steps or fields, not objective rows', () => {
+  const result = buildLessonSourceManifest(MULTI_TABLE_SESSION_DOCUMENT);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  assert.equal(result.manifest.objectives.length, 5);
+  assert.equal(
+    result.manifest.objectives.some((objective) => /meet the learning objectives|reaching our objectives/i.test(objective.rawText)),
+    false,
+  );
+
+  for (const [index, unit] of result.manifest.units.entries()) {
+    assert.equal(unit.objectiveIds.length, 1);
+    assert.equal(unit.steps.some((step) => /Flow to help learners meet the learning objectives/i.test(step.sourceLabel)), true);
+    assert.match(
+      unit.steps.find((step) => /Flow to help learners meet the learning objectives/i.test(step.sourceLabel))?.rawBlocks.join('\n') || '',
+      new RegExp(`MT-S${index + 1}-FLOW`),
+    );
+
+    const resourceField = Object.values(unit.fields).find(
+      (field) => /Learning Resources for reaching our objectives/i.test(field.label),
+    );
+    assert.equal(resourceField?.state, 'present');
+    assert.match(resourceField?.value || '', /Reusable/);
+  }
 });
 
 test('keeps 5E labels as source data while assigning monotonic step ids', () => {
