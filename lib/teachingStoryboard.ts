@@ -192,7 +192,8 @@ const stripTeacherScriptForVisibleText = (value: string): string => {
     .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+/i, '')
     .replace(/^ask\s+(?:the\s+)?(?:learners|students)\s+to\s+/i, '')
     .replace(/^(?:the\s+)?learners\s+will\s+/i, '')
-    .replace(/^(?:the\s+)?students\s+will\s+/i, '');
+    .replace(/^(?:the\s+)?students\s+will\s+/i, '')
+    .replace(/\b(?:the\s+)?(?:learners|students)\s+will\s+/gi, 'you will ');
 
   return stripPresentTenseTeacherAction(stripped);
 };

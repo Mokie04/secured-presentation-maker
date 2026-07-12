@@ -15,6 +15,7 @@ import {
   FIVE_SESSION_MATRIX_DOCUMENT,
   MISSING_AND_BLANK_DOCUMENT,
   MULTI_OBJECTIVE_UNIT_DOCUMENT,
+  UI_FLATTENED_MULTI_TABLE_DOCUMENT,
 } from './fixtures/lessonSourceManifestFixtures.ts';
 import {
   EVIDENCE_OUTPUT_DOCUMENT,
@@ -113,6 +114,28 @@ test('removes visible teacher-script while retaining source action in notes', ()
   assert.match(visibleText, /Review the exit response checklist/);
   assert.match(visibleText, /Restate the comparison goal with sanitized circuit cards/);
   assert.match(visibleText, /Use the comparison chart first\. Review the key pattern with sanitized labels/);
+});
+
+test('normalizes browser-flattened objectives and scaffold rows into learner-facing screens', () => {
+  const manifest = manifestFrom(UI_FLATTENED_MULTI_TABLE_DOCUMENT);
+  const result = buildTeachingStoryboard(manifest);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const visibleText = result.storyboard.screens
+    .map((screen) => [
+      screen.learnerTitle,
+      screen.learnerContent.prompt,
+      screen.learnerContent.task,
+      ...screen.learnerContent.directions,
+      ...screen.learnerContent.successCriteria,
+    ].join(' '))
+    .join('\n');
+  assert.equal(detectVisibleTeacherScript(visibleText), false);
+  assert.doesNotMatch(visibleText, /learners will/i);
+  assert.match(visibleText, /you will compare two source-backed observations/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /The teacher checks the first source record/i);
 });
 
 test('attaches required evidence and outputs to source-backed screens', () => {
