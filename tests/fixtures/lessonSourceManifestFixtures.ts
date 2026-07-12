@@ -242,6 +242,17 @@ export const MULTI_TABLE_SESSION_DOCUMENT: StructuredSourceDocument = {
             cell('table-experience', 4, 5, 'Reusable claim cards.'),
           ],
         },
+        {
+          index: 5,
+          cells: [
+            cell('table-experience', 5, 0, 'Declaration of AI use Cite how AI was used in the formulation of the lesson plan.'),
+            cell('table-experience', 5, 1, 'Sanitized declaration: no learner-facing AI task is required.'),
+            cell('table-experience', 5, 2, 'Sanitized declaration: no learner-facing AI task is required.'),
+            cell('table-experience', 5, 3, 'Sanitized declaration: no learner-facing AI task is required.'),
+            cell('table-experience', 5, 4, 'Sanitized declaration: no learner-facing AI task is required.'),
+            cell('table-experience', 5, 5, 'Sanitized declaration: no learner-facing AI task is required.'),
+          ],
+        },
       ],
     },
   ],
