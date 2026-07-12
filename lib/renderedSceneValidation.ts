@@ -17,6 +17,9 @@ export type RenderedSceneValidationResult = {
   diagnostics: EndToEndDiagnostic[];
 };
 
+const MIN_RECOMMENDED_SCENES_PER_UNIT = 12;
+const RECOMMENDED_SCENES_PER_STORYBOARD_SCREEN = 2;
+
 const visibleTextElement = (element: SceneElement): element is SceneTextElement | SceneTableElement => (
   element.kind === 'text' || element.kind === 'table'
 );
@@ -65,6 +68,7 @@ export const validateRenderedScenes = (
   let unreadableTextCount = 0;
   let uneditableVisibleTextCount = 0;
   let fullSlideRasterCount = 0;
+  let sceneBudgetWarningCount = 0;
 
   for (const scene of presentation.scenes) {
     if (scene.size.width !== 1280 || scene.size.height !== 720 || scene.size.aspect !== '16:9') {
@@ -121,13 +125,35 @@ export const validateRenderedScenes = (
     }
   }
 
+  const scenesByUnitId = new Map<string, typeof presentation.scenes>();
+  for (const scene of presentation.scenes) {
+    const unitScenes = scenesByUnitId.get(scene.unitId) ?? [];
+    unitScenes.push(scene);
+    scenesByUnitId.set(scene.unitId, unitScenes);
+  }
+  for (const [unitId, unitScenes] of scenesByUnitId) {
+    const storyboardScreenCount = new Set(unitScenes.map((scene) => scene.storyboardScreenId)).size;
+    const recommendedBudget = Math.max(
+      MIN_RECOMMENDED_SCENES_PER_UNIT,
+      storyboardScreenCount * RECOMMENDED_SCENES_PER_STORYBOARD_SCREEN,
+    );
+    if (unitScenes.length <= recommendedBudget) continue;
+    sceneBudgetWarningCount += 1;
+    diagnostics.push({
+      code: 'e2e_scene_budget_exceeded',
+      severity: 'warning',
+      message: `Unit ${unitId} contains ${unitScenes.length} scenes, above the recommended editable-scene budget of ${recommendedBudget}.`,
+      unitId,
+    });
+  }
+
   const blocking = diagnostics.filter((diagnostic) => diagnostic.severity === 'blocking').length;
   const checked = Math.max(1, presentation.scenes.length);
   return {
     summary: {
       checked,
-      passed: diagnostics.length === 0 ? checked : Math.max(0, checked - diagnostics.length),
-      failed: diagnostics.length,
+      passed: blocking === 0 ? checked : Math.max(0, checked - blocking),
+      failed: blocking,
       blocking,
       renderedSceneCount: presentation.scenes.length,
       canvasWidth: 1280,
@@ -137,6 +163,7 @@ export const validateRenderedScenes = (
       unreadableTextCount,
       uneditableVisibleTextCount,
       fullSlideRasterCount,
+      sceneBudgetWarningCount,
     },
     diagnostics,
   };

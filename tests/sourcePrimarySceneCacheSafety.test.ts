@@ -71,6 +71,7 @@ const report = (diagnosticCount: number): EndToEndValidationReport => ({
     unreadableTextCount: 0,
     uneditableVisibleTextCount: 0,
     fullSlideRasterCount: 0,
+    sceneBudgetWarningCount: 0,
   },
   renderedPreview: {
     checked: 1,
@@ -85,6 +86,7 @@ const report = (diagnosticCount: number): EndToEndValidationReport => ({
     unreadableTextCount: 0,
     uneditableVisibleTextCount: 0,
     fullSlideRasterCount: 0,
+    sceneBudgetWarningCount: 0,
   },
   pptxRoundTrip: {
     checked: 1,

@@ -39,7 +39,11 @@ const INVENTION_CATEGORIES: readonly InstructionCategory[] = [
   { name: 'experiment', pattern: /\bexperiment\b/i },
 ];
 
-const BLANK_FIELD_VISIBLE_PATTERN = /\b(?:blank|missing|not\s+provided|answer\s+the\s+blank)\b/i;
+const BLANK_FIELD_VISIBLE_PATTERNS: readonly RegExp[] = [
+  /\bblank(?:s|\s+spaces?|\s+fields?)?\b/i,
+  /\bmissing\b/i,
+  /\bnot\s+provided\b/i,
+];
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
@@ -113,6 +117,20 @@ const screenVisibleText = (screen: StoryboardScreen | undefined): string => {
   ].filter(Boolean).join(' '));
 };
 
+const sourceTextForScene = (
+  scene: CompiledSlideScene,
+  stepById: ReadonlyMap<string, SourceStep>,
+  objectiveById: ReadonlyMap<string, SourceObjective>,
+): string => {
+  const stepText = scene.sourceStepIds
+    .map((sourceStepId) => stepById.get(sourceStepId)?.rawBlocks.join(' ') ?? '')
+    .join(' ');
+  const objectiveText = scene.sourceObjectiveIds
+    .map((sourceObjectiveId) => objectiveById.get(sourceObjectiveId)?.rawText ?? '')
+    .join(' ');
+  return normalizeText([stepText, objectiveText].filter(Boolean).join(' '));
+};
+
 const supportTextForScene = (
   scene: CompiledSlideScene,
   screenById: ReadonlyMap<string, StoryboardScreen>,
@@ -120,19 +138,18 @@ const supportTextForScene = (
   objectiveById: ReadonlyMap<string, SourceObjective>,
 ): string => {
   const screen = screenById.get(scene.storyboardScreenId);
-  const stepText = scene.sourceStepIds
-    .map((sourceStepId) => stepById.get(sourceStepId)?.rawBlocks.join(' ') ?? '')
-    .join(' ');
-  const objectiveText = scene.sourceObjectiveIds
-    .map((sourceObjectiveId) => objectiveById.get(sourceObjectiveId)?.rawText ?? '')
-    .join(' ');
-  return normalizeText([screenVisibleText(screen), stepText, objectiveText].filter(Boolean).join(' '));
+  const sourceText = sourceTextForScene(scene, stepById, objectiveById);
+  return normalizeText([screenVisibleText(screen), sourceText].filter(Boolean).join(' '));
 };
 
 const unsupportedCategories = (visibleText: string, supportText: string): string[] => (
   INVENTION_CATEGORIES
     .filter((category) => category.pattern.test(visibleText) && !category.pattern.test(supportText))
     .map((category) => category.name)
+);
+
+const hasUnsupportedBlankFieldLanguage = (visibleText: string, sourceText: string): boolean => (
+  BLANK_FIELD_VISIBLE_PATTERNS.some((pattern) => pattern.test(visibleText) && !pattern.test(sourceText))
 );
 
 const pushOnce = (
@@ -368,6 +385,8 @@ const validateVisibleContent = (
   for (const scene of input.presentation.scenes) {
     const visibleText = normalizeText(getSceneVisibleText(scene).join(' '));
     if (!visibleText) continue;
+    const supportText = supportTextForScene(scene, screenById, stepById, objectiveById);
+    const sourceText = sourceTextForScene(scene, stepById, objectiveById);
 
     if (detectVisibleTeacherScript(visibleText)) {
       pushOnce(diagnostics, seenDiagnostics, diagnostic(
@@ -377,7 +396,7 @@ const validateVisibleContent = (
       ));
     }
 
-    if (BLANK_FIELD_VISIBLE_PATTERN.test(visibleText)) {
+    if (hasUnsupportedBlankFieldLanguage(visibleText, sourceText)) {
       pushOnce(diagnostics, seenDiagnostics, diagnostic(
         'e2e_blank_field_invented',
         `Compiled scene ${scene.id} exposes blank or missing source-field language as visible learner content.`,
@@ -385,7 +404,6 @@ const validateVisibleContent = (
       ));
     }
 
-    const supportText = supportTextForScene(scene, screenById, stepById, objectiveById);
     const invented = unsupportedCategories(visibleText, supportText);
     if (invented.length > 0) {
       pushOnce(diagnostics, seenDiagnostics, diagnostic(

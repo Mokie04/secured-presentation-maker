@@ -57,3 +57,24 @@ test('blocks off-canvas, overflow, unreadable text, and full-slide raster images
 
   assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'e2e_scene_render_invalid'), true);
 });
+
+test('warns without blocking when a unit exceeds its recommended editable scene budget', async () => {
+  const fixture = await buildEvidenceOutputEndToEndFixture();
+  const sourceScenes = fixture.presentation.scenes;
+  const scenes = Array.from({ length: 13 }, (_, index) => {
+    const source = sourceScenes[index % sourceScenes.length];
+    return {
+      ...source,
+      id: `scene-${String(index + 1).padStart(3, '0')}`,
+    };
+  });
+
+  const result = validateRenderedScenes({ ...fixture.presentation, scenes });
+
+  const warning = result.diagnostics.find((diagnostic) => diagnostic.code === 'e2e_scene_budget_exceeded');
+  assert.ok(warning);
+  assert.equal(warning.severity, 'warning');
+  assert.equal(result.summary.blocking, 0);
+  assert.equal(result.summary.failed, 0);
+  assert.equal(result.summary.sceneBudgetWarningCount, 1);
+});

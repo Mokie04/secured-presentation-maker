@@ -141,8 +141,11 @@ export const buildSceneAssetRequests = (
   visualSystems: DeckVisualSystemBundle,
 ): SceneAssetRequestResult => {
   const requests: SceneAssetRequest[] = [];
+  const requestedScreenIds = new Set<string>();
 
   specs.forEach((spec, index) => {
+    if (requestedScreenIds.has(spec.storyboardScreenId)) return;
+    requestedScreenIds.add(spec.storyboardScreenId);
     const visualSystem = visualSystems.systemsByUnitId[spec.unitId];
     if (!visualSystem) return;
     const decision = decideSceneAssetForSpec(spec);

@@ -10,6 +10,7 @@ import {
   validateSemanticSlideSpecs,
 } from '../lib/semanticSlideSpec.ts';
 import {
+  DENSE_STORYBOARD,
   EVIDENCE_OUTPUT_STORYBOARD,
   FIVE_SESSION_STORYBOARD,
   MULTI_OBJECTIVE_STORYBOARD,
@@ -69,6 +70,46 @@ test('maps evidence and output storyboard screens to evidence or exit layouts', 
   assert.ok(result.specs.some((spec) => spec.layoutId === 'exit-ticket-card'));
 });
 
+test('compacts repeated learning-target text without losing success-criteria provenance', () => {
+  const result = buildSemanticSlideSpecs(EVIDENCE_OUTPUT_STORYBOARD);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const targetSpec = result.specs.find((spec) => spec.storyboardScreenId === 'screen-001');
+  assert.ok(targetSpec);
+  const body = targetSpec.slots.body;
+  const successCriteria = targetSpec.slots.successCriteria;
+  assert.equal(body.kind, 'list');
+  assert.equal(successCriteria.kind, 'list');
+  assert.deepEqual(body.items, []);
+  assert.deepEqual(successCriteria.items, ['EO-OBJ-A Use observations to support a claim.']);
+});
+
+test('retains combined evidence, output, and success-criteria provenance for repeated text', () => {
+  const repeatedText = 'EO-OUTPUT-A Submit a conclusion that uses the recorded evidence.';
+  const storyboard = {
+    ...EVIDENCE_OUTPUT_STORYBOARD,
+    screens: EVIDENCE_OUTPUT_STORYBOARD.screens.map((screen) => screen.id === 'screen-003'
+      ? {
+          ...screen,
+          learnerContent: {
+            ...screen.learnerContent,
+            successCriteria: [repeatedText],
+          },
+        }
+      : screen),
+  };
+  const result = buildSemanticSlideSpecs(storyboard);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const spec = result.specs.find((item) => item.storyboardScreenId === 'screen-003');
+  assert.ok(spec);
+  const requirements = spec.slots.requirements;
+  assert.equal(requirements.kind, 'list');
+  assert.deepEqual(requirements.items, [`Evidence/output/success criterion: ${repeatedText}`]);
+});
+
 test('keeps teacher-script out of visible semantic slots', () => {
   const result = buildSemanticSlideSpecs(TEACHER_SCRIPT_STORYBOARD);
 
@@ -76,6 +117,58 @@ test('keeps teacher-script out of visible semantic slots', () => {
   if (!result.ok) return;
   const visible = JSON.stringify(result.specs.map((spec) => spec.slots));
   assert.doesNotMatch(visible, /the teacher will ask learners/i);
+});
+
+test('splits dense storyboard screens into adjacent source-bound continuation specs', () => {
+  const result = buildSemanticSlideSpecs(DENSE_STORYBOARD);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.specs.length >= DENSE_STORYBOARD.screens.length, true);
+  assert.equal(result.specs.length <= DENSE_STORYBOARD.screens.length * 2 + 2, true);
+
+  for (const screen of DENSE_STORYBOARD.screens) {
+    const indices = result.specs
+      .map((spec, index) => spec.storyboardScreenId === screen.id ? index : -1)
+      .filter((index) => index >= 0);
+    assert.equal(indices.length >= 1, true);
+    assert.equal(indices.length <= 3, true);
+    assert.deepEqual(indices, Array.from({ length: indices.length }, (_, index) => indices[0] + index));
+    for (const index of indices) {
+      assert.deepEqual(result.specs[index].sourceStepIds, screen.sourceStepIds);
+      assert.deepEqual(result.specs[index].sourceObjectiveIds, screen.sourceObjectiveIds);
+    }
+
+    const screenSpecs = indices.map((index) => result.specs[index]);
+    const expectedBody = [...new Set([
+      screen.learnerContent.prompt,
+      screen.learnerContent.task,
+      ...screen.learnerContent.questions,
+      ...screen.learnerContent.directions,
+    ].filter((value): value is string => Boolean(value)).map((value) => value.replace(/\s+/g, ' ').trim()))];
+    const expectedRequirements = [...screen.requiredEvidence, ...screen.requiredOutputs]
+      .map((value) => value.replace(/\s+/g, ' ').trim());
+    const expectedSuccess = screen.learnerContent.successCriteria
+      .map((value) => value.replace(/\s+/g, ' ').trim());
+    const expectedContent = [...new Set([...expectedBody, ...expectedRequirements, ...expectedSuccess])].join(' ');
+    const actualContent = screenSpecs.flatMap((spec) => ['body', 'requirements', 'successCriteria'].flatMap((slotName) => {
+      const slot = spec.slots[slotName];
+      return slot?.kind === 'list'
+        ? slot.items.map((item) => item.replace(/^(?:Evidence\/output|Evidence|Output):\s*/i, ''))
+        : [];
+    })).join(' ');
+    assert.equal(actualContent, expectedContent);
+  }
+
+  assert.deepEqual(
+    result.specs.map((spec) => spec.id),
+    result.specs.map((_, index) => `semslide-${String(index + 1).padStart(3, '0')}`),
+  );
+  const visibleSlots = JSON.stringify(result.specs.map((spec) => spec.slots));
+  for (const sentinel of ['first source-backed observation', 'limitation in each alternative', 'provided evidence record', 'required output']) {
+    assert.match(visibleSlots, new RegExp(sentinel, 'i'));
+  }
+  assert.doesNotMatch(visibleSlots, /the teacher\s+(?:will\s+)?[a-z]+/i);
 });
 
 test('rejects semantic specs with missing storyboard mappings', () => {

@@ -132,3 +132,23 @@ test('exports bounded image scene elements as native PPTX image operations', () 
   assert.equal(options.x >= 0 && options.y >= 0, true);
   assert.equal(options.altText, 'Source-backed concept visual.');
 });
+
+test('preserves the collision-free bounded image frame in PPTX operations', () => {
+  const scene = sceneWithBoundedAsset();
+  const image = scene.elements.find((element) => element.kind === 'image');
+  const previewDescriptor = createPreviewSceneDescriptors(scene).find((descriptor) => descriptor.kind === 'image');
+  const imageOperation = compilePptxSceneOperations(scene).find((operation) => operation.kind === 'addImage');
+
+  assert.ok(image);
+  assert.ok(previewDescriptor);
+  assert.ok(imageOperation);
+  assert.deepEqual(previewDescriptor.frame, image.frame);
+  const options = imageOperation.options as { x: number; y: number; w: number; h: number };
+  assert.deepEqual(options, {
+    x: image.frame.x / 128,
+    y: image.frame.y / 128,
+    w: image.frame.w / 128,
+    h: image.frame.h / 128,
+    altText: image.altText,
+  });
+});

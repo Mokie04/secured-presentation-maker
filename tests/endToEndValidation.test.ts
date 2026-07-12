@@ -8,7 +8,10 @@ import {
   validateEndToEndScenePresentation,
 } from '../lib/endToEndValidation.ts';
 import { resolveEndToEndValidatedScenePresentationForGeneration } from '../lib/endToEndSceneBoundary.ts';
-import { buildEvidenceOutputEndToEndFixture } from './fixtures/endToEndValidationFixtures.ts';
+import {
+  buildDenseStoryboardEndToEndFixture,
+  buildEvidenceOutputEndToEndFixture,
+} from './fixtures/endToEndValidationFixtures.ts';
 
 test('accepts only documented true-like Gate 5 flag values', () => {
   for (const value of ['1', 'true', 'TRUE', ' yes ', 'On']) {
@@ -28,6 +31,50 @@ test('builds a passing end-to-end validation report for a valid source-primary s
   assert.equal(result.report.storyboard.sourceStepCoverageRatio, 1);
   assert.equal(result.report.semanticSpecs.objectiveCoverageRatio, 1);
   assert.equal(result.report.scenes.fullSlideRasterCount, 0);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, true);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, true);
+});
+
+test('preserves complete source coverage across dense continuation scenes', async () => {
+  const fixture = await buildDenseStoryboardEndToEndFixture();
+  const result = validateEndToEndScenePresentation(fixture);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.report.storyboard.sourceStepCoverageRatio, 1);
+  assert.equal(result.report.semanticSpecs.objectiveCoverageRatio, 1);
+  assert.equal(result.report.scenes.overflowCount, 0);
+  assert.equal(result.report.scenes.uneditableVisibleTextCount, 0);
+  assert.equal(result.report.scenes.fullSlideRasterCount, 0);
+  assert.equal(result.report.storyboard.teacherScriptViolationCount, 0);
+  assert.equal(result.report.scenes.renderedSceneCount <= fixture.storyboard.screens.length * 2 + 2, true);
+  assert.equal(result.report.diagnostics.some((diagnostic) => diagnostic.code === 'e2e_scene_budget_exceeded'), false);
+});
+
+test('keeps delivery and cache success available for a nonblocking scene-budget warning', async () => {
+  const fixture = await buildEvidenceOutputEndToEndFixture();
+  const lastScene = fixture.presentation.scenes.at(-1);
+  assert.ok(lastScene);
+  const presentation = {
+    ...fixture.presentation,
+    scenes: [
+      ...fixture.presentation.scenes,
+      ...Array.from({ length: 10 }, (_, index) => ({
+        ...lastScene,
+        id: `scene-warning-${String(index + 1).padStart(3, '0')}`,
+        elements: lastScene.elements.map((element) => ({
+          ...element,
+          id: `${element.id}-warning-${String(index + 1).padStart(3, '0')}`,
+        })),
+        readingOrder: lastScene.readingOrder.map((id) => `${id}-warning-${String(index + 1).padStart(3, '0')}`),
+      })),
+    ],
+  };
+
+  const result = validateEndToEndScenePresentation({ ...fixture, presentation });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.report.scenes.sceneBudgetWarningCount, 1);
+  assert.equal(result.report.scenes.blocking, 0);
   assert.equal(result.report.cacheSafety.mayDeliverPresentation, true);
   assert.equal(result.report.cacheSafety.mayWriteSuccessCache, true);
 });

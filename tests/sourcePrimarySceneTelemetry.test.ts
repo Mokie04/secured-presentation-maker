@@ -73,6 +73,7 @@ const reportFixture = (): EndToEndValidationReport => ({
     unreadableTextCount: 0,
     uneditableVisibleTextCount: 0,
     fullSlideRasterCount: 0,
+    sceneBudgetWarningCount: 0,
   },
   renderedPreview: {
     checked: 1,
@@ -87,6 +88,7 @@ const reportFixture = (): EndToEndValidationReport => ({
     unreadableTextCount: 0,
     uneditableVisibleTextCount: 0,
     fullSlideRasterCount: 0,
+    sceneBudgetWarningCount: 0,
   },
   pptxRoundTrip: {
     checked: 1,

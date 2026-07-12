@@ -91,10 +91,28 @@ test('removes visible teacher-script while retaining source action in notes', ()
       screen.learnerContent.prompt,
       screen.learnerContent.task,
       ...screen.learnerContent.directions,
+      ...screen.requiredEvidence,
+      ...screen.requiredOutputs,
     ].join(' '))
     .join('\n');
   assert.equal(detectVisibleTeacherScript(visibleText), false);
   assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /teacher will ask learners/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /teacher will guide the learners/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /Teacher will model/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /The teacher checks learners draft claims/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /The teacher clarifies the comparison pattern/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /The teacher presents a sanitized model/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /The teacher reviews the exit response checklist/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /The teacher restates the comparison goal/i);
+  assert.match(result.storyboard.screens.map((screen) => screen.teacherNotes).join('\n'), /The teacher reviews the key pattern/i);
+  assert.match(visibleText, /Compare two sanitized evidence cards/);
+  assert.match(visibleText, /Explain one evidence choice/);
+  assert.match(visibleText, /Check learners draft claims for evidence/);
+  assert.match(visibleText, /Clarify the comparison pattern with one sanitized example/);
+  assert.match(visibleText, /Inspect a sanitized model/);
+  assert.match(visibleText, /Review the exit response checklist/);
+  assert.match(visibleText, /Restate the comparison goal with sanitized circuit cards/);
+  assert.match(visibleText, /Use the comparison chart first\. Review the key pattern with sanitized labels/);
 });
 
 test('attaches required evidence and outputs to source-backed screens', () => {

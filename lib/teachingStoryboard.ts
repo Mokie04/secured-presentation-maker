@@ -147,14 +147,55 @@ const padId = (prefix: string, value: number): string => `${prefix}-${String(val
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
-const stripTeacherScriptForVisibleText = (value: string): string => (
-  normalizeText(value)
+const PRESENT_TENSE_TEACHER_ACTIONS: Record<string, string> = {
+  asks: 'Ask',
+  checks: 'Check',
+  clarifies: 'Clarify',
+  demonstrates: 'Inspect',
+  discusses: 'Discuss',
+  explains: 'Explain',
+  facilitates: 'Work through',
+  guides: 'Complete',
+  introduces: 'Explore',
+  models: 'Explain',
+  presents: 'Inspect',
+  prompts: 'Respond to',
+  restates: 'Restate',
+  reviews: 'Review',
+  shows: 'Inspect',
+  supports: 'Use',
+};
+
+const PRESENT_TENSE_TEACHER_ACTION_PATTERN =
+  /\b(?:the\s+)?teacher\s+(asks|checks|clarifies|demonstrates|discusses|explains|facilitates|guides|introduces|models|presents|prompts|restates|reviews|shows|supports)\s+([^.!?]+)([.!?]?)/gi;
+
+const stripPresentTenseTeacherAction = (value: string): string => {
+  let replaced = false;
+  const rewritten = value.replace(
+    PRESENT_TENSE_TEACHER_ACTION_PATTERN,
+    (_match, verb: string, rest: string, punctuation: string) => {
+      replaced = true;
+      const learnerVerb = PRESENT_TENSE_TEACHER_ACTIONS[verb.toLowerCase()] ?? 'Complete';
+      return `${learnerVerb} ${rest}${punctuation}`;
+    },
+  );
+
+  return replaced ? normalizeText(rewritten) : value;
+};
+
+const stripTeacherScriptForVisibleText = (value: string): string => {
+  const stripped = normalizeText(value)
     .replace(/^the\s+teacher\s+will\s+ask\s+(?:learners|students)\s+to\s+/i, '')
     .replace(/^the\s+teacher\s+asks?\s+(?:learners|students)\s+to\s+/i, '')
-    .replace(/^ask\s+(?:learners|students)\s+to\s+/i, '')
-    .replace(/^learners\s+will\s+/i, '')
-    .replace(/^students\s+will\s+/i, '')
-);
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+(?:ask|guide|instruct|direct|prompt|invite|have|let|tell|support|encourage)\s+(?:the\s+)?(?:learners|students|class)\s+to\s+/i, '')
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+(?:model|show|demonstrate)\s+how\s+(?:the\s+)?(?:learners|students)\s+/i, '')
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+/i, '')
+    .replace(/^ask\s+(?:the\s+)?(?:learners|students)\s+to\s+/i, '')
+    .replace(/^(?:the\s+)?learners\s+will\s+/i, '')
+    .replace(/^(?:the\s+)?students\s+will\s+/i, '');
+
+  return stripPresentTenseTeacherAction(stripped);
+};
 
 const normalizeVisibleText = (value: string): string => {
   const stripped = stripTeacherScriptForVisibleText(value);
@@ -229,9 +270,10 @@ export const detectVisibleTeacherScript = (value: string): boolean => (
 
 export const extractSourceRequirements = (step: SourceStep): ExtractedSourceRequirements => {
   const text = normalizeText(step.rawBlocks.join(' '));
+  const learnerFacingText = normalizeVisibleText(text);
   return {
-    requiredEvidence: REQUIRED_EVIDENCE_PATTERN.test(text) ? [text] : [],
-    requiredOutputs: REQUIRED_OUTPUT_PATTERN.test(text) ? [text] : [],
+    requiredEvidence: REQUIRED_EVIDENCE_PATTERN.test(text) ? [learnerFacingText] : [],
+    requiredOutputs: REQUIRED_OUTPUT_PATTERN.test(text) ? [learnerFacingText] : [],
   };
 };
 
@@ -554,6 +596,9 @@ const addSourceStepScreens = (
     const sourceText = normalizeText(step.rawBlocks.join(' '));
     const visibleText = normalizeVisibleText(sourceText || step.sourceLabel);
     const requirements = extractSourceRequirements(step);
+    const expectedOutput = requirements.requiredOutputs[0]
+      ? normalizeVisibleText(requirements.requiredOutputs[0])
+      : undefined;
     const intent = inferCommunicationIntent(step);
     storyboard.screens.push({
       id: screenId,
@@ -569,7 +614,7 @@ const addSourceStepScreens = (
         questions: [],
         directions: [visibleText],
         successCriteria: [],
-        expectedOutput: requirements.requiredOutputs[0],
+        expectedOutput,
       },
       teacherNotes: `Source action (${step.sourceLabel}): ${sourceText}`,
       requiredEvidence: requirements.requiredEvidence,

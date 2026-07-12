@@ -125,6 +125,7 @@ type UnitRegistry = {
 
 const MAX_SOURCE_TEXT_LENGTH = 1_000_000;
 const OBJECTIVE_LABEL_REGEX = /^(?:learning\s+objectives?|objectives?|layunin(?:\s+sa\s+pagkatuto)?)\b/i;
+const DECLARATION_OF_AI_USE_LABEL_REGEX = /^declaration\s+of\s+ai\s+use\b/i;
 const UNIT_HEADING_REGEX = /^(?:learning\s+session|session|day|araw|custom\s+unit|lesson)\s+\d+\b/i;
 const BARE_UNIT_ORDINAL_REGEX = /^\d{1,2}$/;
 const UNIT_HEADER_CONTEXT_REGEX = /\b(?:no\.\s*of\s*)?(?:learning\s+)?(?:sessions?|days?|lessons?)\b/i;
@@ -142,6 +143,7 @@ const FIELD_ROW_LABELS = new Set([
   'assignment',
   'assessment',
   'output',
+  'declaration of ai use',
 ]);
 
 export const hasBlockingSourceDiagnostics = (diagnostics: SourceDiagnostic[]): boolean => (
@@ -437,9 +439,16 @@ const isObjectiveLabel = (label: string): boolean => OBJECTIVE_LABEL_REGEX.test(
 
 const isFieldRowLabel = (label: string): boolean => {
   const normalized = normalizeText(label).toLowerCase();
+  if (DECLARATION_OF_AI_USE_LABEL_REGEX.test(normalized)) return true;
   if (FIELD_ROW_LABELS.has(normalized)) return true;
   return /\b(?:standard|competenc|resources?|materials?|reflection)\b/i.test(normalized);
 };
+
+const normalizeFieldRowLabel = (label: string): string => (
+  DECLARATION_OF_AI_USE_LABEL_REGEX.test(label)
+    ? 'Declaration of AI use'
+    : label
+);
 
 const buildManifestFromTables = (document: StructuredSourceDocument): LessonSourceManifestResult | null => {
   if (document.tables.length === 0) return null;
@@ -489,10 +498,11 @@ const buildManifestFromTables = (document: StructuredSourceDocument): LessonSour
       }
 
       if (isFieldRowLabel(rowLabel)) {
+        const fieldLabel = normalizeFieldRowLabel(rowLabel);
         for (const { unit, columnIndex } of unitColumns) {
           const expanded = row.get(columnIndex);
           if (!expanded) {
-            addField(manifest, unit.fields, rowLabel, '', 'missing', {
+            addField(manifest, unit.fields, fieldLabel, '', 'missing', {
               tableId: table.id,
               rowIndex,
               columnIndex,
@@ -501,7 +511,7 @@ const buildManifestFromTables = (document: StructuredSourceDocument): LessonSour
           }
 
           const text = normalizeText(expanded.cell.text);
-          addField(manifest, unit.fields, rowLabel, text, expanded.cell.state, expanded.cell.sourceLocation);
+          addField(manifest, unit.fields, fieldLabel, text, expanded.cell.state, expanded.cell.sourceLocation);
         }
         continue;
       }

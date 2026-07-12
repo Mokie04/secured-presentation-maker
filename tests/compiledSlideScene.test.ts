@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   compileSemanticSlideSpecsToScenes,
   createPreviewSceneDescriptors,
+  doesSemanticSlideSpecFitScene,
   getSceneVisibleText,
   validateCompiledSlideScene,
 } from '../lib/compiledSlideScene.ts';
@@ -11,6 +12,7 @@ import { SCENE_ASSET_REQUEST_VERSION, type SceneAssetRequest } from '../lib/scen
 import { SCENE_ASSET_RESOLUTION_VERSION, type SceneResolvedAsset } from '../lib/sceneAssetResolver.ts';
 import { buildSemanticSlideSpecs } from '../lib/semanticSlideSpec.ts';
 import {
+  DENSE_STORYBOARD,
   EVIDENCE_OUTPUT_STORYBOARD,
   FIVE_SESSION_STORYBOARD,
 } from './fixtures/semanticSlideFixtures.ts';
@@ -94,6 +96,16 @@ test('validates every compiled element is inside the 16:9 canvas', () => {
   }
 });
 
+test('renders compacted learning targets once while retaining the objective text', () => {
+  const result = compileSemanticSlideSpecsToScenes(specsFrom(), { title: 'Fixture Deck' });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const visibleText = getSceneVisibleText(result.presentation.scenes[0]);
+  assert.equal(visibleText.filter((text) => text === 'Learning Targets').length, 1);
+  assert.equal(visibleText.filter((text) => text.includes('EO-OBJ-A Use observations')).length, 1);
+});
+
 test('represents visible text as editable text or table elements', () => {
   const result = compileSemanticSlideSpecsToScenes(specsFrom(), { title: 'Fixture Deck' });
 
@@ -145,6 +157,113 @@ test('rejects text overflow without truncating content', () => {
   assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'scene_text_overflow'), true);
 });
 
+test('compiles dense storyboard continuations without overflow or rasterized text', () => {
+  const specsResult = buildSemanticSlideSpecs(DENSE_STORYBOARD);
+  assert.equal(specsResult.ok, true);
+  if (!specsResult.ok) return;
+
+  const result = compileSemanticSlideSpecsToScenes(specsResult.specs, { title: 'Dense Fixture Deck' });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.presentation.scenes.length >= DENSE_STORYBOARD.screens.length, true);
+  assert.equal(result.presentation.scenes.length <= DENSE_STORYBOARD.screens.length * 2 + 2, true);
+  for (const screen of DENSE_STORYBOARD.screens) {
+    assert.equal(result.presentation.scenes.filter((scene) => scene.storyboardScreenId === screen.id).length <= 3, true);
+  }
+  assert.equal(result.presentation.scenes.flatMap((scene) => validateCompiledSlideScene(scene))
+    .some((diagnostic) => diagnostic.code === 'scene_text_overflow'), false);
+  assert.equal(result.presentation.scenes.flatMap((scene) => scene.elements)
+    .every((element) => (element.kind !== 'text' && element.kind !== 'table') || element.editable), true);
+  assert.equal(result.presentation.scenes.flatMap((scene) => scene.elements)
+    .some((element) => element.kind === 'image'), false);
+});
+
+test('moves every guided list item to a continuation instead of truncating after four', () => {
+  const storyboard = structuredClone(EVIDENCE_OUTPUT_STORYBOARD);
+  const guidedScreen = storyboard.screens[1];
+  guidedScreen.communicationIntent = 'guided-example';
+  guidedScreen.requiredEvidence = [];
+  guidedScreen.requiredOutputs = [];
+  guidedScreen.learnerContent = {
+    questions: [],
+    directions: [
+      'GI-STEP-ONE Inspect the first source-backed item and record the feature that matters for the stated comparison.',
+      'GI-STEP-TWO Compare the second source-backed item with the first and preserve the stated evidence order.',
+      'GI-STEP-THREE Record the third source-backed item and connect it to the criterion supplied by the source.',
+      'GI-STEP-FOUR Explain the fourth source-backed item using the same comparison frame and no added requirement.',
+      'GI-STEP-FIVE Check the fifth source-backed item against the earlier evidence and note the supported difference.',
+      'GI-STEP-SIX Review the sixth source-backed item and prepare the final source-aligned sequence for discussion.',
+    ],
+    successCriteria: [],
+  };
+  const specsResult = buildSemanticSlideSpecs(storyboard);
+  assert.equal(specsResult.ok, true);
+  if (!specsResult.ok) return;
+
+  const guidedSpecs = specsResult.specs.filter((spec) => spec.storyboardScreenId === guidedScreen.id);
+  assert.equal(guidedSpecs.length > 1, true);
+  const result = compileSemanticSlideSpecsToScenes(specsResult.specs, { title: 'Guided Continuation Fixture' });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const visible = result.presentation.scenes.flatMap(getSceneVisibleText).join(' ');
+  for (const sentinel of ['GI-STEP-ONE', 'GI-STEP-TWO', 'GI-STEP-THREE', 'GI-STEP-FOUR', 'GI-STEP-FIVE', 'GI-STEP-SIX']) {
+    assert.match(visible, new RegExp(sentinel));
+  }
+});
+
+test('rejects semantic candidates beyond the layout item ceiling', () => {
+  const specs = specsFrom();
+  const sourceSpec = specs.find((spec) => spec.sourceStepIds.length > 0);
+  assert.ok(sourceSpec);
+  const overCapacity = {
+    ...sourceSpec,
+    intent: 'guided-example' as const,
+    layoutId: 'guided-example-steps' as const,
+    slots: {
+      ...sourceSpec.slots,
+      body: {
+        kind: 'list' as const,
+        items: Array.from({ length: 7 }, (_, index) => `Item ${index + 1}`),
+      },
+      requirements: { kind: 'list' as const, items: [] },
+      successCriteria: { kind: 'list' as const, items: [] },
+    },
+  };
+
+  assert.equal(doesSemanticSlideSpecFitScene(overCapacity), false);
+  const result = compileSemanticSlideSpecsToScenes([overCapacity], { title: 'Over Capacity Fixture' });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'scene_text_overflow'), true);
+});
+
+test('accounts for preview cell padding when estimating table text fit', () => {
+  const specs = specsFrom();
+  const exitSpec = specs.find((spec) => spec.layoutId === 'exit-ticket-card');
+  assert.ok(exitSpec);
+  const paddedWrap = {
+    ...exitSpec,
+    slots: {
+      ...exitSpec.slots,
+      body: { kind: 'list' as const, items: ['Keep this source-backed prompt visible.'] },
+      requirements: {
+        kind: 'list' as const,
+        items: [
+          'Required response one',
+          'Required response two',
+          'Required response three',
+          'Required response four',
+          'Required response five',
+        ],
+      },
+    },
+  };
+
+  assert.equal(doesSemanticSlideSpecFitScene(paddedWrap), false);
+});
+
 test('does not emit image or full-slide raster elements in Gate 3', () => {
   const specsResult = buildSemanticSlideSpecs(FIVE_SESSION_STORYBOARD);
   assert.equal(specsResult.ok, true);
@@ -181,6 +300,66 @@ test('adds only bounded source-backed image elements when resolved assets are su
   assert.equal(image.semanticSlideSpecId, request.semanticSlideSpecId);
   assert.equal(image.frame.w < 1280 && image.frame.h < 720, true);
   assert.deepEqual(validateCompiledSlideScene(result.presentation.scenes[1]), []);
+});
+
+test('keeps bounded assets disjoint from editable text and table content', () => {
+  const specs = specsFrom();
+  const request = assetRequestForSpec(specs[1]);
+  const specWithRequest = { ...specs[1], assetRequests: [request] };
+  const result = compileSemanticSlideSpecsToScenes(
+    [specWithRequest],
+    {
+      title: 'Fixture Deck',
+      resolvedAssetsBySpecId: {
+        [specWithRequest.id]: [resolvedAssetForRequest(request)],
+      },
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const image = scene.elements.find((element) => element.kind === 'image');
+  assert.ok(image);
+  const editableContent = scene.elements.filter((element) => element.kind === 'text' || element.kind === 'table');
+  const overlaps = editableContent.some((element) => (
+    image.frame.x < element.frame.x + element.frame.w
+    && image.frame.x + image.frame.w > element.frame.x
+    && image.frame.y < element.frame.y + element.frame.h
+    && image.frame.y + image.frame.h > element.frame.y
+  ));
+  assert.equal(overlaps, false);
+});
+
+test('omits an optional resolved asset when a full-width table leaves no collision-free frame', () => {
+  const specs = specsFrom();
+  const baseSpec = specs[1];
+  const request = assetRequestForSpec(baseSpec);
+  const specWithRequest = {
+    ...baseSpec,
+    assetRequests: [request],
+    slots: {
+      ...baseSpec.slots,
+      requirements: {
+        kind: 'list' as const,
+        items: ['Evidence: first source-backed record.', 'Evidence: second source-backed record.'],
+      },
+    },
+  };
+  const result = compileSemanticSlideSpecsToScenes(
+    [specWithRequest],
+    {
+      title: 'Fixture Deck',
+      resolvedAssetsBySpecId: {
+        [specWithRequest.id]: [resolvedAssetForRequest(request)],
+      },
+    },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.presentation.scenes[0].elements.some((element) => element.kind === 'image'), false);
+  assert.deepEqual(validateCompiledSlideScene(result.presentation.scenes[0]), []);
 });
 
 test('compiles a valid editable scene when optional assets are omitted', () => {

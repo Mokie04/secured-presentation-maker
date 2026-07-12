@@ -114,6 +114,19 @@ test('treats descriptive objective mentions as steps or fields, not objective ro
   }
 });
 
+test('treats declaration of AI use rows as source fields, not learner instructional steps', () => {
+  const result = buildLessonSourceManifest(MULTI_TABLE_SESSION_DOCUMENT);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  for (const unit of result.manifest.units) {
+    assert.equal(unit.steps.some((step) => /Declaration of AI use/i.test(step.sourceLabel)), false);
+    assert.equal(unit.fields.declarationOfAiUse.state, 'present');
+    assert.match(unit.fields.declarationOfAiUse.value, /Sanitized declaration/);
+  }
+});
+
 test('keeps 5E labels as source data while assigning monotonic step ids', () => {
   const result = buildLessonSourceManifest(FIVE_SESSION_MATRIX_DOCUMENT);
 
