@@ -25,6 +25,7 @@ import { resolveEndToEndValidatedScenePresentationForGeneration } from './lib/en
 import { buildSourcePrimarySceneTelemetryEvent } from './lib/sourcePrimarySceneTelemetry';
 import { resolveSourcePrimarySceneRolloutForGeneration, shouldRunSourcePrimaryScenePreflight } from './lib/sourcePrimarySceneRollout';
 import { SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION, resolveSourcePrimaryWeeklyBlueprintForGeneration } from './lib/sourcePrimaryWeeklyBlueprint';
+import { composeVisualTeachingPlanWithProvider } from './services/visualTeachingComposerService';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -114,6 +115,7 @@ const SOURCE_PRIMARY_PRODUCTION_ARMED_FLAG = import.meta.env.VITE_SOURCE_PRIMARY
 const SEMANTIC_SLIDES_V1_FLAG = import.meta.env.VITE_SEMANTIC_SLIDES_V1;
 const DECK_VISUAL_SYSTEM_V1_FLAG = import.meta.env.VITE_DECK_VISUAL_SYSTEM_V1;
 const END_TO_END_VALIDATION_V1_FLAG = import.meta.env.VITE_END_TO_END_VALIDATION_V1;
+const VISUAL_TEACHING_COMPOSER_V1_FLAG = import.meta.env.VITE_VISUAL_TEACHING_COMPOSER_V1;
 const IS_PRODUCTION_BUILD = import.meta.env.PROD === true;
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
@@ -3971,6 +3973,11 @@ const App: React.FC = () => {
                     {
                       title: sourceManifestBoundary.manifest?.units.map((unit) => unit.sourceLabel).join(' / ') || 'Source-Aligned Lesson',
                       selectedUnitLabel: sourceManifestBoundary.manifest?.units[0]?.sourceLabel,
+                      visualComposer: {
+                        flagValue: VISUAL_TEACHING_COMPOSER_V1_FLAG,
+                        language: generationLanguage,
+                        compose: composeVisualTeachingPlanWithProvider,
+                      },
                     },
                   );
                   void buildSourcePrimarySceneTelemetryEvent({
@@ -4286,6 +4293,11 @@ const App: React.FC = () => {
             {
               title: planUnitPresentationTitle,
               selectedUnitLabel: sourceManifestBoundary.manifest?.units[dayIndex]?.sourceLabel,
+              visualComposer: {
+                flagValue: VISUAL_TEACHING_COMPOSER_V1_FLAG,
+                language: getPresentationLanguageForGeneration(content),
+                compose: composeVisualTeachingPlanWithProvider,
+              },
             },
           );
           void buildSourcePrimarySceneTelemetryEvent({

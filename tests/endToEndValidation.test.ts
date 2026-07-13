@@ -13,6 +13,7 @@ import {
   buildEvidenceOutputEndToEndFixture,
   buildVisualTeachingQualityEndToEndFixture,
 } from './fixtures/endToEndValidationFixtures.ts';
+import { validVisualPlanFixture } from './fixtures/visualTeachingComposerFixtures.ts';
 
 test('accepts only documented true-like Gate 5 flag values', () => {
   for (const value of ['1', 'true', 'TRUE', ' yes ', 'On']) {
@@ -233,4 +234,37 @@ test('topic-only Gate 5 remains unchanged', async () => {
   );
 
   assert.deepEqual(result, { ok: true, presentation: null });
+});
+
+test('composed visual-plan quality failure blocks delivery and cache success', async () => {
+  const fixture = validVisualPlanFixture();
+  const policy = resolveK12GenerationRoutePolicy('uploaded source text', 'true');
+  const plan = structuredClone(fixture.plan);
+  for (const [index, title] of ['Learning Task 1', 'Learning Task (continued)'].entries()) {
+    plan.scenes[index].learnerTitle = title;
+  }
+
+  const result = await resolveEndToEndValidatedScenePresentationForGeneration(
+    policy,
+    'true',
+    'true',
+    'true',
+    fixture.manifest,
+    fixture.storyboard,
+    {
+      title: 'Sanitized Fixture Deck',
+      visualComposer: {
+        flagValue: 'true',
+        language: 'EN',
+        compose: async () => ({ ok: true as const, plan }),
+      },
+    },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.ok(result.validationReport?.presentationQuality);
+  assert.equal(result.validationReport.presentationQuality.repeatedGenericTitleCount, 1);
+  assert.equal(result.validationReport.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.validationReport.cacheSafety.mayWriteSuccessCache, false);
 });

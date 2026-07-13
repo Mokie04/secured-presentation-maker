@@ -14,6 +14,7 @@ import {
   FIVE_SESSION_VISUAL_FIXTURE,
   MULTI_OBJECTIVE_VISUAL_FIXTURE,
 } from './fixtures/deckVisualSystemFixtures.ts';
+import { validVisualPlanFixture } from './fixtures/visualTeachingComposerFixtures.ts';
 
 test('accepts only documented true-like Gate 4 flag values', () => {
   for (const value of ['1', 'true', 'TRUE', ' yes ', 'On']) {
@@ -143,4 +144,33 @@ test('blocks validation failures before asset adapters run', async () => {
 
   assert.equal(boundary.ok, false);
   assert.equal(adapterCalls, 0);
+});
+
+test('compiles a validated visual teaching plan through its hardened source context', async () => {
+  const fixture = validVisualPlanFixture();
+  const policy = resolveK12GenerationRoutePolicy('uploaded source text', 'true');
+  const boundary = await resolveDeckVisualScenePresentationForGeneration(
+    policy,
+    'true',
+    'true',
+    fixture.storyboard,
+    {
+      title: 'Fixture Deck',
+      includeValidationArtifacts: true,
+      visualTeachingPlan: fixture.plan,
+      visualTeachingSourceContext: {
+        sourceManifest: fixture.manifest,
+        dispositions: fixture.dispositions,
+      },
+    },
+  );
+
+  assert.equal(boundary.ok, true);
+  if (!boundary.ok) return;
+  assert.ok(boundary.validationArtifacts);
+  assert.equal(boundary.validationArtifacts.visualTeachingPlan, fixture.plan);
+  assert.deepEqual(
+    boundary.validationArtifacts.semanticSpecs.map((spec) => spec.visualTeachingSceneId),
+    fixture.plan.scenes.map((scene) => scene.id),
+  );
 });
