@@ -78,7 +78,12 @@ const compileSceneElementToPptxOperation = (element: SceneElement): PptxSceneOpe
       shape: 'line',
       options: {
         ...frameToPptxOptions(element.frame),
-        line: { color: element.stroke, width: 1.5, beginArrowType: 'none', endArrowType: element.arrowEnd ? 'triangle' : 'none' },
+        line: {
+          color: element.stroke,
+          width: 1.5,
+          beginArrowType: element.arrowStart ? 'triangle' : 'none',
+          endArrowType: element.arrowEnd ? 'triangle' : 'none',
+        },
       },
     }];
   }

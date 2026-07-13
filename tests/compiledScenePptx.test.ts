@@ -7,6 +7,10 @@ import { SCENE_ASSET_REQUEST_VERSION, type SceneAssetRequest } from '../lib/scen
 import { SCENE_ASSET_RESOLUTION_VERSION, type SceneResolvedAsset } from '../lib/sceneAssetResolver.ts';
 import { buildSemanticSlideSpecs } from '../lib/semanticSlideSpec.ts';
 import { EVIDENCE_OUTPUT_STORYBOARD } from './fixtures/semanticSlideFixtures.ts';
+import {
+  relationshipDiagramSemanticFixture,
+  visualLayoutSceneFixture,
+} from './fixtures/visualTeachingComposerFixtures.ts';
 
 const sceneFromFixture = () => {
   const specs = buildSemanticSlideSpecs(EVIDENCE_OUTPUT_STORYBOARD);
@@ -151,4 +155,37 @@ test('preserves the collision-free bounded image frame in PPTX operations', () =
     h: image.frame.h / 128,
     altText: image.altText,
   });
+});
+
+test('preserves preview and PPTX visible-text parity for visual layouts', () => {
+  const scene = visualLayoutSceneFixture();
+  const previewText = createPreviewSceneDescriptors(scene).flatMap((descriptor) => descriptor.text);
+  const operations = compilePptxSceneOperations(scene);
+
+  assert.deepEqual(getPptxSceneOperationText(operations), previewText);
+});
+
+test('exports relationship nodes and connectors as matching native PPTX shapes', () => {
+  const scenes = compileSemanticSlideSpecsToScenes(
+    [relationshipDiagramSemanticFixture()],
+    { title: 'Sanitized Relationship Deck' },
+  );
+  assert.equal(scenes.ok, true);
+  if (!scenes.ok) return;
+  const scene = scenes.presentation.scenes[0];
+  const previewDescriptors = createPreviewSceneDescriptors(scene);
+  const operations = compilePptxSceneOperations(scene);
+  const shapeOperations = operations.filter((operation) => operation.kind === 'addShape');
+
+  assert.equal(shapeOperations.some((operation) => operation.shape === 'ellipse'), true);
+  assert.equal(shapeOperations.some((operation) => operation.shape === 'diamond'), true);
+  assert.equal(shapeOperations.filter((operation) => operation.shape === 'line').length, 2);
+  assert.deepEqual(
+    operations.filter((operation) => 'elementId' in operation).map((operation) => operation.elementId),
+    previewDescriptors.map((descriptor) => descriptor.elementId),
+  );
+  assert.deepEqual(
+    getPptxSceneOperationText(operations).filter(Boolean),
+    previewDescriptors.flatMap((descriptor) => descriptor.text).filter(Boolean),
+  );
 });

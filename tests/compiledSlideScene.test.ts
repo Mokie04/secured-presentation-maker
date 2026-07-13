@@ -7,6 +7,7 @@ import {
   doesSemanticSlideSpecFitScene,
   getSceneVisibleText,
   validateCompiledSlideScene,
+  type SceneShapeElement,
 } from '../lib/compiledSlideScene.ts';
 import { SCENE_ASSET_REQUEST_VERSION, type SceneAssetRequest } from '../lib/sceneAssetRequests.ts';
 import { SCENE_ASSET_RESOLUTION_VERSION, type SceneResolvedAsset } from '../lib/sceneAssetResolver.ts';
@@ -16,6 +17,27 @@ import {
   EVIDENCE_OUTPUT_STORYBOARD,
   FIVE_SESSION_STORYBOARD,
 } from './fixtures/semanticSlideFixtures.ts';
+import {
+  questionChoicesSemanticFixture,
+  relationshipDiagramSemanticFixture,
+  validVisualPlanFixture,
+} from './fixtures/visualTeachingComposerFixtures.ts';
+
+const framesOverlap = (
+  left: { x: number; y: number; w: number; h: number },
+  right: { x: number; y: number; w: number; h: number },
+): boolean => (
+  left.x < right.x + right.w
+  && left.x + left.w > right.x
+  && left.y < right.y + right.h
+  && left.y + left.h > right.y
+);
+
+const assertPeerFramesDoNotOverlap = (frames: Array<{ x: number; y: number; w: number; h: number }>): void => {
+  frames.forEach((frame, index) => {
+    for (const other of frames.slice(index + 1)) assert.equal(framesOverlap(frame, other), false);
+  });
+};
 
 const specsFrom = () => {
   const result = buildSemanticSlideSpecs(EVIDENCE_OUTPUT_STORYBOARD);
@@ -408,4 +430,278 @@ test('preview descriptors are derived from the compiled scene contract', () => {
   const scene = result.presentation.scenes[0];
   const descriptors = createPreviewSceneDescriptors(scene);
   assert.deepEqual(descriptors.map((descriptor) => descriptor.elementId), scene.elements.map((element) => element.id));
+});
+
+test('compiles a relationship diagram as editable native nodes and connectors', () => {
+  const result = compileSemanticSlideSpecsToScenes(
+    [relationshipDiagramSemanticFixture()],
+    { title: 'Sanitized Relationship Deck' },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const nodes = scene.elements.filter((element): element is SceneShapeElement => (
+    element.kind === 'shape' && element.id.includes('-node-')
+  ));
+  const connectors = scene.elements.filter((element) => element.kind === 'connector');
+  assert.equal(nodes.length, 3);
+  assert.equal(connectors.length, 2);
+  assert.equal(nodes.some((element) => element.shape === 'ellipse'), true);
+  assert.equal(nodes.some((element) => element.shape === 'diamond'), true);
+  const diamond = nodes.find((element) => element.shape === 'diamond');
+  assert.ok(diamond);
+  assert.equal(diamond.frame.w, diamond.frame.h);
+  assert.equal(scene.elements.filter((element) => element.kind === 'text').every((element) => element.editable), true);
+  assert.equal(scene.elements.some((element) => element.kind === 'image'), false);
+  assertPeerFramesDoNotOverlap(nodes.map((element) => element.frame));
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+
+  const visible = getSceneVisibleText(scene);
+  for (const sourceText of ['Supplied push', 'Opposition', 'Measured flow', 'changes', 'constrains']) {
+    assert.equal(visible.some((item) => item.includes(sourceText)), true);
+  }
+});
+
+test('applies the owning deck visual system to native visual teaching elements', () => {
+  const spec = relationshipDiagramSemanticFixture();
+  const fixture = validVisualPlanFixture();
+  const visualSystem = fixture.endToEndInput.visualSystems.systemsByUnitId[spec.unitId];
+  assert.ok(visualSystem);
+  const result = compileSemanticSlideSpecsToScenes([spec], {
+    title: 'Visual System Relationship Deck',
+    visualSystemsByUnitId: { [spec.unitId]: visualSystem },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const sourceNode = scene.elements.find((element) => (
+    element.kind === 'shape' && element.id.endsWith('-node-1')
+  ));
+  const title = scene.elements.find((element) => element.kind === 'text' && element.role === 'title');
+  assert.ok(sourceNode?.kind === 'shape');
+  assert.ok(title?.kind === 'text');
+  assert.equal(sourceNode.stroke, visualSystem.palette.accentCool);
+  assert.equal(title.fontSize, visualSystem.typography.titleSize);
+  assert.equal(title.runs[0]?.color, visualSystem.palette.ink);
+});
+
+test('retains relationship context points and success criteria as editable text', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const spec = {
+    ...base,
+    slots: {
+      ...base.slots,
+      statement: { kind: 'text' as const, text: 'Use the recorded setup as the shared context.' },
+      points: {
+        kind: 'list' as const,
+        items: ['Trace the supplied change.', 'Relate the change to the measured result.'],
+      },
+      successCriteria: { kind: 'list' as const, items: ['Support the relationship with one recorded observation.'] },
+    },
+  };
+
+  const result = compileSemanticSlideSpecsToScenes([spec], { title: 'Relationship Context Deck' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const visible = getSceneVisibleText(result.presentation.scenes[0]).join(' ');
+  for (const text of [
+    'Use the recorded setup as the shared context.',
+    'Trace the supplied change.',
+    'Relate the change to the measured result.',
+    'Support the relationship with one recorded observation.',
+  ]) {
+    assert.match(visible, new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.deepEqual(validateCompiledSlideScene(result.presentation.scenes[0]), []);
+});
+
+test('accepts the bounded relationship maximum without overlap or off-canvas elements', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const nodes = Array.from({ length: 6 }, (_, index) => ({
+    id: `bounded-node-${index + 1}`,
+    label: `Node ${index + 1}`,
+    role: ['source', 'process', 'constraint', 'result'][index % 4],
+  }));
+  const edges = Array.from({ length: 8 }, (_, index) => ({
+    from: nodes[index % 5].id,
+    to: nodes[(index % 5) + 1].id,
+    label: `Relation ${index + 1}`,
+    direction: 'forward',
+  }));
+  const bounded = {
+    ...base,
+    slots: {
+      ...base.slots,
+      diagram: { kind: 'diagram' as const, nodes, edges },
+    },
+  };
+
+  assert.equal(doesSemanticSlideSpecFitScene(bounded), true);
+  const result = compileSemanticSlideSpecsToScenes([bounded], { title: 'Bounded Relationship Deck' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const nodeFrames = scene.elements
+    .filter((element) => element.kind === 'shape' && element.id.includes('-node-'))
+    .map((element) => element.frame);
+  assert.equal(nodeFrames.length, 6);
+  assertPeerFramesDoNotOverlap(nodeFrames);
+  assert.equal(validateCompiledSlideScene(scene).some((diagnostic) => (
+    diagnostic.code === 'scene_element_off_canvas' || diagnostic.code === 'scene_text_overflow'
+  )), false);
+});
+
+test('fails safely when relationship nodes or edges exceed their bounded capacity', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const diagram = base.slots.diagram;
+  assert.equal(diagram.kind, 'diagram');
+  if (diagram.kind !== 'diagram') return;
+  const tooManyNodes = {
+    ...base,
+    slots: {
+      ...base.slots,
+      diagram: {
+        ...diagram,
+        nodes: [...diagram.nodes, ...Array.from({ length: 4 }, (_, index) => ({
+          id: `extra-node-${index + 1}`,
+          label: `Extra ${index + 1}`,
+          role: 'process',
+        }))],
+      },
+    },
+  };
+  const tooManyEdges = {
+    ...base,
+    slots: {
+      ...base.slots,
+      diagram: {
+        ...diagram,
+        edges: Array.from({ length: 9 }, (_, index) => ({
+          from: diagram.nodes[index % diagram.nodes.length].id,
+          to: diagram.nodes[(index + 1) % diagram.nodes.length].id,
+          label: `Edge ${index + 1}`,
+          direction: 'forward',
+        })),
+      },
+    },
+  };
+
+  for (const invalid of [tooManyNodes, tooManyEdges]) {
+    assert.equal(doesSemanticSlideSpecFitScene(invalid), false);
+    const result = compileSemanticSlideSpecsToScenes([invalid], { title: 'Over Capacity Relationship Deck' });
+    assert.equal(result.ok, false);
+    if (result.ok) continue;
+    assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'scene_text_overflow'), true);
+  }
+});
+
+test('compiles assessment choices as separate editable objects', () => {
+  const result = compileSemanticSlideSpecsToScenes(
+    [questionChoicesSemanticFixture()],
+    { title: 'Sanitized Check' },
+  );
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const choiceShapes = scene.elements.filter((element) => element.kind === 'shape' && element.id.includes('-choice-'));
+  const choiceTexts = scene.elements.filter((element) => element.kind === 'text' && element.id.includes('-choice-'));
+  assert.equal(choiceShapes.length, 4);
+  assert.equal(choiceTexts.length, 4);
+  assert.equal(choiceTexts.every((element) => element.editable), true);
+  assertPeerFramesDoNotOverlap(choiceShapes.map((element) => element.frame));
+  const visible = getSceneVisibleText(scene);
+  for (const choice of ['Pattern alpha', 'Pattern beta', 'Pattern gamma', 'Pattern delta']) {
+    assert.equal(visible.some((item) => item.includes(choice)), true);
+  }
+  assert.equal(visible.some((item) => /A\..*B\..*C\..*D\./s.test(item)), false);
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+});
+
+test('fails safely when an assessment exceeds the four-choice grid', () => {
+  const base = questionChoicesSemanticFixture();
+  const question = base.slots.question;
+  assert.equal(question.kind, 'question');
+  if (question.kind !== 'question') return;
+  const invalid = {
+    ...base,
+    slots: {
+      ...base.slots,
+      question: {
+        ...question,
+        choices: [...question.choices, { id: 'E', text: 'Pattern epsilon' }],
+      },
+    },
+  };
+
+  assert.equal(doesSemanticSlideSpecFitScene(invalid), false);
+  const result = compileSemanticSlideSpecsToScenes([invalid], { title: 'Over Capacity Check' });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'scene_text_overflow'), true);
+});
+
+test('compiles comparison cards into bounded equal native panels', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const comparison = {
+    ...base,
+    intent: 'comparison-matrix' as const,
+    layoutId: 'comparison-panels' as const,
+    slots: {
+      title: { kind: 'text' as const, text: 'Compare Source-Backed Patterns' },
+      body: {
+        kind: 'cards' as const,
+        cards: [
+          { id: 'panel-alpha', title: 'Pattern alpha', body: 'First recorded relationship.' },
+          { id: 'panel-beta', title: 'Pattern beta', body: 'Second recorded relationship.' },
+          { id: 'panel-gamma', title: 'Pattern gamma', body: 'Third recorded relationship.' },
+        ],
+      },
+    },
+  };
+
+  const result = compileSemanticSlideSpecsToScenes([comparison], { title: 'Sanitized Comparison' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const panels = scene.elements.filter((element) => element.kind === 'shape' && element.id.includes('-panel-'));
+  assert.equal(panels.length, 3);
+  assert.equal(new Set(panels.map((panel) => panel.frame.w)).size, 1);
+  assertPeerFramesDoNotOverlap(panels.map((panel) => panel.frame));
+  const visible = getSceneVisibleText(scene).join(' ');
+  for (const sentinel of ['Pattern alpha', 'First recorded relationship.', 'Pattern beta', 'Second recorded relationship.', 'Pattern gamma', 'Third recorded relationship.']) {
+    assert.match(visible, new RegExp(sentinel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+  }
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+});
+
+test('compiles a visual thesis with separate editable statement and points', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const thesis = {
+    ...base,
+    intent: 'learning-targets' as const,
+    layoutId: 'visual-thesis' as const,
+    slots: {
+      title: { kind: 'text' as const, text: 'Source-Backed Thesis' },
+      statement: { kind: 'text' as const, text: 'A supplied change is interpreted through recorded evidence.' },
+      points: {
+        kind: 'list' as const,
+        items: ['Observe the supplied change.', 'Connect it to the recorded pattern.', 'State the supported relationship.'],
+      },
+    },
+  };
+
+  const result = compileSemanticSlideSpecsToScenes([thesis], { title: 'Sanitized Thesis' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const visible = getSceneVisibleText(scene);
+  assert.equal(visible.some((item) => item === 'A supplied change is interpreted through recorded evidence.'), true);
+  for (const point of ['Observe the supplied change.', 'Connect it to the recorded pattern.', 'State the supported relationship.']) {
+    assert.equal(visible.some((item) => item === point), true);
+  }
+  assert.equal(scene.elements.filter((element) => element.kind === 'text').every((element) => element.editable), true);
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
 });
