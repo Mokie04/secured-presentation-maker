@@ -6,11 +6,185 @@ import {
   validateVisualTeachingPlan,
 } from '../lib/visualTeachingPlan.ts';
 import { classifySourceContent } from '../lib/sourceContentDisposition.ts';
+import type { StructuredSourceDocument } from '../lib/lessonSourceDocument.ts';
+import { buildLessonSourceManifest } from '../lib/lessonSourceManifest.ts';
+import { buildTeachingStoryboard } from '../lib/teachingStoryboard.ts';
 import {
   questionChoicesSemanticFixture,
   relationshipDiagramSemanticFixture,
   validVisualPlanFixture,
 } from './fixtures/visualTeachingComposerFixtures.ts';
+
+const fieldCell = (
+  tableId: string,
+  rowIndex: number,
+  columnIndex: number,
+  text: string,
+) => ({
+  text,
+  state: text.trim() ? 'present' as const : 'blank' as const,
+  rowSpan: 1,
+  columnSpan: 1,
+  sourceLocation: { tableId, rowIndex, columnIndex },
+});
+
+const PUBLIC_FIELD_DOCUMENT: StructuredSourceDocument = {
+  format: 'docx',
+  fileName: 'sanitized-public-field-source.docx',
+  sourceHash: 'fixture-public-field-source-hash',
+  byteLength: 1800,
+  plainText: 'Sanitized public field fixture.',
+  blocks: [],
+  tables: [{
+    id: 'table-public-field',
+    sourceOrder: 1,
+    rows: [
+      {
+        index: 0,
+        cells: [
+          fieldCell('table-public-field', 0, 0, 'Field'),
+          fieldCell('table-public-field', 0, 1, 'Learning Session 1'),
+          fieldCell('table-public-field', 0, 2, 'Learning Session 2'),
+        ],
+      },
+      {
+        index: 1,
+        cells: [
+          fieldCell('table-public-field', 1, 0, 'Objective'),
+          fieldCell('table-public-field', 1, 1, 'Compare two source-provided perspectives.'),
+          fieldCell('table-public-field', 1, 2, 'Explain one source-provided perspective.'),
+        ],
+      },
+      {
+        index: 2,
+        cells: [
+          fieldCell('table-public-field', 2, 0, 'References (Learning Resources)'),
+          fieldCell('table-public-field', 2, 1, 'Learners consult the source before comparing both perspectives.'),
+          fieldCell('table-public-field', 2, 2, 'Learners consult the source before explaining one perspective.'),
+        ],
+      },
+      {
+        index: 3,
+        cells: [
+          fieldCell('table-public-field', 3, 0, 'References (Administrative Resources)'),
+          fieldCell('table-public-field', 3, 1, 'Planning-only source filing note.'),
+          fieldCell('table-public-field', 3, 2, 'Planning-only source filing note.'),
+        ],
+      },
+      {
+        index: 4,
+        cells: [
+          fieldCell('table-public-field', 4, 0, 'Source Comparison'),
+          fieldCell('table-public-field', 4, 1, 'Identify one shared claim and one meaningful difference.'),
+          fieldCell('table-public-field', 4, 2, 'Identify one supported claim.'),
+        ],
+      },
+    ],
+  }],
+};
+
+const publicFieldPlanFixture = () => {
+  const manifestResult = buildLessonSourceManifest(PUBLIC_FIELD_DOCUMENT);
+  assert.equal(manifestResult.ok, true);
+  if (!manifestResult.ok) throw new Error('public field manifest fixture failed');
+  const storyboardResult = buildTeachingStoryboard(manifestResult.manifest, {
+    selectedUnitIds: [manifestResult.manifest.units[0].id],
+  });
+  assert.equal(storyboardResult.ok, true);
+  if (!storyboardResult.ok) throw new Error('public field storyboard fixture failed');
+  const dispositionResult = classifySourceContent(manifestResult.manifest, storyboardResult.storyboard);
+  assert.equal(dispositionResult.ok, true);
+  if (!dispositionResult.ok) throw new Error('public field disposition fixture failed');
+
+  const templatePlan = validVisualPlanFixture().plan;
+  const templateScene = templatePlan.scenes[0];
+  const objective = manifestResult.manifest.objectives[0];
+  const step = manifestResult.manifest.units[0].steps[0];
+  const objectiveScreen = storyboardResult.storyboard.screens.find((screen) => screen.sourceObjectiveIds.includes(objective.id));
+  const stepScreen = storyboardResult.storyboard.screens.find((screen) => screen.sourceStepIds.includes(step.id));
+  const fieldDecision = dispositionResult.decisions.find((item) => (
+    item.sourceKind === 'field' && item.disposition === 'learner-visible'
+  ));
+  const administrativeFieldDecision = dispositionResult.decisions.find((item) => (
+    item.sourceKind === 'field' && item.disposition === 'omit-administrative'
+  ));
+  assert.ok(objectiveScreen);
+  assert.ok(stepScreen);
+  assert.ok(fieldDecision);
+  assert.ok(administrativeFieldDecision);
+
+  const objectiveScene = {
+    ...templateScene,
+    id: 'visual-scene-public-objective',
+    unitId: objective.unitId,
+    sourceStepIds: [],
+    sourceObjectiveIds: [objective.id],
+    sourceFieldIds: [],
+    storyboardScreenIds: [objectiveScreen.id],
+    learnerTitle: 'Learning Target',
+    visibleContent: { statement: objective.rawText, points: [], cards: [], steps: [] },
+    visualGrammar: 'visual-thesis' as const,
+  };
+  const fieldScene = {
+    ...templateScene,
+    id: 'visual-scene-public-field',
+    unitId: fieldDecision.unitId,
+    sourceStepIds: [],
+    sourceObjectiveIds: [],
+    sourceFieldIds: [fieldDecision.sourceId],
+    storyboardScreenIds: [objectiveScreen.id],
+    learnerTitle: 'Reference Comparison',
+    visibleContent: {
+      statement: 'Learners consult the source before comparing both perspectives.',
+      points: [],
+      cards: [],
+      steps: [],
+    },
+    visualGrammar: 'activity-board' as const,
+  };
+  const stepScene = {
+    ...templateScene,
+    id: 'visual-scene-public-step',
+    unitId: step.unitId,
+    sourceStepIds: [step.id],
+    sourceObjectiveIds: [],
+    sourceFieldIds: [],
+    storyboardScreenIds: [stepScreen.id],
+    learnerTitle: step.sourceLabel,
+    visibleContent: { statement: step.rawBlocks.join(' '), points: [], cards: [], steps: [] },
+    visualGrammar: 'comparison-panels' as const,
+  };
+  const sceneIdBySourceId = new Map([
+    [objective.id, objectiveScene.id],
+    [fieldDecision.sourceId, fieldScene.id],
+    [step.id, stepScene.id],
+  ]);
+  const plan = {
+    ...templatePlan,
+    unitId: manifestResult.manifest.units[0].id,
+    sourceObjectiveIds: [objective.id],
+    scenes: [objectiveScene, fieldScene, stepScene],
+    sourceAccounting: dispositionResult.decisions.map((decision) => ({
+      ...decision,
+      sceneIds: sceneIdBySourceId.has(decision.sourceId) ? [sceneIdBySourceId.get(decision.sourceId)!] : [],
+    })),
+    provenance: {
+      sourceHash: manifestResult.manifest.provenance.sourceHash,
+      storyboardVersion: storyboardResult.storyboard.contractVersion,
+      selectedUnitIds: [...storyboardResult.storyboard.provenance.selectedUnitIds],
+    },
+  };
+
+  return {
+    manifest: manifestResult.manifest,
+    storyboard: storyboardResult.storyboard,
+    dispositions: dispositionResult.decisions,
+    plan,
+    fieldScene,
+    fieldDecision,
+    administrativeFieldDecision,
+  };
+};
 
 test('accepts a fully reconciled visual teaching plan', () => {
   const fixture = validVisualPlanFixture();
@@ -264,91 +438,57 @@ test('rejects hidden step and field text reproduced in learner-visible scenes', 
   }
 });
 
-test('accounts for a learner-visible source field through scene field ownership', () => {
-  const fixture = validVisualPlanFixture();
-  const field = {
-    id: 'field-learner-reference',
-    label: 'References',
-    value: 'Learners consult the source before comparing both perspectives.',
-    state: 'present' as const,
-    sourceOrder: 9,
-    sourceLocation: { blockId: 'field-learner-reference' },
-  };
-  const manifest = {
-    ...fixture.manifest,
-    units: [{
-      ...fixture.manifest.units[0],
-      fields: { learnerReference: field },
-    }],
-  };
-  const fieldScreenId = 'screen-field-reference';
-  const storyboard = {
-    ...fixture.storyboard,
-    screens: [...fixture.storyboard.screens, {
-      id: fieldScreenId,
-      unitId: fixture.plan.unitId,
-      sourceStepIds: [],
-      sourceObjectiveIds: [],
-      sourceFieldIds: [field.id],
-      instructionalPurpose: 'Expose a source-required learner reference action.',
-      learnerTitle: 'Reference Comparison',
-      learnerContent: {
-        task: field.value,
-        questions: [],
-        directions: [field.value],
-        successCriteria: [],
-      },
-      teacherNotes: '',
-      requiredEvidence: [],
-      requiredOutputs: [],
-      communicationIntent: 'activity-task' as const,
-    }],
-    sourceFieldAccounting: [...fixture.storyboard.sourceFieldAccounting, {
-      sourceFieldId: field.id,
-      unitId: fixture.plan.unitId,
-      screenIds: [fieldScreenId],
-      state: field.state,
-      status: 'metadata' as const,
-    }],
-  };
-  const dispositionResult = classifySourceContent(manifest, storyboard);
-  assert.equal(dispositionResult.ok, true);
-  if (!dispositionResult.ok) return;
-  const fieldDecision = dispositionResult.decisions.find((item) => item.sourceId === field.id);
-  assert.ok(fieldDecision);
-  const lastScene = fixture.plan.scenes.at(-1);
-  assert.ok(lastScene);
-  const fieldScene = {
-    ...lastScene,
-    id: 'visual-scene-field',
-    sourceStepIds: [],
-    sourceObjectiveIds: [],
-    sourceFieldIds: [field.id],
-    storyboardScreenIds: [fieldScreenId],
-    learnerTitle: 'Reference Comparison',
-    visibleContent: {
-      statement: field.value,
-      points: [],
-      cards: [],
-      steps: [],
-    },
-    visualGrammar: 'activity-board' as const,
-  };
-  const plan = {
-    ...fixture.plan,
-    scenes: [...fixture.plan.scenes, fieldScene],
-    sourceAccounting: [...fixture.plan.sourceAccounting, {
-      ...fieldDecision,
-      sceneIds: [fieldScene.id],
-    }],
-  };
-
+test('anchors a learner-visible public source field to a same-unit storyboard screen', () => {
+  const fixture = publicFieldPlanFixture();
+  assert.equal(fixture.fieldDecision.disposition, 'learner-visible');
+  assert.equal(fixture.storyboard.screens.every((screen) => screen.sourceFieldIds.length === 0), true);
   assert.deepEqual(validateVisualTeachingPlan(
-    plan,
-    manifest,
-    storyboard,
-    dispositionResult.decisions,
+    fixture.plan,
+    fixture.manifest,
+    fixture.storyboard,
+    fixture.dispositions,
   ), []);
+});
+
+test('rejects foreign, administrative, or undeclared field attachments', () => {
+  const fixture = publicFieldPlanFixture();
+  const mutations = [
+    {
+      expectedCode: 'visual_plan_foreign_source',
+      plan: {
+        ...fixture.plan,
+        scenes: fixture.plan.scenes.map((scene) => scene.id === fixture.fieldScene.id
+          ? { ...scene, sourceFieldIds: ['field-999'] }
+          : scene),
+      },
+    },
+    {
+      expectedCode: 'visual_plan_unauthorized_omission',
+      plan: {
+        ...fixture.plan,
+        scenes: fixture.plan.scenes.map((scene) => scene.id === fixture.fieldScene.id
+          ? { ...scene, sourceFieldIds: [fixture.administrativeFieldDecision.sourceId] }
+          : scene),
+      },
+    },
+    {
+      expectedCode: 'visual_plan_source_unaccounted',
+      plan: {
+        ...fixture.plan,
+        sourceAccounting: fixture.plan.sourceAccounting.filter((entry) => entry.sourceId !== fixture.fieldDecision.sourceId),
+      },
+    },
+  ];
+
+  for (const mutation of mutations) {
+    const diagnostics = validateVisualTeachingPlan(
+      mutation.plan,
+      fixture.manifest,
+      fixture.storyboard,
+      fixture.dispositions,
+    );
+    assert.equal(diagnostics.some((item) => item.code === mutation.expectedCode), true, mutation.expectedCode);
+  }
 });
 
 test('rejects cross-unit ownership for steps, objectives, fields, and storyboard screens', () => {

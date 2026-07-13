@@ -252,6 +252,10 @@ export const validateVisualTeachingPlan = (
       const screen = screenById.get(screenId);
       return Boolean(screen && screen.unitId !== scene.unitId);
     });
+    const unauthorizedFieldId = scene.sourceFieldIds.find((sourceFieldId) => {
+      const disposition = dispositionById.get(sourceFieldId);
+      return disposition?.sourceKind !== 'field' || disposition.disposition !== 'learner-visible';
+    });
     if (
       foreignSourceId
       || foreignScreenId
@@ -265,6 +269,14 @@ export const validateVisualTeachingPlan = (
         { sourceId: foreignSourceId ?? ownershipMismatchSourceId, sceneId: scene.id },
       ));
     }
+    if (unauthorizedFieldId) {
+      const disposition = dispositionById.get(unauthorizedFieldId);
+      diagnostics.push(diagnostic(
+        disposition ? 'visual_plan_unauthorized_omission' : 'visual_plan_foreign_source',
+        `Scene ${scene.id} attaches field ${unauthorizedFieldId} without a learner-visible field disposition.`,
+        { sourceId: unauthorizedFieldId, sceneId: scene.id },
+      ));
+    }
 
     const referencedScreens = scene.storyboardScreenIds
       .map((screenId) => screenById.get(screenId))
@@ -272,15 +284,16 @@ export const validateVisualTeachingPlan = (
     if (referencedScreens.length === scene.storyboardScreenIds.length && referencedScreens.length > 0) {
       const expectedStepIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceStepIds));
       const expectedObjectiveIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceObjectiveIds));
-      const expectedFieldIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceFieldIds));
-      if (
+      const isFieldOnlyScene = scene.sourceFieldIds.length > 0
+        && scene.sourceStepIds.length === 0
+        && scene.sourceObjectiveIds.length === 0;
+      if (!isFieldOnlyScene && (
         !arraysEqual(scene.sourceStepIds, expectedStepIds)
         || !arraysEqual(scene.sourceObjectiveIds, expectedObjectiveIds)
-        || !arraysEqual(scene.sourceFieldIds, expectedFieldIds)
-      ) {
+      )) {
         diagnostics.push(diagnostic(
           'visual_plan_foreign_source',
-          `Scene ${scene.id} source references do not match its storyboard screen provenance.`,
+          `Scene ${scene.id} step or objective references do not match its storyboard screen provenance.`,
           { sceneId: scene.id },
         ));
       }
