@@ -124,13 +124,16 @@ const sceneForDecision = (
     .flatMap((unit) => unit.steps)
     .find((step) => step.id === decision.sourceId);
   const sourceObjective = fixture.manifest.objectives.find((objective) => objective.id === decision.sourceId);
+  const sourceField = fixture.manifest.units
+    .flatMap((unit) => Object.values(unit.fields))
+    .find((field) => field.id === decision.sourceId);
   const screen = fixture.storyboard.screens.find((candidate) => (
     candidate.sourceStepIds.includes(decision.sourceId)
     || candidate.sourceObjectiveIds.includes(decision.sourceId)
   ));
-  assert.ok(screen);
+  if (!sourceField) assert.ok(screen);
 
-  const rawText = sourceStep?.rawBlocks.join(' ') ?? sourceObjective?.rawText ?? decision.sourceLabel;
+  const rawText = sourceStep?.rawBlocks.join(' ') ?? sourceObjective?.rawText ?? sourceField?.value ?? decision.sourceLabel;
   const sceneId = `visual-scene-${String(sceneNumber).padStart(3, '0')}`;
   const visualGrammar = decision.sourceKind === 'objective'
     ? 'visual-thesis'
@@ -158,14 +161,15 @@ const sceneForDecision = (
     unitId: decision.unitId,
     sourceStepIds: sourceStep ? [sourceStep.id] : [],
     sourceObjectiveIds: sourceObjective ? [sourceObjective.id] : [],
-    storyboardScreenIds: [screen.id],
+    sourceFieldIds: sourceField ? [sourceField.id] : [],
+    storyboardScreenIds: screen ? [screen.id] : [],
     teachingMove,
     learnerTitle: decision.sourceKind === 'objective' ? 'Learning Target' : decision.sourceLabel,
     visibleContent: visibleContentForStep(decision.sourceLabel, rawText),
     visualGrammar,
-    teacherNotes: screen.teacherNotes,
-    requiredEvidence: sourceStep ? screen.requiredEvidence : [],
-    requiredOutputs: sourceStep ? screen.requiredOutputs : [],
+    teacherNotes: screen?.teacherNotes ?? `Source field (${decision.sourceLabel}): ${rawText}`,
+    requiredEvidence: sourceStep ? screen?.requiredEvidence ?? [] : [],
+    requiredOutputs: sourceStep ? screen?.requiredOutputs ?? [] : [],
   };
 };
 
@@ -180,6 +184,7 @@ export const validVisualPlanFixture = () => {
   const sceneIdsBySourceId = new Map(scenes.flatMap((scene) => [
     ...scene.sourceStepIds.map((sourceId) => [sourceId, scene.id] as const),
     ...scene.sourceObjectiveIds.map((sourceId) => [sourceId, scene.id] as const),
+    ...scene.sourceFieldIds.map((sourceId) => [sourceId, scene.id] as const),
   ]));
   const plan: VisualTeachingPlan = {
     contractVersion: VISUAL_TEACHING_PLAN_VERSION,
@@ -278,11 +283,27 @@ type FutureSemanticSlideSpec = Omit<SemanticSlideSpec, 'layoutId' | 'slots'> & {
   }>;
 };
 
+const assertValidFutureSemanticFixture = (
+  spec: FutureSemanticSlideSpec,
+  fixture: ReturnType<typeof validVisualPlanFixture>,
+  requiredSlot: 'diagram' | 'question',
+): void => {
+  const screen = fixture.storyboard.screens.find((candidate) => candidate.id === spec.storyboardScreenId);
+  assert.ok(screen);
+  assert.equal(spec.contractVersion, SEMANTIC_SLIDE_SPEC_VERSION);
+  assert.equal(spec.unitId, screen.unitId);
+  assert.deepEqual(spec.sourceStepIds, screen.sourceStepIds);
+  assert.deepEqual(spec.sourceObjectiveIds, screen.sourceObjectiveIds);
+  assert.equal(spec.slots.title?.kind, 'text');
+  assert.equal(spec.slots[requiredSlot]?.kind, requiredSlot);
+  assert.deepEqual(spec.accessibility.readingOrder, ['title', requiredSlot]);
+};
+
 export const relationshipDiagramSemanticFixture = (): FutureSemanticSlideSpec => {
   const fixture = validVisualPlanFixture();
   const scene = fixture.plan.scenes.find((candidate) => candidate.visualGrammar === 'relationship-diagram');
   assert.ok(scene?.visibleContent.diagram);
-  return {
+  const spec: FutureSemanticSlideSpec = {
     contractVersion: SEMANTIC_SLIDE_SPEC_VERSION,
     id: 'semslide-relationship-fixture',
     unitId: scene.unitId,
@@ -299,13 +320,15 @@ export const relationshipDiagramSemanticFixture = (): FutureSemanticSlideSpec =>
     speakerNotes: scene.teacherNotes,
     accessibility: { readingOrder: ['title', 'diagram'], slidePurpose: 'Explain a source-backed relationship.' },
   };
+  assertValidFutureSemanticFixture(spec, fixture, 'diagram');
+  return spec;
 };
 
 export const questionChoicesSemanticFixture = (): FutureSemanticSlideSpec => {
   const fixture = validVisualPlanFixture();
   const scene = fixture.plan.scenes.find((candidate) => candidate.visualGrammar === 'question-choices');
   assert.ok(scene?.visibleContent.question);
-  return {
+  const spec: FutureSemanticSlideSpec = {
     contractVersion: SEMANTIC_SLIDE_SPEC_VERSION,
     id: 'semslide-question-fixture',
     unitId: scene.unitId,
@@ -322,6 +345,8 @@ export const questionChoicesSemanticFixture = (): FutureSemanticSlideSpec => {
     speakerNotes: scene.teacherNotes,
     accessibility: { readingOrder: ['title', 'question'], slidePurpose: 'Check understanding with parsed choices.' },
   };
+  assertValidFutureSemanticFixture(spec, fixture, 'question');
+  return spec;
 };
 
 export const visualLayoutSceneFixture = (): CompiledSlideScene => {

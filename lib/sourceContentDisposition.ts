@@ -41,6 +41,17 @@ const PLANNING_CONTEXT_LABEL =
 const LEARNER_REFERENCE_ACTION =
   /\b(?:learners?|students?)\s+(?:use|consult|compare|evaluate|cite)\b|\b(?:use|consult|compare|evaluate|cite)\s+(?:the\s+)?(?:reference|source)/i;
 
+const compareCodePoints = (left: string, right: string): number => {
+  const leftPoints = [...left];
+  const rightPoints = [...right];
+  const sharedLength = Math.min(leftPoints.length, rightPoints.length);
+  for (let index = 0; index < sharedLength; index += 1) {
+    const difference = leftPoints[index].codePointAt(0)! - rightPoints[index].codePointAt(0)!;
+    if (difference !== 0) return difference;
+  }
+  return leftPoints.length - rightPoints.length;
+};
+
 const dispositionForStep = (step: SourceStep): Pick<SourceDispositionDecision, 'disposition' | 'reason'> => {
   const sourceText = step.rawBlocks.join(' ');
   if (ADMINISTRATIVE_LABEL.test(step.sourceLabel) && !LEARNER_REFERENCE_ACTION.test(sourceText)) {
@@ -140,7 +151,7 @@ export const classifySourceContent = (
     }
   }
 
-  decisions.sort((left, right) => left.sourceOrder - right.sourceOrder || left.sourceId.localeCompare(right.sourceId));
+  decisions.sort((left, right) => left.sourceOrder - right.sourceOrder || compareCodePoints(left.sourceId, right.sourceId));
   const sourceIds = new Set(decisions.map((decision) => decision.sourceId));
   if (sourceIds.size !== decisions.length) {
     return {

@@ -107,3 +107,39 @@ test('applies anchored planning rules to source fields', () => {
   assert.equal(result.decisions.find((item) => item.sourceId === 'field-administrative')?.disposition, 'omit-administrative');
   assert.equal(result.decisions.find((item) => item.sourceId === 'field-learner-context')?.disposition, 'speaker-notes');
 });
+
+test('uses deterministic code-point ordering for equal source orders', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      fields: {
+        accent: {
+          id: 'field-ä',
+          label: 'Accent Field',
+          value: 'Accent value.',
+          state: 'present' as const,
+          sourceOrder: 9,
+          sourceLocation: { blockId: 'field-accent' },
+        },
+        ascii: {
+          id: 'field-z',
+          label: 'ASCII Field',
+          value: 'ASCII value.',
+          state: 'present' as const,
+          sourceOrder: 9,
+          sourceLocation: { blockId: 'field-ascii' },
+        },
+      },
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.decisions.filter((item) => item.sourceOrder === 9).map((item) => item.sourceId),
+    ['field-z', 'field-ä'],
+  );
+});

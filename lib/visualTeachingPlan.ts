@@ -1,4 +1,4 @@
-import type { LessonSourceManifest, SourceStep } from './lessonSourceManifest.ts';
+import type { LessonSourceManifest } from './lessonSourceManifest.ts';
 import type { SourceDispositionDecision } from './sourceContentDisposition.ts';
 import type { TeachingStoryboard } from './teachingStoryboard.ts';
 
@@ -25,6 +25,7 @@ export type VisualTeachingScene = {
   unitId: string;
   sourceStepIds: string[];
   sourceObjectiveIds: string[];
+  sourceFieldIds: string[];
   storyboardScreenIds: string[];
   teachingMove: 'orient' | 'target' | 'explain' | 'model' | 'practice' | 'evidence' | 'check' | 'synthesize';
   learnerTitle: string;
@@ -141,9 +142,23 @@ const getVisibleSceneText = (scene: VisualTeachingScene): string => normalizeTex
   ...(scene.visibleContent.diagram?.edges.map((edge) => edge.label) ?? []),
 ].filter((value): value is string => typeof value === 'string').join(' '));
 
-const findStep = (manifest: LessonSourceManifest, sourceId: string): SourceStep | undefined => (
-  manifest.units.flatMap((unit) => unit.steps).find((step) => step.id === sourceId)
-);
+const sceneReferencesSource = (
+  scene: VisualTeachingScene,
+  decision: SourceDispositionDecision,
+): boolean => {
+  if (decision.sourceKind === 'objective') return scene.sourceObjectiveIds.includes(decision.sourceId);
+  if (decision.sourceKind === 'field') return scene.sourceFieldIds.includes(decision.sourceId);
+  return scene.sourceStepIds.includes(decision.sourceId);
+};
+
+const sceneIdsMatchOwnership = (declaredSceneIds: readonly string[], actualSceneIds: readonly string[]): boolean => {
+  const declared = new Set(declaredSceneIds);
+  const actual = new Set(actualSceneIds);
+  return declared.size === declaredSceneIds.length
+    && actual.size === actualSceneIds.length
+    && declared.size === actual.size
+    && [...declared].every((sceneId) => actual.has(sceneId));
+};
 
 export const isVisualTeachingComposerV1Enabled = (flagValue: string | undefined): boolean => (
   TRUE_LIKE_COMPOSER_FLAGS.has(flagValue?.trim().toLowerCase() ?? '')
@@ -174,8 +189,19 @@ export const validateVisualTeachingPlan = (
 
   const selectedUnits = manifest.units.filter((unit) => selectedUnitIds.includes(unit.id));
   const selectedSteps = selectedUnits.flatMap((unit) => unit.steps);
+  const selectedFields = selectedUnits.flatMap((unit) => Object.values(unit.fields));
   const selectedStepIds = new Set(selectedSteps.map((step) => step.id));
   const selectedObjectiveIds = new Set(selectedUnits.flatMap((unit) => unit.objectiveIds));
+  const selectedFieldIds = new Set(selectedFields.map((field) => field.id));
+  const unitIdByStepId = new Map(selectedSteps.map((step) => [step.id, step.unitId]));
+  const unitIdByObjectiveId = new Map(manifest.objectives
+    .filter((objective) => selectedObjectiveIds.has(objective.id))
+    .map((objective) => [objective.id, objective.unitId]));
+  const unitIdByFieldId = new Map(selectedUnits.flatMap((unit) => (
+    Object.values(unit.fields).map((field) => [field.id, unit.id] as const)
+  )));
+  const stepById = new Map(selectedSteps.map((step) => [step.id, step]));
+  const fieldById = new Map(selectedFields.map((field) => [field.id, field]));
   const screenById = new Map(storyboard.screens.map((screen) => [screen.id, screen]));
   const sceneById = new Map(plan.scenes.map((scene) => [scene.id, scene]));
   const dispositionById = new Map(dispositions.map((item) => [item.sourceId, item]));
@@ -196,17 +222,29 @@ export const validateVisualTeachingPlan = (
     const foreignSourceId = [
       ...scene.sourceStepIds.filter((sourceId) => !selectedStepIds.has(sourceId)),
       ...scene.sourceObjectiveIds.filter((sourceId) => !selectedObjectiveIds.has(sourceId)),
+      ...scene.sourceFieldIds.filter((sourceId) => !selectedFieldIds.has(sourceId)),
     ][0];
     const foreignScreenId = scene.storyboardScreenIds.find((screenId) => !screenById.has(screenId));
-    const ownershipMismatch = scene.storyboardScreenIds.some((screenId) => {
+    const ownershipMismatchSourceId = [
+      ...scene.sourceStepIds.filter((sourceId) => unitIdByStepId.get(sourceId) !== scene.unitId),
+      ...scene.sourceObjectiveIds.filter((sourceId) => unitIdByObjectiveId.get(sourceId) !== scene.unitId),
+      ...scene.sourceFieldIds.filter((sourceId) => unitIdByFieldId.get(sourceId) !== scene.unitId),
+    ][0];
+    const ownershipMismatchScreenId = scene.storyboardScreenIds.find((screenId) => {
       const screen = screenById.get(screenId);
       return Boolean(screen && screen.unitId !== scene.unitId);
     });
-    if (foreignSourceId || foreignScreenId || ownershipMismatch || !selectedUnitIds.includes(scene.unitId)) {
+    if (
+      foreignSourceId
+      || foreignScreenId
+      || ownershipMismatchSourceId
+      || ownershipMismatchScreenId
+      || !selectedUnitIds.includes(scene.unitId)
+    ) {
       diagnostics.push(diagnostic(
         'visual_plan_foreign_source',
         `Scene ${scene.id} contains a source or storyboard reference outside the selected lesson units.`,
-        { sourceId: foreignSourceId, sceneId: scene.id },
+        { sourceId: foreignSourceId ?? ownershipMismatchSourceId, sceneId: scene.id },
       ));
     }
   }
@@ -247,23 +285,18 @@ export const validateVisualTeachingPlan = (
       ));
     }
 
-    const ownedScenes = entry.sceneIds
-      .map((sceneId) => sceneById.get(sceneId))
-      .filter((scene): scene is VisualTeachingScene => Boolean(scene));
-    const ownsSource = ownedScenes.some((scene) => (
-      scene.sourceStepIds.includes(entry.sourceId) || scene.sourceObjectiveIds.includes(entry.sourceId)
-    ));
-    const referencedByScene = plan.scenes.some((scene) => (
-      scene.sourceStepIds.includes(entry.sourceId) || scene.sourceObjectiveIds.includes(entry.sourceId)
-    ));
-    if (expected.disposition === 'learner-visible' && (!ownsSource || ownedScenes.length !== entry.sceneIds.length)) {
+    const actualSceneIds = plan.scenes
+      .filter((scene) => sceneReferencesSource(scene, expected))
+      .map((scene) => scene.id);
+    const ownershipMatches = sceneIdsMatchOwnership(entry.sceneIds, actualSceneIds);
+    if (!ownershipMatches || (expected.disposition === 'learner-visible' && actualSceneIds.length === 0)) {
       diagnostics.push(diagnostic(
         'visual_plan_source_unaccounted',
-        `Learner-visible source ${entry.sourceId} does not own a valid visual teaching scene.`,
+        `Source ${entry.sourceId} scene accounting does not exactly match direct scene ownership.`,
         { sourceId: entry.sourceId },
       ));
     }
-    if (expected.disposition === 'omit-administrative' && (entry.sceneIds.length > 0 || referencedByScene)) {
+    if (expected.disposition === 'omit-administrative' && actualSceneIds.length > 0) {
       diagnostics.push(diagnostic(
         'visual_plan_unauthorized_omission',
         `Administrative source ${entry.sourceId} must not own a learner-visible scene.`,
@@ -285,7 +318,7 @@ export const validateVisualTeachingPlan = (
   const sourceOrderById = new Map(dispositions.map((item) => [item.sourceId, item.sourceOrder]));
   let lastSourceOrder = Number.NEGATIVE_INFINITY;
   for (const scene of plan.scenes) {
-    const sourceOrders = [...scene.sourceObjectiveIds, ...scene.sourceStepIds]
+    const sourceOrders = [...scene.sourceObjectiveIds, ...scene.sourceStepIds, ...scene.sourceFieldIds]
       .map((sourceId) => sourceOrderById.get(sourceId))
       .filter((sourceOrder): sourceOrder is number => sourceOrder !== undefined);
     if (sourceOrders.length === 0) continue;
@@ -301,12 +334,16 @@ export const validateVisualTeachingPlan = (
     lastSourceOrder = Math.max(...sourceOrders);
   }
 
-  const planningDecisions = dispositions.filter((item) => item.disposition === 'speaker-notes');
+  const hiddenDecisions = dispositions.filter((item) => (
+    (item.disposition === 'speaker-notes' || item.disposition === 'omit-administrative')
+    && (item.sourceKind === 'step' || item.sourceKind === 'field')
+  ));
   for (const scene of plan.scenes) {
     const visibleText = getVisibleSceneText(scene);
-    const exposedPlanningSource = planningDecisions.find((decision) => {
-      const step = findStep(manifest, decision.sourceId);
-      const sourceText = normalizeText(step?.rawBlocks.join(' ') ?? '');
+    const exposedPlanningSource = hiddenDecisions.find((decision) => {
+      const sourceText = normalizeText(decision.sourceKind === 'field'
+        ? fieldById.get(decision.sourceId)?.value ?? ''
+        : stepById.get(decision.sourceId)?.rawBlocks.join(' ') ?? '');
       const sourceLabel = normalizeText(decision.sourceLabel);
       return (sourceLabel && visibleText.includes(sourceLabel)) || (sourceText && visibleText.includes(sourceText));
     });
