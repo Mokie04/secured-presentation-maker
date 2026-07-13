@@ -417,6 +417,80 @@ const contractDiagnostic = (): VisualTeachingPlanDiagnostic => ({
   message: 'The structured visual teaching plan does not match visual-teaching-plan-v1.',
 });
 
+const uniqueInOrder = (values: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+};
+
+const sceneReferencesDisposition = (
+  scene: VisualTeachingPlan['scenes'][number],
+  disposition: SourceDispositionDecision,
+): boolean => {
+  if (disposition.sourceKind === 'objective') return scene.sourceObjectiveIds.includes(disposition.sourceId);
+  if (disposition.sourceKind === 'field') return scene.sourceFieldIds.includes(disposition.sourceId);
+  return scene.sourceStepIds.includes(disposition.sourceId);
+};
+
+const canonicalizeProviderProvenance = (
+  plan: VisualTeachingPlan,
+  input: VisualTeachingComposerInput,
+): VisualTeachingPlan => {
+  const screenById = new Map(input.storyboard.screens.map((screen) => [screen.id, screen]));
+  const screenOrderById = new Map(input.storyboard.screens.map((screen, index) => [screen.id, index]));
+  const scenes = plan.scenes
+    .map((scene, originalIndex) => {
+      const hasUniqueScreenIds = scene.storyboardScreenIds.length > 0
+        && new Set(scene.storyboardScreenIds).size === scene.storyboardScreenIds.length;
+      const referencedScreens = hasUniqueScreenIds
+        ? scene.storyboardScreenIds.map((screenId) => screenById.get(screenId))
+        : [];
+      const hasValidScreenIds = referencedScreens.length > 0 && referencedScreens.every(Boolean);
+      if (!hasValidScreenIds) {
+        return { scene, originalIndex, earliestScreenOrder: Number.POSITIVE_INFINITY };
+      }
+
+      const trustedScreens = referencedScreens as TeachingStoryboard['screens'];
+      const unitIds = new Set(trustedScreens.map((screen) => screen.unitId));
+      return {
+        scene: {
+          ...scene,
+          ...(unitIds.size === 1 ? { unitId: trustedScreens[0].unitId } : {}),
+          sourceStepIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceStepIds)),
+          sourceObjectiveIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceObjectiveIds)),
+          sourceFieldIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceFieldIds)),
+        },
+        originalIndex,
+        earliestScreenOrder: Math.min(
+          ...scene.storyboardScreenIds.map((screenId) => screenOrderById.get(screenId)!),
+        ),
+      };
+    })
+    .sort((left, right) => (
+      left.earliestScreenOrder === right.earliestScreenOrder
+        ? left.originalIndex - right.originalIndex
+        : left.earliestScreenOrder - right.earliestScreenOrder
+    ))
+    .map(({ scene }) => scene);
+  const selectedUnitIds = input.storyboard.provenance.selectedUnitIds;
+
+  return {
+    ...plan,
+    ...(selectedUnitIds.length === 1 ? { unitId: selectedUnitIds[0] } : {}),
+    sourceObjectiveIds: input.storyboard.objectives.map((objective) => objective.sourceObjectiveId),
+    scenes,
+    sourceAccounting: input.dispositions.map((disposition) => ({
+      ...disposition,
+      sceneIds: scenes
+        .filter((scene) => sceneReferencesDisposition(scene, disposition))
+        .map((scene) => scene.id),
+    })),
+  };
+};
+
 const validateProviderValue = (
   value: unknown,
   input: VisualTeachingComposerInput,
@@ -427,7 +501,7 @@ const validateProviderValue = (
     return { plan: null, diagnostics: [contractDiagnostic()] };
   }
 
-  const plan = {
+  const plan = canonicalizeProviderProvenance({
     ...(value as Omit<VisualTeachingPlan, 'provenance'>),
     provenance: {
       sourceHash: input.manifest.provenance.sourceHash,
@@ -436,7 +510,7 @@ const validateProviderValue = (
       provider,
       model,
     },
-  } satisfies VisualTeachingPlan;
+  } satisfies VisualTeachingPlan, input);
   const diagnostics = validateVisualTeachingPlan(plan, input.manifest, input.storyboard, input.dispositions);
   return { plan, diagnostics };
 };

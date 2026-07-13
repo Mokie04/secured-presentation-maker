@@ -159,6 +159,11 @@ const extractBindingResponseSchema = (prompt: string): unknown => {
   return JSON.parse(match[1]);
 };
 
+const planWithoutRelationshipScene = (fixture: ReturnType<typeof visualComposerFixture>) => ({
+  ...fixture.providerPlan,
+  scenes: fixture.providerPlan.scenes.filter((scene) => scene.visualGrammar !== 'relationship-diagram'),
+});
+
 test('returns a validated provider plan with local provenance', async () => {
   const fixture = visualComposerFixture();
   const calls: StructuredComposerRequest[] = [];
@@ -213,7 +218,7 @@ test('embeds the full strict response schema in compose and repair prompts', asy
   const result = await composeVisualTeachingPlanWithProvider(fixture.input, async (request) => {
     calls.push(request);
     return {
-      value: calls.length === 1 ? fixture.planWithoutRelationshipStep : fixture.providerPlan,
+      value: calls.length === 1 ? planWithoutRelationshipScene(fixture) : fixture.providerPlan,
       provider: 'fixture',
       model: 'fixture-model',
     };
@@ -234,7 +239,7 @@ test('binds exact storyboard provenance and disposition accounting in compose an
   const result = await composeVisualTeachingPlanWithProvider(fixture.input, async (request) => {
     calls.push(request);
     return {
-      value: calls.length === 1 ? fixture.planWithoutRelationshipStep : fixture.providerPlan,
+      value: calls.length === 1 ? planWithoutRelationshipScene(fixture) : fixture.providerPlan,
       provider: 'fixture',
       model: 'fixture-model',
     };
@@ -307,7 +312,7 @@ test('allows one repair call and validates the repaired plan from scratch', asyn
   const result = await composeVisualTeachingPlanWithProvider(fixture.input, async (request) => {
     calls.push(request);
     return {
-      value: calls.length === 1 ? fixture.planWithoutRelationshipStep : fixture.providerPlan,
+      value: calls.length === 1 ? planWithoutRelationshipScene(fixture) : fixture.providerPlan,
       provider: 'fixture',
       model: 'fixture-model',
     };
@@ -325,7 +330,7 @@ test('sends only blocking diagnostic codes and messages to repair', async () => 
   const result = await composeVisualTeachingPlanWithProvider(fixture.input, async (request) => {
     calls.push(request);
     return {
-      value: calls.length === 1 ? fixture.planWithoutRelationshipStep : fixture.providerPlan,
+      value: calls.length === 1 ? planWithoutRelationshipScene(fixture) : fixture.providerPlan,
       provider: 'fixture',
       model: 'fixture-model',
     };
@@ -340,12 +345,140 @@ test('sends only blocking diagnostic codes and messages to repair', async () => 
   assert.deepEqual(Object.keys(diagnostics[0]).sort(), ['code', 'message']);
 });
 
+test('canonicalizes schema-valid provider provenance from the trusted storyboard before validation', async () => {
+  const fixture = visualComposerFixture();
+  const objectiveId = fixture.input.storyboard.objectives[0].sourceObjectiveId;
+  const modelAssetBrief = {
+    purpose: 'Explain the source-backed relationship',
+    subject: 'A text-free instructional setup',
+    style: 'illustration' as const,
+    mustNotContainText: true as const,
+  };
+  const modelScenes = fixture.providerPlan.scenes.map((scene, index) => ({
+    ...scene,
+    unitId: 'provider-forged-unit',
+    sourceStepIds: ['provider-forged-step'],
+    sourceObjectiveIds: [objectiveId, objectiveId],
+    sourceFieldIds: ['provider-forged-field'],
+    learnerTitle: `Provider teaching title ${scene.id}`,
+    teacherNotes: `Provider teaching notes ${scene.id}`,
+    ...(index === 0 ? { assetBrief: modelAssetBrief } : {}),
+  })).reverse();
+  const modelPlan = {
+    ...fixture.providerPlan,
+    unitId: 'provider-forged-unit',
+    sourceObjectiveIds: [objectiveId, objectiveId],
+    scenes: modelScenes,
+    sourceAccounting: fixture.providerPlan.sourceAccounting.map((entry) => ({
+      ...entry,
+      unitId: 'provider-forged-unit',
+      sceneIds: ['provider-forged-scene'],
+    })).reverse(),
+  };
+  let callCount = 0;
+
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    callCount += 1;
+    return { value: modelPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(callCount, 1);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  const screenById = new Map(fixture.input.storyboard.screens.map((screen) => [screen.id, screen]));
+  assert.equal(result.plan.unitId, fixture.input.storyboard.provenance.selectedUnitIds[0]);
+  assert.deepEqual(
+    result.plan.sourceObjectiveIds,
+    fixture.input.storyboard.objectives.map((objective) => objective.sourceObjectiveId),
+  );
+  assert.deepEqual(
+    result.plan.scenes.map((scene) => scene.id),
+    fixture.providerPlan.scenes.map((scene) => scene.id),
+  );
+  for (const scene of result.plan.scenes) {
+    const modelScene = modelScenes.find((candidate) => candidate.id === scene.id);
+    assert.ok(modelScene);
+    const screens = scene.storyboardScreenIds.map((screenId) => screenById.get(screenId));
+    assert.equal(screens.every(Boolean), true);
+    assert.deepEqual(scene.storyboardScreenIds, modelScene.storyboardScreenIds);
+    assert.equal(scene.unitId, screens[0]?.unitId);
+    assert.deepEqual(scene.sourceStepIds, screens.flatMap((screen) => screen?.sourceStepIds ?? []));
+    assert.deepEqual(scene.sourceObjectiveIds, screens.flatMap((screen) => screen?.sourceObjectiveIds ?? []));
+    assert.deepEqual(scene.sourceFieldIds, screens.flatMap((screen) => screen?.sourceFieldIds ?? []));
+    assert.equal(scene.learnerTitle, modelScene.learnerTitle);
+    assert.equal(scene.teacherNotes, modelScene.teacherNotes);
+  }
+  assert.deepEqual(result.plan.scenes.find((scene) => scene.id === modelScenes.at(-1)?.id)?.assetBrief, modelAssetBrief);
+
+  const expectedAccounting = fixture.input.dispositions.map((decision) => ({
+    ...decision,
+    sceneIds: result.plan.scenes
+      .filter((scene) => (
+        decision.sourceKind === 'objective'
+          ? scene.sourceObjectiveIds.includes(decision.sourceId)
+          : decision.sourceKind === 'field'
+            ? scene.sourceFieldIds.includes(decision.sourceId)
+            : scene.sourceStepIds.includes(decision.sourceId)
+      ))
+      .map((scene) => scene.id),
+  }));
+  assert.deepEqual(result.plan.sourceAccounting, expectedAccounting);
+});
+
+test('keeps empty, duplicate, foreign, and mixed-unit storyboard references fail-closed after repair', async () => {
+  const cases = [
+    { name: 'empty', screenIds: [] as string[], expectedCode: 'visual_plan_contract_invalid' },
+    { name: 'duplicate', screenIds: ['screen-001', 'screen-001'], expectedCode: 'visual_plan_contract_invalid' },
+    { name: 'foreign', screenIds: ['screen-does-not-exist'], expectedCode: 'visual_plan_foreign_source' },
+    { name: 'mixed-unit', screenIds: ['screen-001', 'screen-mixed-unit'], expectedCode: 'visual_plan_foreign_source' },
+  ] as const;
+
+  for (const item of cases) {
+    const fixture = visualComposerFixture();
+    const mixedUnitScreen = {
+      ...fixture.input.storyboard.screens[1],
+      id: 'screen-mixed-unit',
+      unitId: 'unit-mixed',
+    };
+    const input = item.name === 'mixed-unit'
+      ? {
+          ...fixture.input,
+          storyboard: {
+            ...fixture.input.storyboard,
+            screens: [...fixture.input.storyboard.screens, mixedUnitScreen],
+          },
+        }
+      : fixture.input;
+    const providerPlan = {
+      ...fixture.providerPlan,
+      scenes: fixture.providerPlan.scenes.map((scene, index) => (
+        index === 0 ? { ...scene, storyboardScreenIds: [...item.screenIds] } : scene
+      )),
+    };
+    let callCount = 0;
+    const result = await composeVisualTeachingPlanWithProvider(input, async () => {
+      callCount += 1;
+      return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+    });
+
+    assert.equal(callCount, 2, `${item.name} should use exactly one bounded repair`);
+    assert.equal(result.ok, false, `${item.name} should fail closed`);
+    if (result.ok) continue;
+    assert.equal(
+      result.diagnostics.some((diagnostic) => diagnostic.code === item.expectedCode),
+      true,
+      `${item.name} should report ${item.expectedCode}`,
+    );
+  }
+});
+
 test('does not deliver a generic fallback after two invalid responses', async () => {
   const fixture = visualComposerFixture();
   let callCount = 0;
   const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
     callCount += 1;
-    return { value: fixture.planWithoutRelationshipStep, provider: 'fixture', model: 'fixture-model' };
+    return { value: planWithoutRelationshipScene(fixture), provider: 'fixture', model: 'fixture-model' };
   });
 
   assert.equal(callCount, 2);
