@@ -151,6 +151,14 @@ const assertStrictObjectSchemas = (schema: unknown): void => {
   Object.values(record).forEach(assertStrictObjectSchemas);
 };
 
+const extractBindingResponseSchema = (prompt: string): unknown => {
+  const match = prompt.match(
+    /BEGIN_BINDING_RESPONSE_JSON_SCHEMA\n([^\n]+)\nEND_BINDING_RESPONSE_JSON_SCHEMA/,
+  );
+  assert.ok(match, 'prompt must include the binding response JSON schema');
+  return JSON.parse(match[1]);
+};
+
 test('returns a validated provider plan with local provenance', async () => {
   const fixture = visualComposerFixture();
   const calls: StructuredComposerRequest[] = [];
@@ -197,6 +205,27 @@ test('uses version-isolated prompts and recursively strict object schemas', asyn
   assert.match(calls[0].prompt, /Create a coherent teaching arc; do not create one slide for every source row by default\./);
   assert.doesNotMatch(calls[0].prompt, /provider-controlled|api[_ -]?key|cache secret/i);
   assertStrictObjectSchemas(calls[0].responseSchema);
+});
+
+test('embeds the full strict response schema in compose and repair prompts', async () => {
+  const fixture = visualComposerFixture();
+  const calls: StructuredComposerRequest[] = [];
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async (request) => {
+    calls.push(request);
+    return {
+      value: calls.length === 1 ? fixture.planWithoutRelationshipStep : fixture.providerPlan,
+      provider: 'fixture',
+      model: 'fixture-model',
+    };
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.map((call) => call.purpose), ['compose', 'repair']);
+  for (const call of calls) {
+    const promptSchema = extractBindingResponseSchema(call.prompt);
+    assert.deepEqual(promptSchema, call.responseSchema);
+    assertStrictObjectSchemas(promptSchema);
+  }
 });
 
 test('redacts omitted administrative raw content and excludes unrelated units from both prompts', async () => {
