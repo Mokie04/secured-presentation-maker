@@ -73,6 +73,50 @@ test('blocks delivery and success-cache writes when visual presentation quality 
   assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
 });
 
+test('blocks delivery and cache when rich metadata points to stripped title-and-body scenes', () => {
+  const fixture = buildVisualTeachingQualityEndToEndFixture();
+  const presentation = structuredClone(fixture.presentation);
+  for (const scene of presentation.scenes.slice(0, 4)) {
+    const title = scene.elements.find((element) => element.kind === 'text' && element.role === 'title');
+    const body = scene.elements.find((element) => element.kind === 'text' && element.role !== 'title');
+    assert.ok(title);
+    assert.ok(body);
+    scene.elements = [title, body];
+    scene.readingOrder = [title.id, body.id];
+  }
+
+  const result = validateEndToEndScenePresentation({ ...fixture, presentation });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.report.presentationQuality);
+  assert.equal(result.report.presentationQuality.meaningfulVisualGrammarRatio < 0.75, true);
+  assert.equal(result.report.presentationQuality.plainTitleBodyRatio > 0.25, true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
+});
+
+test('blocks an invalid visual plan explicitly before delivery and cache success', () => {
+  const fixture = buildVisualTeachingQualityEndToEndFixture();
+  const visualTeachingPlan = structuredClone(fixture.visualTeachingPlan);
+  const accounting = visualTeachingPlan.sourceAccounting.find((entry) => (
+    entry.disposition === 'learner-visible' && entry.sceneIds.length > 0
+  ));
+  assert.ok(accounting);
+  accounting.sceneIds = [];
+
+  const result = validateEndToEndScenePresentation({ ...fixture, visualTeachingPlan });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'e2e_visual_teaching_plan_invalid'
+  )), true);
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'e2e_presentation_quality_failed'
+  )), true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
+});
+
 test('preserves complete source coverage across dense continuation scenes', async () => {
   const fixture = await buildDenseStoryboardEndToEndFixture();
   const result = validateEndToEndScenePresentation(fixture);

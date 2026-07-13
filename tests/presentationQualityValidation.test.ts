@@ -3,21 +3,19 @@ import test from 'node:test';
 
 import {
   validatePresentationQuality,
-  type PresentationQualityValidationInput,
 } from '../lib/presentationQualityValidation.ts';
 import type { CompiledSlideScene, SceneTextElement } from '../lib/compiledSlideScene.ts';
-import { buildVisualTeachingQualityEndToEndFixture } from './fixtures/endToEndValidationFixtures.ts';
+import {
+  buildCloseReadingQualityEndToEndFixture,
+  buildLearnerReferenceQualityEndToEndFixture,
+  buildVisualTeachingQualityEndToEndFixture,
+} from './fixtures/endToEndValidationFixtures.ts';
 
-const passingQualityFixture = (): PresentationQualityValidationInput => {
-  const fixture = buildVisualTeachingQualityEndToEndFixture();
-  return {
-    visualTeachingPlan: fixture.visualTeachingPlan,
-    semanticSpecs: fixture.semanticSpecs,
-    presentation: fixture.presentation,
-  };
-};
+type QualityFixtureInput = ReturnType<typeof buildVisualTeachingQualityEndToEndFixture>;
 
-const cloneFixture = (fixture: PresentationQualityValidationInput): PresentationQualityValidationInput => (
+const passingQualityFixture = (): QualityFixtureInput => buildVisualTeachingQualityEndToEndFixture();
+
+const cloneFixture = (fixture: QualityFixtureInput): QualityFixtureInput => (
   structuredClone(fixture)
 );
 
@@ -42,19 +40,19 @@ const replaceText = (element: SceneTextElement, text: string): void => {
 };
 
 const withVisibleTitle = (
-  fixture: PresentationQualityValidationInput,
+  fixture: QualityFixtureInput,
   title: string,
-): PresentationQualityValidationInput => {
+): QualityFixtureInput => {
   const mutated = cloneFixture(fixture);
   replaceText(sceneTitle(mutated.presentation.scenes[0]), title);
   return mutated;
 };
 
 const withRepeatedGenericParagraphSlides = (
-  fixture: PresentationQualityValidationInput,
+  fixture: QualityFixtureInput,
   title: string,
   paragraph: string,
-): PresentationQualityValidationInput => {
+): QualityFixtureInput => {
   const mutated = cloneFixture(fixture);
   replaceText(sceneTitle(mutated.presentation.scenes[0]), `${title} 1`);
   replaceText(sceneTitle(mutated.presentation.scenes[1]), `${title} (continued)`);
@@ -63,9 +61,9 @@ const withRepeatedGenericParagraphSlides = (
 };
 
 const withRawAssessmentText = (
-  fixture: PresentationQualityValidationInput,
+  fixture: QualityFixtureInput,
   assessment: string,
-): PresentationQualityValidationInput => {
+): QualityFixtureInput => {
   const mutated = cloneFixture(fixture);
   replaceText(sceneBody(mutated.presentation.scenes[0]), assessment);
   return mutated;
@@ -78,14 +76,9 @@ const asPlainTitleBody = (scene: CompiledSlideScene): void => {
   scene.readingOrder = [title.id, body.id];
 };
 
-const plainTextDominatedQualityFixture = (): PresentationQualityValidationInput => {
+const plainTextDominatedQualityFixture = (): QualityFixtureInput => {
   const mutated = cloneFixture(passingQualityFixture());
   for (let index = 0; index < 4; index += 1) {
-    const planScene = mutated.visualTeachingPlan.scenes[index];
-    const spec = mutated.semanticSpecs[index];
-    planScene.visualGrammar = 'minimal-statement';
-    spec.visualGrammar = 'minimal-statement';
-    spec.layoutId = 'generic-bullets';
     asPlainTitleBody(mutated.presentation.scenes[index]);
   }
   return mutated;
@@ -101,6 +94,35 @@ test('blocks visible planning labels and reference dumps', () => {
   assert.equal(result.report.referenceDumpCount, 1);
   assert.equal(result.diagnostics.some((item) => item.code === 'quality_planning_label_visible'), true);
   assert.equal(result.diagnostics.some((item) => item.code === 'quality_reference_dump'), true);
+});
+
+test('blocks every anchored planning label in English and conservative Filipino equivalents', () => {
+  const labels = [
+    'Teacher Preparation',
+    'Administrative Notes',
+    'Learner Context',
+    'Observations of Learners',
+    'Ways Forward',
+    'Intentions',
+    'Sources',
+    'Paghahanda ng Guro',
+    'Mga Tala ng Administrasyon',
+    'Konteksto ng mga Mag-aaral',
+    'Mga Obserbasyon sa mga Mag-aaral',
+    'Mga Susunod na Hakbang',
+    'Mga Sanggunian',
+    'Mga Kagamitan',
+  ];
+
+  for (const label of labels) {
+    const result = validatePresentationQuality(withVisibleTitle(passingQualityFixture(), label));
+    assert.equal(result.ok, false, label);
+    assert.equal(
+      result.diagnostics.some((item) => item.code === 'quality_planning_label_visible'),
+      true,
+      label,
+    );
+  }
 });
 
 test('blocks paragraph dumps and repeated normalized generic titles', () => {
@@ -149,11 +171,27 @@ test('does not combine ordered choice markers across separate visible elements',
 });
 
 test('blocks decks dominated by plain title-and-body scenes', () => {
-  const result = validatePresentationQuality(plainTextDominatedQualityFixture());
+  const stripped = plainTextDominatedQualityFixture();
+  assert.equal(stripped.semanticSpecs.slice(0, 4).every((spec) => spec.visualGrammar !== 'minimal-statement'), true);
+  const result = validatePresentationQuality(stripped);
 
   assert.equal(result.ok, false);
   assert.equal(result.report.meaningfulVisualGrammarRatio < 0.75, true);
   assert.equal(result.report.explanatoryStructureRatio < 0.40, true);
+  assert.equal(result.report.plainTitleBodyRatio > 0.25, true);
+});
+
+test('does not restore visual credit from rich grammar metadata after native structure is removed', () => {
+  const stripped = plainTextDominatedQualityFixture();
+  for (const spec of stripped.semanticSpecs.slice(0, 4)) {
+    spec.visualGrammar = 'relationship-diagram';
+    spec.layoutId = 'relationship-diagram';
+  }
+
+  const result = validatePresentationQuality(stripped);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.report.meaningfulVisualGrammarRatio < 0.75, true);
   assert.equal(result.report.plainTitleBodyRatio > 0.25, true);
 });
 
@@ -184,16 +222,15 @@ test('blocks a source-required relationship rendered as prose only', () => {
 });
 
 test('allows a long source-authorized close-reading passage', () => {
-  const mutated = cloneFixture(passingQualityFixture());
-  const spec = mutated.semanticSpecs[0];
-  const planScene = mutated.visualTeachingPlan.scenes.find((scene) => scene.id === spec.visualTeachingSceneId);
-  assert.ok(planScene);
-  const sourceId = planScene.sourceObjectiveIds[0];
-  const accounting = mutated.visualTeachingPlan.sourceAccounting.find((entry) => entry.sourceId === sourceId);
-  assert.ok(accounting);
-  accounting.sourceLabel = 'Close Reading Passage';
+  const mutated = buildCloseReadingQualityEndToEndFixture();
+  const closeReadingScene = mutated.presentation.scenes.find((scene) => {
+    const spec = mutated.semanticSpecs.find((candidate) => candidate.id === scene.semanticSlideSpecId);
+    return spec?.visualTeachingSceneId === mutated.visualTeachingPlan.scenes
+      .find((candidate) => candidate.learnerTitle === 'Close Reading Passage')?.id;
+  });
+  assert.ok(closeReadingScene);
   replaceText(
-    sceneBody(mutated.presentation.scenes[0]),
+    sceneBody(closeReadingScene),
     `Passage: ${'Source-backed passage sentence for careful evidence reading. '.repeat(12)}`,
   );
 
@@ -204,6 +241,16 @@ test('allows a long source-authorized close-reading passage', () => {
 });
 
 test('allows source-authorized references that learners must use', () => {
+  const mutated = buildLearnerReferenceQualityEndToEndFixture();
+
+  const result = validatePresentationQuality(mutated);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.report.referenceDumpCount, 0);
+  assert.equal(result.report.planningLabelViolationCount, 0);
+});
+
+test('does not trust mutated plan accounting to authorize visible references', () => {
   const mutated = cloneFixture(passingQualityFixture());
   const spec = mutated.semanticSpecs[0];
   const planScene = mutated.visualTeachingPlan.scenes.find((scene) => scene.id === spec.visualTeachingSceneId);
@@ -220,9 +267,23 @@ test('allows source-authorized references that learners must use', () => {
 
   const result = validatePresentationQuality(mutated);
 
-  assert.equal(result.ok, true);
-  assert.equal(result.report.referenceDumpCount, 0);
-  assert.equal(result.report.planningLabelViolationCount, 0);
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostics.some((item) => item.code === 'quality_visual_plan_invalid'), true);
+  assert.equal(result.diagnostics.some((item) => item.code === 'quality_reference_dump'), true);
+});
+
+test('blocks a visual plan with manipulated source accounting', () => {
+  const mutated = cloneFixture(passingQualityFixture());
+  const accounting = mutated.visualTeachingPlan.sourceAccounting.find((entry) => (
+    entry.disposition === 'learner-visible' && entry.sceneIds.length > 0
+  ));
+  assert.ok(accounting);
+  accounting.sceneIds = [];
+
+  const result = validatePresentationQuality(mutated);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostics.some((item) => item.code === 'quality_visual_plan_invalid'), true);
 });
 
 test('allows one deliberate prompt and reveal pair after title normalization', () => {

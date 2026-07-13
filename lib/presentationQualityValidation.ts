@@ -3,16 +3,24 @@ import type {
   CompiledSlideScene,
   SceneElement,
 } from './compiledSlideScene.ts';
+import type { LessonSourceManifest } from './lessonSourceManifest.ts';
 import type { SemanticSlideSpec } from './semanticSlideSpec.ts';
+import {
+  classifySourceContent,
+  type SourceDispositionDecision,
+} from './sourceContentDisposition.ts';
+import type { TeachingStoryboard } from './teachingStoryboard.ts';
 import type {
   VisualGrammar,
   VisualTeachingPlan,
   VisualTeachingScene,
 } from './visualTeachingPlan.ts';
+import { validateVisualTeachingPlan } from './visualTeachingPlan.ts';
 
 export const PRESENTATION_QUALITY_VERSION = 'presentation-quality-v1';
 
 export type PresentationQualityDiagnosticCode =
+  | 'quality_visual_plan_invalid'
   | 'quality_planning_label_visible'
   | 'quality_reference_dump'
   | 'quality_paragraph_dump'
@@ -48,6 +56,8 @@ export type PresentationQualityReport = {
 };
 
 export type PresentationQualityValidationInput = {
+  sourceManifest: LessonSourceManifest;
+  storyboard: TeachingStoryboard;
   visualTeachingPlan: VisualTeachingPlan;
   semanticSpecs: readonly SemanticSlideSpec[];
   presentation: CompiledScenePresentation;
@@ -72,22 +82,6 @@ type InstructionalSlide = {
   grammar?: VisualGrammar;
   visibleText: VisibleTextUnit[];
 };
-
-const MEANINGFUL_GRAMMARS: ReadonlySet<VisualGrammar> = new Set([
-  'concept-map',
-  'relationship-diagram',
-  'process-flow',
-  'comparison-panels',
-  'classification-map',
-  'timeline',
-  'data-table',
-  'worked-example',
-  'activity-board',
-  'question-choices',
-  'evidence-board',
-  'visual-thesis',
-  'image-led-explanation',
-]);
 
 const EXPLANATORY_GRAMMARS: ReadonlySet<VisualGrammar> = new Set([
   'concept-map',
@@ -118,10 +112,10 @@ const GENERIC_TITLES = new Set([
   'task',
 ]);
 
-const REFERENCE_LABEL_PATTERN = /^(?:(?:learning|supporting)\s+)?(?:references?|resources?|materials?)(?:\s*[(:\-]|$)/i;
-const ADMINISTRATIVE_LABEL_PATTERN = /^(?:declaration\s+of\s+ai\s+use|duration|time\s+allotment|remarks?|planning\s+notes?|teacher(?:'s)?\s+(?:actions?|activity|notes?|resources?|materials?))(?:\s*[(:\-]|$)/i;
-const REFERENCE_SOURCE_PATTERN = /\b(?:references?|resources?|materials?|books?|websites?|toolkits?|sources?)\b/i;
-const REFERENCE_ACTION_PATTERN = /\b(?:use|consult|compare|evaluate|analy[sz]e|examine|read|cite|verify|select|review|refer\s+to)\b/i;
+const REFERENCE_LABEL_PATTERN = /^(?:(?:learning|supporting)\s+)?(?:references?|resources?|materials?|sources?|mga\s+(?:sanggunian|kagamitan|mapagkukunan)|sanggunian|kagamitan|mapagkukunan)(?:\s*[(:\-]|$)/i;
+const ADMINISTRATIVE_LABEL_PATTERN = /^(?:declaration\s+of\s+ai\s+use|teacher\s+preparation|administrative\s+notes?|learner\s+context|observations?\s+of\s+learners|ways\s+forward|intentions?|duration|time\s+allotment|remarks?|planning\s+notes?|teacher(?:'s)?\s+(?:actions?|activity|notes?|resources?|materials?)|deklarasyon\s+ng\s+paggamit\s+ng\s+ai|paghahanda\s+ng\s+guro|mga\s+tala\s+ng\s+administrasyon|talang\s+administratibo|konteksto\s+ng\s+(?:mga\s+)?mag-aaral|mga\s+obserbasyon\s+sa\s+mga\s+mag-aaral|mga\s+susunod\s+na\s+hakbang|mga\s+intensiyon)(?:\s*[(:\-]|$)/i;
+const REFERENCE_SOURCE_PATTERN = /\b(?:references?|resources?|materials?|books?|websites?|toolkits?|sources?|sanggunian|kagamitan|mapagkukunan)\b/i;
+const REFERENCE_ACTION_PATTERN = /\b(?:use|consult|compare|evaluate|analy[sz]e|examine|read|cite|verify|select|review|refer\s+to|gamitin|sumangguni|ihambing|suriin|sipiin)\b/i;
 const CLOSE_READING_SOURCE_PATTERN = /\b(?:close\s+reading|passage|quotation|quote|excerpt|primary\s+source|source\s+text|text\s+selection)\b/i;
 const RELATIONSHIP_SOURCE_PATTERN = /\b(?:relationship|cause|effect|compare|contrast|sequence|process|flow|cycle|depends?|increase|decrease|change)\b/i;
 
@@ -166,12 +160,12 @@ const sourceIdsForScene = (scene: VisualTeachingScene): string[] => [
 ];
 
 const sourceLabelsForScene = (
-  plan: VisualTeachingPlan,
+  dispositions: readonly SourceDispositionDecision[],
   scene: VisualTeachingScene | undefined,
 ): string[] => {
   if (!scene) return [];
   const sourceIds = new Set(sourceIdsForScene(scene));
-  return plan.sourceAccounting
+  return dispositions
     .filter((entry) => sourceIds.has(entry.sourceId) && entry.disposition === 'learner-visible')
     .map((entry) => entry.sourceLabel);
 };
@@ -189,10 +183,119 @@ const buildInstructionalSlides = (input: PresentationQualityValidationInput): In
       scene,
       spec,
       planScene,
-      grammar: spec?.visualGrammar ?? planScene?.visualGrammar,
+      grammar: planScene?.visualGrammar,
       visibleText: scene.elements.flatMap(visibleTextUnits),
     };
   });
+};
+
+const isDecorativeShape = (element: SceneElement): boolean => (
+  element.kind === 'shape'
+  && (element.id.endsWith('-bg') || element.id.endsWith('-title-band'))
+);
+
+const elementCount = (
+  scene: CompiledSlideScene,
+  predicate: (element: SceneElement) => boolean,
+): number => scene.elements.filter(predicate).length;
+
+const idIncludes = (element: SceneElement, token: string): boolean => element.id.includes(token);
+
+const hasBoundedImage = (scene: CompiledSlideScene): boolean => scene.elements.some((element) => (
+  element.kind === 'image'
+  && element.frame.x >= 0
+  && element.frame.y >= 0
+  && element.frame.x + element.frame.w <= scene.size.width
+  && element.frame.y + element.frame.h <= scene.size.height
+  && element.frame.w * element.frame.h < scene.size.width * scene.size.height
+));
+
+const hasRelationshipStructure = (scene: CompiledSlideScene): boolean => (
+  elementCount(scene, (element) => element.kind === 'shape' && !isDecorativeShape(element)) >= 2
+  && elementCount(scene, (element) => element.kind === 'connector') >= 1
+  && elementCount(scene, (element) => element.kind === 'text' && element.role === 'label') >= 2
+);
+
+const hasProcessStructure = (scene: CompiledSlideScene): boolean => (
+  elementCount(scene, (element) => element.kind === 'shape' && idIncludes(element, '-step-card-')) >= 2
+  && elementCount(scene, (element) => element.kind === 'text' && idIncludes(element, '-step-text-')) >= 2
+  && elementCount(scene, (element) => element.kind === 'connector') >= 1
+);
+
+const hasComparisonStructure = (scene: CompiledSlideScene): boolean => (
+  scene.elements.some((element) => element.kind === 'table')
+  || (
+    elementCount(scene, (element) => element.kind === 'shape' && idIncludes(element, '-panel-')) >= 2
+    && elementCount(scene, (element) => (
+      element.kind === 'text'
+      && (idIncludes(element, '-panel-title-') || idIncludes(element, '-panel-body-'))
+    )) >= 2
+  )
+);
+
+const hasQuestionChoiceStructure = (scene: CompiledSlideScene): boolean => (
+  elementCount(scene, (element) => element.kind === 'shape' && idIncludes(element, '-choice-card-')) >= 2
+  && elementCount(scene, (element) => element.kind === 'text' && idIncludes(element, '-choice-text-')) >= 2
+);
+
+const hasEvidenceStructure = (scene: CompiledSlideScene): boolean => (
+  scene.elements.some((element) => element.kind === 'table')
+  || (
+    elementCount(scene, (element) => (
+      element.kind === 'shape'
+      && (idIncludes(element, '-requirement-card') || idIncludes(element, '-evidence-card'))
+    )) >= 1
+    && elementCount(scene, (element) => (
+      element.kind === 'text'
+      && (idIncludes(element, '-requirement') || idIncludes(element, '-evidence'))
+    )) >= 1
+  )
+);
+
+const hasWorkedExampleStructure = (scene: CompiledSlideScene): boolean => (
+  elementCount(scene, (element) => element.kind === 'shape' && idIncludes(element, '-step-card-')) >= 2
+  && elementCount(scene, (element) => element.kind === 'text' && idIncludes(element, '-step-text-')) >= 2
+);
+
+const hasVisualThesisStructure = (scene: CompiledSlideScene): boolean => (
+  scene.elements.some((element) => element.kind === 'shape' && idIncludes(element, '-thesis-card'))
+  && scene.elements.some((element) => element.kind === 'text' && idIncludes(element, '-thesis-statement'))
+);
+
+const hasActivityBoardStructure = (scene: CompiledSlideScene): boolean => (
+  scene.elements.some((element) => element.kind === 'shape' && idIncludes(element, '-task-card'))
+  && scene.elements.some((element) => element.kind === 'text' && idIncludes(element, '-task'))
+);
+
+const hasConcreteGrammarStructure = (slide: InstructionalSlide): boolean => {
+  switch (slide.grammar) {
+    case 'concept-map':
+    case 'relationship-diagram':
+      return hasRelationshipStructure(slide.scene);
+    case 'process-flow':
+    case 'timeline':
+      return hasProcessStructure(slide.scene);
+    case 'comparison-panels':
+    case 'classification-map':
+      return hasComparisonStructure(slide.scene);
+    case 'data-table':
+      return slide.scene.elements.some((element) => element.kind === 'table');
+    case 'worked-example':
+      return hasWorkedExampleStructure(slide.scene);
+    case 'activity-board':
+      return hasActivityBoardStructure(slide.scene);
+    case 'question-choices':
+      return hasQuestionChoiceStructure(slide.scene);
+    case 'evidence-board':
+      return hasEvidenceStructure(slide.scene);
+    case 'visual-thesis':
+      return hasVisualThesisStructure(slide.scene);
+    case 'image-led-explanation':
+      return hasBoundedImage(slide.scene);
+    case 'minimal-statement':
+    default:
+      return false;
+  }
 };
 
 const normalizedGenericTitle = (title: string): string => normalizeText(title)
@@ -241,13 +344,36 @@ export const validatePresentationQuality = (
 ): PresentationQualityValidationResult => {
   const slides = buildInstructionalSlides(input);
   const diagnostics: PresentationQualityDiagnostic[] = [];
+  const dispositionResult = classifySourceContent(input.sourceManifest, input.storyboard);
+  let trustedDispositions: readonly SourceDispositionDecision[] = [];
+  if (dispositionResult.ok === false) {
+    diagnostics.push(diagnostic(
+      'quality_visual_plan_invalid',
+      `Visual teaching source classification failed: ${dispositionResult.diagnostics.map((item) => item.code).join(', ')}.`,
+    ));
+  } else {
+    const planDiagnostics = validateVisualTeachingPlan(
+      input.visualTeachingPlan,
+      input.sourceManifest,
+      input.storyboard,
+      dispositionResult.decisions,
+    ).filter((item) => item.severity === 'blocking');
+    if (planDiagnostics.length > 0) {
+      diagnostics.push(diagnostic(
+        'quality_visual_plan_invalid',
+        `Visual teaching plan revalidation failed: ${planDiagnostics.map((item) => item.code).join(', ')}.`,
+      ));
+    } else {
+      trustedDispositions = dispositionResult.decisions;
+    }
+  }
   let planningLabelViolationCount = 0;
   let paragraphDumpCount = 0;
   let unparsedAssessmentCount = 0;
 
   const referenceDumpSceneIds = new Set<string>();
   for (const slide of slides) {
-    const sourceLabels = sourceLabelsForScene(input.visualTeachingPlan, slide.planScene);
+    const sourceLabels = sourceLabelsForScene(trustedDispositions, slide.planScene);
     const allVisibleText = slide.visibleText.map((unit) => unit.text).join(' ');
     const referencesAuthorized = sourceLabels.some((label) => REFERENCE_SOURCE_PATTERN.test(label))
       && REFERENCE_SOURCE_PATTERN.test(allVisibleText)
@@ -335,9 +461,11 @@ export const validatePresentationQuality = (
   }
 
   const proseOnlyRelationshipSlides = slides.filter((slide) => {
-    const sourceLabels = sourceLabelsForScene(input.visualTeachingPlan, slide.planScene);
+    const sourceLabels = sourceLabelsForScene(trustedDispositions, slide.planScene);
     return sourceLabels.some((label) => RELATIONSHIP_SOURCE_PATTERN.test(label))
-      && (!slide.grammar || !EXPLANATORY_GRAMMARS.has(slide.grammar));
+      && (!slide.grammar
+        || !EXPLANATORY_GRAMMARS.has(slide.grammar)
+        || !hasConcreteGrammarStructure(slide));
   });
   for (const slide of proseOnlyRelationshipSlides) {
     diagnostics.push(diagnostic(
@@ -349,17 +477,19 @@ export const validatePresentationQuality = (
 
   const instructionalSlideCount = slides.length;
   const meaningfulVisualGrammarRatio = ratio(
-    slides.filter((slide) => Boolean(slide.grammar && MEANINGFUL_GRAMMARS.has(slide.grammar))).length,
+    slides.filter(hasConcreteGrammarStructure).length,
     instructionalSlideCount,
   );
   const explanatoryStructureRatio = ratio(
-    slides.filter((slide) => Boolean(slide.grammar && EXPLANATORY_GRAMMARS.has(slide.grammar))).length,
+    slides.filter((slide) => Boolean(
+      slide.grammar
+      && EXPLANATORY_GRAMMARS.has(slide.grammar)
+      && hasConcreteGrammarStructure(slide)
+    )).length,
     instructionalSlideCount,
   );
   const plainTitleBodyRatio = ratio(
-    slides.filter((slide) => !slide.grammar
-      || slide.grammar === 'minimal-statement'
-      || slide.spec?.layoutId === 'generic-bullets').length,
+    slides.filter((slide) => !hasConcreteGrammarStructure(slide)).length,
     instructionalSlideCount,
   );
 

@@ -38,6 +38,7 @@ export type EndToEndDiagnosticCode =
   | 'e2e_preview_text_not_editable'
   | 'e2e_pptx_round_trip_invalid'
   | 'e2e_full_slide_raster'
+  | 'e2e_visual_teaching_plan_invalid'
   | 'e2e_presentation_quality_failed'
   | 'e2e_cache_write_forbidden';
 
@@ -302,17 +303,28 @@ export const validateEndToEndScenePresentation = (
   const manifestDiagnostics = sourceManifestDiagnostics(input);
   const presentationQuality = input.visualTeachingPlan
     ? validatePresentationQuality({
+        sourceManifest: input.sourceManifest,
+        storyboard: input.storyboard,
         visualTeachingPlan: input.visualTeachingPlan,
         semanticSpecs: input.semanticSpecs,
         presentation: input.presentation,
       })
     : undefined;
   const presentationQualityDiagnostics: EndToEndDiagnostic[] = presentationQuality?.ok === false
-    ? [{
+    ? [
+      ...(presentationQuality.diagnostics.some((item) => item.code === 'quality_visual_plan_invalid')
+        ? [{
+            code: 'e2e_visual_teaching_plan_invalid' as const,
+            severity: 'blocking' as const,
+            message: 'The visual teaching plan failed deterministic source and ownership revalidation.',
+          }]
+        : []),
+      {
         code: 'e2e_presentation_quality_failed',
         severity: 'blocking',
         message: `Presentation quality validation failed: ${presentationQuality.diagnostics.map((item) => item.code).join(', ')}.`,
-      }]
+      },
+    ]
     : [];
   const allDiagnostics = [
     ...manifestDiagnostics,

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildDeckVisualSystems } from '../../lib/deckVisualSystem.ts';
 import { compileSemanticSlideSpecsToScenes } from '../../lib/compiledSlideScene.ts';
 import { buildLessonSourceManifest } from '../../lib/lessonSourceManifest.ts';
+import { classifySourceContent } from '../../lib/sourceContentDisposition.ts';
 import {
   buildSceneAssetRequests,
   type SceneAssetRequest,
@@ -14,6 +15,7 @@ import {
 import { buildSemanticSlideSpecs } from '../../lib/semanticSlideSpec.ts';
 import { buildTeachingStoryboard } from '../../lib/teachingStoryboard.ts';
 import { buildSemanticSlideSpecsFromVisualTeachingPlan } from '../../lib/visualTeachingSemanticBridge.ts';
+import { validateVisualTeachingPlan } from '../../lib/visualTeachingPlan.ts';
 import {
   DENSE_STORYBOARD_DOCUMENT,
   EVIDENCE_OUTPUT_DOCUMENT,
@@ -90,8 +92,12 @@ export const buildMultiObjectiveEndToEndFixture = () => materializeFixture(MULTI
 export const buildDenseStoryboardEndToEndFixture = () => materializeFixture(DENSE_STORYBOARD_DOCUMENT);
 export const buildSourceBackedBlankTaskEndToEndFixture = () => materializeFixture(SOURCE_BACKED_BLANK_TASK_DOCUMENT);
 
-export const buildVisualTeachingQualityEndToEndFixture = () => {
-  const fixture = validVisualPlanFixture();
+type VisualTeachingQualitySourceFixture = Pick<
+  ReturnType<typeof validVisualPlanFixture>,
+  'manifest' | 'storyboard' | 'dispositions' | 'plan'
+>;
+
+const materializeVisualTeachingQualityFixture = (fixture: VisualTeachingQualitySourceFixture) => {
   const semanticResult = buildSemanticSlideSpecsFromVisualTeachingPlan({
     sourceManifest: fixture.manifest,
     storyboard: fixture.storyboard,
@@ -134,6 +140,123 @@ export const buildVisualTeachingQualityEndToEndFixture = () => {
     presentation: sceneResult.presentation,
     visualTeachingPlan: fixture.plan,
   };
+};
+
+export const buildVisualTeachingQualityEndToEndFixture = () => (
+  materializeVisualTeachingQualityFixture(validVisualPlanFixture())
+);
+
+const sceneIdsForSource = (
+  plan: VisualTeachingQualitySourceFixture['plan'],
+  sourceId: string,
+): string[] => plan.scenes
+  .filter((scene) => (
+    scene.sourceStepIds.includes(sourceId)
+    || scene.sourceObjectiveIds.includes(sourceId)
+    || scene.sourceFieldIds.includes(sourceId)
+  ))
+  .map((scene) => scene.id);
+
+const reconcilePlanAccounting = (
+  fixture: Omit<VisualTeachingQualitySourceFixture, 'dispositions'>,
+): VisualTeachingQualitySourceFixture => {
+  const dispositionResult = classifySourceContent(fixture.manifest, fixture.storyboard);
+  assert.equal(dispositionResult.ok, true);
+  if (!dispositionResult.ok) throw new Error('visual teaching quality disposition fixture failed');
+  fixture.plan.sourceAccounting = dispositionResult.decisions.map((decision) => ({
+    ...decision,
+    sceneIds: sceneIdsForSource(fixture.plan, decision.sourceId),
+  }));
+  fixture.plan.provenance = {
+    ...fixture.plan.provenance,
+    sourceHash: fixture.manifest.provenance.sourceHash,
+    storyboardVersion: fixture.storyboard.contractVersion,
+    selectedUnitIds: [...fixture.storyboard.provenance.selectedUnitIds],
+  };
+  assert.deepEqual(validateVisualTeachingPlan(
+    fixture.plan,
+    fixture.manifest,
+    fixture.storyboard,
+    dispositionResult.decisions,
+  ), []);
+  return { ...fixture, dispositions: dispositionResult.decisions };
+};
+
+export const buildLearnerReferenceQualityEndToEndFixture = () => {
+  const base = validVisualPlanFixture();
+  const manifest = structuredClone(base.manifest);
+  const referenceStep = manifest.units[0].steps.find((step) => step.sourceLabel.startsWith('References'));
+  assert.ok(referenceStep);
+  referenceStep.rawBlocks = [
+    'Learners use the source-provided references to compare the two claims and cite the stronger evidence.',
+  ];
+  const storyboardResult = buildTeachingStoryboard(manifest);
+  assert.equal(storyboardResult.ok, true);
+  if (!storyboardResult.ok) throw new Error('learner reference storyboard fixture failed');
+  const referenceScreen = storyboardResult.storyboard.screens.find((screen) => (
+    screen.sourceStepIds.includes(referenceStep.id)
+  ));
+  assert.ok(referenceScreen);
+
+  const plan = structuredClone(base.plan);
+  plan.scenes.splice(1, 0, {
+    id: 'visual-scene-reference',
+    unitId: referenceStep.unitId,
+    sourceStepIds: [referenceStep.id],
+    sourceObjectiveIds: [],
+    sourceFieldIds: [],
+    storyboardScreenIds: [referenceScreen.id],
+    teachingMove: 'practice',
+    learnerTitle: 'Sources',
+    visibleContent: {
+      statement: referenceStep.rawBlocks[0],
+      points: [],
+      cards: [],
+      steps: [],
+    },
+    visualGrammar: 'activity-board',
+    teacherNotes: referenceScreen.teacherNotes,
+    requiredEvidence: [...referenceScreen.requiredEvidence],
+    requiredOutputs: [...referenceScreen.requiredOutputs],
+  });
+
+  return materializeVisualTeachingQualityFixture(reconcilePlanAccounting({
+    manifest,
+    storyboard: storyboardResult.storyboard,
+    plan,
+  }));
+};
+
+export const buildCloseReadingQualityEndToEndFixture = () => {
+  const base = validVisualPlanFixture();
+  const manifest = structuredClone(base.manifest);
+  const closeReadingStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Prediction');
+  assert.ok(closeReadingStep);
+  closeReadingStep.sourceLabel = 'Close Reading Passage';
+  closeReadingStep.rawBlocks = [
+    `Passage: ${'Source-backed passage sentence for careful evidence reading. '.repeat(12)}`,
+  ];
+  const storyboardResult = buildTeachingStoryboard(manifest);
+  assert.equal(storyboardResult.ok, true);
+  if (!storyboardResult.ok) throw new Error('close reading storyboard fixture failed');
+
+  const plan = structuredClone(base.plan);
+  const planScene = plan.scenes.find((scene) => scene.sourceStepIds.includes(closeReadingStep.id));
+  assert.ok(planScene);
+  const storyboardScreen = storyboardResult.storyboard.screens.find((screen) => (
+    screen.sourceStepIds.includes(closeReadingStep.id)
+  ));
+  assert.ok(storyboardScreen);
+  planScene.learnerTitle = 'Close Reading Passage';
+  planScene.storyboardScreenIds = [storyboardScreen.id];
+  planScene.visibleContent.statement = 'Read the source-provided passage closely and identify two pieces of evidence.';
+  planScene.teacherNotes = storyboardScreen.teacherNotes;
+
+  return materializeVisualTeachingQualityFixture(reconcilePlanAccounting({
+    manifest,
+    storyboard: storyboardResult.storyboard,
+    plan,
+  }));
 };
 
 export const flattenResolvedAssets = (resolvedAssetsBySpecId: Record<string, SceneResolvedAsset[]>): SceneResolvedAsset[] => (
