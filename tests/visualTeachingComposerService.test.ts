@@ -228,6 +228,36 @@ test('embeds the full strict response schema in compose and repair prompts', asy
   }
 });
 
+test('binds exact storyboard provenance and disposition accounting in compose and repair prompts', async () => {
+  const fixture = visualComposerFixture();
+  const calls: StructuredComposerRequest[] = [];
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async (request) => {
+    calls.push(request);
+    return {
+      value: calls.length === 1 ? fixture.planWithoutRelationshipStep : fixture.providerPlan,
+      provider: 'fixture',
+      model: 'fixture-model',
+    };
+  });
+
+  assert.equal(result.ok, true);
+  assert.deepEqual(calls.map((call) => call.purpose), ['compose', 'repair']);
+  for (const { prompt } of calls) {
+    assert.match(
+      prompt,
+      /For each scene, sourceStepIds and sourceObjectiveIds must exactly equal the ordered, de-duplicated union of those IDs from its referenced storyboardScreenIds; never attach a unit objective unless a referenced storyboard screen owns that objective\./,
+    );
+    assert.match(
+      prompt,
+      /Keep storyboardScreenIds in storyboard source order, and keep scenes in the source order of their referenced storyboard screens\./,
+    );
+    assert.match(
+      prompt,
+      /Copy every supplied disposition entry to sourceAccounting exactly once and in supplied order; preserve sourceKind, sourceId, unitId, sourceOrder, sourceLabel, disposition, and reason exactly, and only assign sceneIds\./,
+    );
+  }
+});
+
 test('redacts omitted administrative raw content and excludes unrelated units from both prompts', async () => {
   const fixture = promptBoundaryFixture();
   const calls: StructuredComposerRequest[] = [];

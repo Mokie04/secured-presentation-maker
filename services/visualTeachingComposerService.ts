@@ -272,6 +272,9 @@ Use visual grammar to explain relationships, processes, comparisons, evidence, a
 Parse each assessment question and each choice into separate structured fields.
 Do not emit coordinates, PowerPoint operations, markdown, image text, new facts, new activities, or new requirements.
 Keep teacher facilitation in teacherNotes.
+For each scene, sourceStepIds and sourceObjectiveIds must exactly equal the ordered, de-duplicated union of those IDs from its referenced storyboardScreenIds; never attach a unit objective unless a referenced storyboard screen owns that objective.
+Keep storyboardScreenIds in storyboard source order, and keep scenes in the source order of their referenced storyboard screens.
+Copy every supplied disposition entry to sourceAccounting exactly once and in supplied order; preserve sourceKind, sourceId, unitId, sourceOrder, sourceLabel, disposition, and reason exactly, and only assign sceneIds.
 Every learner-visible source ID must be owned by at least one scene.`;
 
 const bindingResponseSchemaLines = [
