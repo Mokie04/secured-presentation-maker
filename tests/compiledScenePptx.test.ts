@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { compileSemanticSlideSpecsToScenes, createPreviewSceneDescriptors } from '../lib/compiledSlideScene.ts';
-import { compilePptxSceneOperations, getPptxSceneOperationText } from '../lib/compiledScenePptx.ts';
+import {
+  compilePptxSceneOperations,
+  getPptxSceneOperationText,
+  type PptxSceneOperation,
+} from '../lib/compiledScenePptx.ts';
 import { SCENE_ASSET_REQUEST_VERSION, type SceneAssetRequest } from '../lib/sceneAssetRequests.ts';
 import { SCENE_ASSET_RESOLUTION_VERSION, type SceneResolvedAsset } from '../lib/sceneAssetResolver.ts';
 import { buildSemanticSlideSpecs } from '../lib/semanticSlideSpec.ts';
@@ -179,7 +183,10 @@ test('exports relationship nodes and connectors as matching native PPTX shapes',
 
   assert.equal(shapeOperations.some((operation) => operation.shape === 'ellipse'), true);
   assert.equal(shapeOperations.some((operation) => operation.shape === 'diamond'), true);
-  assert.equal(shapeOperations.filter((operation) => operation.shape === 'line').length, 2);
+  assert.equal(
+    shapeOperations.filter((operation) => operation.shape === 'line').length,
+    scene.elements.filter((element) => element.kind === 'connector').length,
+  );
   assert.deepEqual(
     operations.filter((operation) => 'elementId' in operation).map((operation) => operation.elementId),
     previewDescriptors.map((descriptor) => descriptor.elementId),
@@ -188,4 +195,83 @@ test('exports relationship nodes and connectors as matching native PPTX shapes',
     getPptxSceneOperationText(operations).filter(Boolean),
     previewDescriptors.flatMap((descriptor) => descriptor.text).filter(Boolean),
   );
+});
+
+test('preserves a routed relationship arrow on only the final native PPTX segment', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const diagram = base.slots.diagram;
+  assert.equal(diagram.kind, 'diagram');
+  if (diagram.kind !== 'diagram') return;
+  const routed = {
+    ...base,
+    slots: {
+      ...base.slots,
+      diagram: {
+        ...diagram,
+        edges: [{
+          from: diagram.nodes[0].id,
+          to: diagram.nodes[2].id,
+          label: 'Routed edge',
+          direction: 'forward' as const,
+        }],
+      },
+    },
+  };
+  const scenes = compileSemanticSlideSpecsToScenes([routed], { title: 'Routed Relationship Deck' });
+  assert.equal(scenes.ok, true);
+  if (!scenes.ok) return;
+  const scene = scenes.presentation.scenes[0];
+  const routeSegments = scene.elements.filter((element) => (
+    element.kind === 'connector' && element.id.includes('-edge-1-segment-')
+  ));
+  const operations = compilePptxSceneOperations(scene).filter((operation): operation is Extract<PptxSceneOperation, { kind: 'addShape' }> => (
+    operation.kind === 'addShape' && operation.elementId.includes('-edge-1-segment-')
+  ));
+
+  assert.equal(operations.length, routeSegments.length);
+  assert.equal(operations.length, 3);
+  for (const operation of operations.slice(0, -1)) {
+    const line = operation.options.line as { beginArrowType: string; endArrowType: string };
+    assert.equal(line.beginArrowType, 'none');
+    assert.equal(line.endArrowType, 'none');
+  }
+  const finalLine = operations.at(-1)?.options.line as { beginArrowType: string; endArrowType: string };
+  assert.equal(finalLine.beginArrowType, 'none');
+  assert.equal(finalLine.endArrowType, 'triangle');
+  assert.deepEqual(
+    operations.map((operation) => operation.elementId),
+    routeSegments.map((segment) => segment.id),
+  );
+
+  operations.forEach((operation, index) => {
+    const frame = routeSegments[index].frame;
+    const options = operation.options as Record<'x' | 'y' | 'w' | 'h', number>;
+    if (frame.w >= frame.h) {
+      assert.equal(options.x, frame.x / 128);
+      assert.equal(options.y, (frame.y + frame.h / 2) / 128);
+      assert.equal(options.w, frame.w / 128);
+      assert.equal(options.h, 0);
+      return;
+    }
+    assert.equal(options.x, (frame.x + frame.w / 2) / 128);
+    assert.equal(options.y, frame.y / 128);
+    assert.equal(options.w, 0);
+    assert.equal(options.h, frame.h / 128);
+  });
+
+  const operationEndpoints = operations.map((operation) => {
+    const options = operation.options as Record<'x' | 'y' | 'w' | 'h', number>;
+    return [
+      `${options.x},${options.y}`,
+      `${options.x + options.w},${options.y + options.h}`,
+    ];
+  });
+  for (let index = 1; index < operationEndpoints.length; index += 1) {
+    const previous = new Set(operationEndpoints[index - 1]);
+    assert.equal(
+      operationEndpoints[index].some((endpoint) => previous.has(endpoint)),
+      true,
+      `PPTX route segments ${index} and ${index + 1} should share an endpoint`,
+    );
+  }
 });

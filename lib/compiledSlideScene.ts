@@ -298,7 +298,7 @@ export const SEMANTIC_LAYOUT_DEFINITIONS: readonly SemanticLayoutDefinition[] = 
     semantic: true,
     allowedIntents: ['title-context', 'learning-targets', 'wrap-up'],
     requiredSlots: ['title'],
-    optionalSlots: ['body', 'diagram'],
+    optionalSlots: ['body', 'diagram', 'requirements', 'successCriteria'],
     maxTextChars: 420,
     maxListItems: 4,
   },
@@ -307,7 +307,7 @@ export const SEMANTIC_LAYOUT_DEFINITIONS: readonly SemanticLayoutDefinition[] = 
     semantic: true,
     allowedIntents: ['guided-example', 'comparison-matrix', 'process-flow'],
     requiredSlots: ['title', 'diagram'],
-    optionalSlots: ['body', 'successCriteria'],
+    optionalSlots: ['body', 'requirements', 'successCriteria'],
     maxTextChars: 620,
     maxListItems: 6,
   },
@@ -464,7 +464,44 @@ const makeConnector = (
   arrowEnd: direction === 'both' || (direction === 'forward' && !reverse),
 });
 
+type ScenePoint = { x: number; y: number };
+
+const connectorFrameBetweenPoints = (start: ScenePoint, end: ScenePoint): SceneFrame => {
+  const horizontal = start.y === end.y;
+  return horizontal
+    ? { x: Math.min(start.x, end.x), y: start.y - 2, w: Math.max(4, Math.abs(end.x - start.x)), h: 4 }
+    : { x: start.x - 2, y: Math.min(start.y, end.y), w: 4, h: Math.max(4, Math.abs(end.y - start.y)) };
+};
+
+const makeConnectorSegment = (
+  id: string,
+  readingOrder: number,
+  start: ScenePoint,
+  end: ScenePoint,
+  from: string,
+  to: string,
+  arrowAtPathStart = false,
+  arrowAtPathEnd = false,
+): SceneConnectorElement => {
+  const horizontal = start.y === end.y;
+  const frameStartIsPathStart = horizontal ? start.x <= end.x : start.y <= end.y;
+  return {
+    id,
+    kind: 'connector',
+    frame: connectorFrameBetweenPoints(start, end),
+    editable: true,
+    readingOrder,
+    from,
+    to,
+    stroke: '64748B',
+    arrowStart: frameStartIsPathStart ? arrowAtPathStart : arrowAtPathEnd,
+    arrowEnd: frameStartIsPathStart ? arrowAtPathEnd : arrowAtPathStart,
+  };
+};
+
 const asBulletText = (items: string[]): string => items.map((item) => `- ${item}`).join('\n');
+
+const uniqueTextItems = (items: readonly string[]): string[] => Array.from(new Set(items.map(clampText).filter(Boolean)));
 
 const makeTitleBand = (
   baseId: string,
@@ -479,6 +516,186 @@ const makeTitleBand = (
 
 type DiagramSlot = Extract<SlideSlotValue, { kind: 'diagram' }>;
 type QuestionSlot = Extract<SlideSlotValue, { kind: 'question' }>;
+
+type OrthogonalEdgeRoute = {
+  edgeIndex: number;
+  points: ScenePoint[];
+  labelFrame?: SceneFrame;
+};
+
+const RELATIONSHIP_NODE_Y = 360;
+const RELATIONSHIP_NODE_SIZE = 120;
+const RELATIONSHIP_ROUTE_LANES = [282, 488, 306, 514, 330, 540, 354, 566] as const;
+
+const buildRelationshipNodeFrames = (diagram: DiagramSlot): Map<string, SceneFrame> => {
+  const nodeGap = 28;
+  const nodeSlotWidth = Math.floor((1136 - nodeGap * Math.max(0, diagram.nodes.length - 1)) / Math.max(1, diagram.nodes.length));
+  const visualNodeSize = Math.min(RELATIONSHIP_NODE_SIZE, nodeSlotWidth);
+  return new Map(diagram.nodes.map((node, index) => {
+    const slotX = 72 + index * (nodeSlotWidth + nodeGap);
+    return [node.id, {
+      x: slotX + Math.floor((nodeSlotWidth - visualNodeSize) / 2),
+      y: RELATIONSHIP_NODE_Y,
+      w: visualNodeSize,
+      h: visualNodeSize,
+    }];
+  }));
+};
+
+const paddedSceneFrame = (frame: SceneFrame, padding = 4): SceneFrame => ({
+  x: frame.x - padding,
+  y: frame.y - padding,
+  w: frame.w + padding * 2,
+  h: frame.h + padding * 2,
+});
+
+const routeSegmentFrames = (route: OrthogonalEdgeRoute): SceneFrame[] => (
+  route.points.slice(0, -1).map((point, index) => connectorFrameBetweenPoints(point, route.points[index + 1]))
+);
+
+const routesCollide = (left: OrthogonalEdgeRoute, right: OrthogonalEdgeRoute): boolean => {
+  const leftSegments = routeSegmentFrames(left);
+  const rightSegments = routeSegmentFrames(right);
+  if (leftSegments.some((segment) => rightSegments.some((other) => framesOverlap(segment, other)))) return true;
+  const leftLabel = left.labelFrame ? paddedSceneFrame(left.labelFrame) : undefined;
+  const rightLabel = right.labelFrame ? paddedSceneFrame(right.labelFrame) : undefined;
+  if (leftLabel && rightLabel && framesOverlap(leftLabel, rightLabel)) return true;
+  if (leftLabel && rightSegments.some((segment) => framesOverlap(leftLabel, segment))) return true;
+  if (rightLabel && leftSegments.some((segment) => framesOverlap(rightLabel, segment))) return true;
+  return false;
+};
+
+const frameIsOnCanvas = (frame: SceneFrame): boolean => (
+  frame.x >= 0 && frame.y >= 0 && frame.x + frame.w <= SCENE_WIDTH && frame.y + frame.h <= SCENE_HEIGHT
+);
+
+const buildRelationshipEndpointPorts = (
+  diagram: DiagramSlot,
+  nodeFrames: ReadonlyMap<string, SceneFrame>,
+): Map<string, number> => {
+  const ports = new Map<string, number>();
+  diagram.nodes.forEach((node) => {
+    const incidentEdgeIndexes = diagram.edges.flatMap((edge, edgeIndex) => (
+      edge.from === node.id || edge.to === node.id ? [edgeIndex] : []
+    ));
+    const frame = nodeFrames.get(node.id);
+    if (!frame) return;
+    incidentEdgeIndexes.forEach((edgeIndex, rank) => {
+      const offset = incidentEdgeIndexes.length <= 1
+        ? 0
+        : -frame.w / 3 + (rank * (frame.w * 2 / 3)) / (incidentEdgeIndexes.length - 1);
+      ports.set(`${edgeIndex}:${node.id}`, frame.x + frame.w / 2 + offset);
+    });
+  });
+  return ports;
+};
+
+const relationshipRouteCandidates = (
+  diagram: DiagramSlot,
+  edgeIndex: number,
+  nodeFrames: ReadonlyMap<string, SceneFrame>,
+  endpointPorts: ReadonlyMap<string, number>,
+): OrthogonalEdgeRoute[] => {
+  const edge = diagram.edges[edgeIndex];
+  const fromIndex = diagram.nodes.findIndex((node) => node.id === edge.from);
+  const toIndex = diagram.nodes.findIndex((node) => node.id === edge.to);
+  const fromFrame = nodeFrames.get(edge.from);
+  const toFrame = nodeFrames.get(edge.to);
+  if (!fromFrame || !toFrame) return [];
+  const label = clampText(edge.label ?? '');
+  if (Math.abs(fromIndex - toIndex) <= 1 && !label) {
+    const forwardOnCanvas = fromFrame.x <= toFrame.x;
+    return [{
+      edgeIndex,
+      points: [
+        { x: forwardOnCanvas ? fromFrame.x + fromFrame.w : fromFrame.x, y: fromFrame.y + fromFrame.h / 2 },
+        { x: forwardOnCanvas ? toFrame.x : toFrame.x + toFrame.w, y: toFrame.y + toFrame.h / 2 },
+      ],
+    }];
+  }
+
+  const fromPortX = endpointPorts.get(`${edgeIndex}:${edge.from}`) ?? fromFrame.x + fromFrame.w / 2;
+  const toPortX = endpointPorts.get(`${edgeIndex}:${edge.to}`) ?? toFrame.x + toFrame.w / 2;
+  const horizontalWidth = Math.abs(toPortX - fromPortX);
+  const labelWidth = Math.min(272, Math.max(96, horizontalWidth - 24));
+  const candidates: OrthogonalEdgeRoute[] = [];
+  RELATIONSHIP_ROUTE_LANES.forEach((laneY) => {
+    const routeAboveNodes = laneY < fromFrame.y;
+    const fromBoundaryY = routeAboveNodes ? fromFrame.y : fromFrame.y + fromFrame.h;
+    const toBoundaryY = routeAboveNodes ? toFrame.y : toFrame.y + toFrame.h;
+    const labelYs = label
+      ? routeAboveNodes
+        ? [laneY - 26, laneY + 4]
+        : [laneY + 4, laneY - 26]
+      : [undefined];
+    labelYs.forEach((labelY) => {
+      const route: OrthogonalEdgeRoute = {
+        edgeIndex,
+        points: [
+          { x: fromPortX, y: fromBoundaryY },
+          { x: fromPortX, y: laneY },
+          { x: toPortX, y: laneY },
+          { x: toPortX, y: toBoundaryY },
+        ],
+        labelFrame: labelY === undefined
+          ? undefined
+          : {
+              x: Math.round((fromPortX + toPortX - labelWidth) / 2),
+              y: labelY,
+              w: labelWidth,
+              h: 24,
+            },
+      };
+      const fromNodeId = diagram.edges[edgeIndex].from;
+      const toNodeId = diagram.edges[edgeIndex].to;
+      const nonEndNodeFrames = diagram.nodes.flatMap((node) => (
+        node.id === fromNodeId || node.id === toNodeId ? [] : [nodeFrames.get(node.id)]
+      )).filter((frame): frame is SceneFrame => Boolean(frame));
+      const segments = routeSegmentFrames(route);
+      const routeFits = segments.every(frameIsOnCanvas)
+        && !segments.some((segment) => nonEndNodeFrames.some((frame) => framesOverlap(segment, frame)))
+        && (!route.labelFrame || (
+          frameIsOnCanvas(route.labelFrame)
+          && !Array.from(nodeFrames.values()).some((frame) => framesOverlap(route.labelFrame!, frame))
+        ));
+      if (routeFits) candidates.push(route);
+    });
+  });
+  return candidates;
+};
+
+const buildRelationshipOrthogonalRoutes = (
+  diagram: DiagramSlot,
+  nodeFrames: ReadonlyMap<string, SceneFrame>,
+): Map<number, OrthogonalEdgeRoute> | null => {
+  const endpointPorts = buildRelationshipEndpointPorts(diagram, nodeFrames);
+  const candidatesByEdge = diagram.edges.map((_, edgeIndex) => (
+    relationshipRouteCandidates(diagram, edgeIndex, nodeFrames, endpointPorts)
+  ));
+  if (candidatesByEdge.some((candidates) => candidates.length === 0)) return null;
+  const edgeOrder = diagram.edges.map((_, edgeIndex) => edgeIndex).sort((left, right) => {
+    const leftEdge = diagram.edges[left];
+    const rightEdge = diagram.edges[right];
+    const leftSpan = Math.abs(diagram.nodes.findIndex((node) => node.id === leftEdge.from) - diagram.nodes.findIndex((node) => node.id === leftEdge.to));
+    const rightSpan = Math.abs(diagram.nodes.findIndex((node) => node.id === rightEdge.from) - diagram.nodes.findIndex((node) => node.id === rightEdge.to));
+    return rightSpan - leftSpan || left - right;
+  });
+  let searchStates = 0;
+  const search = (orderIndex: number, accepted: OrthogonalEdgeRoute[]): OrthogonalEdgeRoute[] | null => {
+    searchStates += 1;
+    if (searchStates > 50_000) return null;
+    if (orderIndex >= edgeOrder.length) return accepted;
+    const edgeIndex = edgeOrder[orderIndex];
+    for (const candidate of candidatesByEdge[edgeIndex]) {
+      if (accepted.some((route) => routesCollide(candidate, route))) continue;
+      const result = search(orderIndex + 1, [...accepted, candidate]);
+      if (result) return result;
+    }
+    return null;
+  };
+  const routes = search(0, []);
+  return routes ? new Map(routes.map((route) => [route.edgeIndex, route])) : null;
+};
 
 const relationshipNodeStyle = (
   role: string,
@@ -501,12 +718,12 @@ const buildRelationshipDiagramElements = (
     ...listItems(spec.slots.points),
   ].map(clampText).filter(Boolean);
   const contextText = contextItems.join('\n');
-  const criteriaText = asBulletText(listItems(spec.slots.successCriteria));
-  const nodeGap = 28;
-  const nodeSlotWidth = Math.floor((1136 - nodeGap * Math.max(0, diagram.nodes.length - 1)) / Math.max(1, diagram.nodes.length));
-  const visualNodeSize = Math.min(criteriaText || contextText ? 150 : 180, nodeSlotWidth);
-  const nodeY = contextText ? 390 : criteriaText ? 350 : 330;
-  const nodeFrames = new Map<string, SceneFrame>();
+  const criteriaText = asBulletText(uniqueTextItems([
+    ...listItems(spec.slots.successCriteria),
+    ...listItems(spec.slots.requirements),
+  ]));
+  const nodeFrames = buildRelationshipNodeFrames(diagram);
+  const orthogonalRoutes = buildRelationshipOrthogonalRoutes(diagram, nodeFrames);
   const elements: SceneElement[] = [...makeTitleBand(baseId, title)];
 
   if (contextText) {
@@ -521,21 +738,30 @@ const buildRelationshipDiagramElements = (
     ));
   }
 
-  diagram.nodes.forEach((node, index) => {
-    const slotX = 72 + index * (nodeSlotWidth + nodeGap);
-    const frame = {
-      x: slotX + Math.floor((nodeSlotWidth - visualNodeSize) / 2),
-      y: nodeY,
-      w: visualNodeSize,
-      h: visualNodeSize,
-    };
-    nodeFrames.set(node.id, frame);
-  });
-
   diagram.edges.forEach((edge, index) => {
     const fromFrame = nodeFrames.get(edge.from);
     const toFrame = nodeFrames.get(edge.to);
     if (!fromFrame || !toFrame) return;
+    const fromId = `${baseId}-node-${diagram.nodes.findIndex((node) => node.id === edge.from) + 1}`;
+    const toId = `${baseId}-node-${diagram.nodes.findIndex((node) => node.id === edge.to) + 1}`;
+    const route = orthogonalRoutes?.get(index);
+    if (route) {
+      route.points.slice(0, -1).forEach((point, segmentIndex) => {
+        const isFirst = segmentIndex === 0;
+        const isLast = segmentIndex === route.points.length - 2;
+        elements.push(makeConnectorSegment(
+          `${baseId}-edge-${index + 1}-segment-${segmentIndex + 1}`,
+          40 + index * 4 + segmentIndex,
+          point,
+          route.points[segmentIndex + 1],
+          fromId,
+          toId,
+          isFirst && edge.direction === 'both',
+          isLast && (edge.direction === 'forward' || edge.direction === 'both'),
+        ));
+      });
+      return;
+    }
     const fromCenter = fromFrame.x + fromFrame.w / 2;
     const toCenter = toFrame.x + toFrame.w / 2;
     const leftFrame = fromCenter <= toCenter ? fromFrame : toFrame;
@@ -551,8 +777,8 @@ const buildRelationshipDiagramElements = (
         w: Math.max(4, endX - startX),
         h: 4,
       },
-      `${baseId}-node-${diagram.nodes.findIndex((node) => node.id === edge.from) + 1}`,
-      `${baseId}-node-${diagram.nodes.findIndex((node) => node.id === edge.to) + 1}`,
+      fromId,
+      toId,
       edge.direction === 'both' || edge.direction === 'none' ? edge.direction : 'forward',
       fromCenter > toCenter,
     ));
@@ -586,15 +812,15 @@ const buildRelationshipDiagramElements = (
   diagram.edges.forEach((edge, index) => {
     const label = clampText(edge.label ?? '');
     if (!label) return;
-    const column = index % 4;
-    const row = Math.floor(index / 4);
+    const labelFrame = orthogonalRoutes?.get(index)?.labelFrame;
+    if (!labelFrame) return;
     elements.push(makeText(
       `${baseId}-edge-label-${index + 1}`,
       30 + index,
-      { x: 72 + column * 288, y: (contextText ? 274 : 190) + row * 48, w: 272, h: 34 },
+      labelFrame,
       label,
       'label',
-      18,
+      14,
       { align: 'center', valign: 'middle', color: '475569' },
     ));
   });
@@ -603,10 +829,10 @@ const buildRelationshipDiagramElements = (
     elements.push(makeText(
       `${baseId}-relationship-criteria`,
       50,
-      { x: 92, y: 568, w: 1096, h: 66 },
+      { x: 92, y: 610, w: 1096, h: 56 },
       criteriaText,
       'note',
-      18,
+      16,
       { align: 'center', valign: 'middle' },
     ));
   }
@@ -775,6 +1001,119 @@ const buildQuestionChoiceElements = (
   return elements;
 };
 
+const THESIS_DIAGRAM_ITEM_X = 754;
+const THESIS_DIAGRAM_ITEM_WIDTH = 300;
+const THESIS_ROUTE_LANES = [1068, 1084, 1100, 1116] as const;
+
+const buildThesisDiagramItemFrames = (diagram: DiagramSlot): Map<string, SceneFrame> => {
+  const itemGap = 18;
+  const itemRegionY = 180;
+  const itemRegionHeight = 430;
+  const itemHeight = Math.min(100, Math.floor((itemRegionHeight - itemGap * Math.max(0, diagram.nodes.length - 1)) / Math.max(1, diagram.nodes.length)));
+  const rightStartY = itemRegionY + Math.floor((itemRegionHeight - (itemHeight * diagram.nodes.length + itemGap * Math.max(0, diagram.nodes.length - 1))) / 2);
+  return new Map(diagram.nodes.map((node, index) => [
+    node.id,
+    { x: THESIS_DIAGRAM_ITEM_X, y: rightStartY + index * (itemHeight + itemGap), w: THESIS_DIAGRAM_ITEM_WIDTH, h: itemHeight },
+  ]));
+};
+
+const buildThesisOrthogonalRoutes = (
+  diagram: DiagramSlot,
+  itemFrames: ReadonlyMap<string, SceneFrame>,
+): Map<number, OrthogonalEdgeRoute> | null => {
+  const endpointPorts = new Map<string, number>();
+  diagram.nodes.forEach((node) => {
+    const frame = itemFrames.get(node.id);
+    if (!frame) return;
+    const incidentEdgeIndexes = diagram.edges.flatMap((edge, edgeIndex) => (
+      edge.from === node.id || edge.to === node.id ? [edgeIndex] : []
+    ));
+    incidentEdgeIndexes.forEach((edgeIndex, rank) => {
+      const offset = incidentEdgeIndexes.length <= 1
+        ? 0
+        : -frame.h / 3 + (rank * (frame.h * 2 / 3)) / (incidentEdgeIndexes.length - 1);
+      endpointPorts.set(`${edgeIndex}:${node.id}`, frame.y + frame.h / 2 + offset);
+    });
+  });
+
+  const candidatesByEdge = diagram.edges.map((edge, edgeIndex): OrthogonalEdgeRoute[] => {
+    const fromIndex = diagram.nodes.findIndex((node) => node.id === edge.from);
+    const toIndex = diagram.nodes.findIndex((node) => node.id === edge.to);
+    const fromFrame = itemFrames.get(edge.from);
+    const toFrame = itemFrames.get(edge.to);
+    if (!fromFrame || !toFrame) return [];
+    const label = clampText(edge.label ?? '');
+    if (Math.abs(fromIndex - toIndex) <= 1 && !label) {
+      const forwardOnCanvas = fromFrame.y <= toFrame.y;
+      return [{
+        edgeIndex,
+        points: [
+          { x: fromFrame.x + fromFrame.w / 2, y: forwardOnCanvas ? fromFrame.y + fromFrame.h : fromFrame.y },
+          { x: toFrame.x + toFrame.w / 2, y: forwardOnCanvas ? toFrame.y : toFrame.y + toFrame.h },
+        ],
+      }];
+    }
+    const fromPortY = endpointPorts.get(`${edgeIndex}:${edge.from}`) ?? fromFrame.y + fromFrame.h / 2;
+    const toPortY = endpointPorts.get(`${edgeIndex}:${edge.to}`) ?? toFrame.y + toFrame.h / 2;
+    const interval: [number, number] = [Math.min(fromPortY, toPortY), Math.max(fromPortY, toPortY)];
+    const candidates: OrthogonalEdgeRoute[] = [];
+    THESIS_ROUTE_LANES.forEach((laneX) => {
+      const labelYs = label
+        ? [0.5, 0.25, 0.75].map((factor) => Math.round(interval[0] + (interval[1] - interval[0] - 24) * factor))
+        : [undefined];
+      labelYs.forEach((labelY) => {
+        const route: OrthogonalEdgeRoute = {
+          edgeIndex,
+          points: [
+            { x: fromFrame.x + fromFrame.w, y: fromPortY },
+            { x: laneX, y: fromPortY },
+            { x: laneX, y: toPortY },
+            { x: toFrame.x + toFrame.w, y: toPortY },
+          ],
+          labelFrame: labelY === undefined
+            ? undefined
+            : { x: laneX + 8, y: labelY, w: 1208 - laneX - 8, h: 24 },
+        };
+        const nonEndFrames = diagram.nodes.flatMap((node) => (
+          node.id === edge.from || node.id === edge.to ? [] : [itemFrames.get(node.id)]
+        )).filter((frame): frame is SceneFrame => Boolean(frame));
+        const segments = routeSegmentFrames(route);
+        const routeFits = segments.every(frameIsOnCanvas)
+          && !segments.some((segment) => nonEndFrames.some((frame) => framesOverlap(segment, frame)))
+          && (!route.labelFrame || (
+            frameIsOnCanvas(route.labelFrame)
+            && !Array.from(itemFrames.values()).some((frame) => framesOverlap(route.labelFrame!, frame))
+          ));
+        if (routeFits) candidates.push(route);
+      });
+    });
+    return candidates;
+  });
+  if (candidatesByEdge.some((candidates) => candidates.length === 0)) return null;
+  const edgeOrder = diagram.edges.map((_, edgeIndex) => edgeIndex).sort((left, right) => {
+    const leftEdge = diagram.edges[left];
+    const rightEdge = diagram.edges[right];
+    const leftSpan = Math.abs(diagram.nodes.findIndex((node) => node.id === leftEdge.from) - diagram.nodes.findIndex((node) => node.id === leftEdge.to));
+    const rightSpan = Math.abs(diagram.nodes.findIndex((node) => node.id === rightEdge.from) - diagram.nodes.findIndex((node) => node.id === rightEdge.to));
+    return rightSpan - leftSpan || left - right;
+  });
+  let searchStates = 0;
+  const search = (orderIndex: number, accepted: OrthogonalEdgeRoute[]): OrthogonalEdgeRoute[] | null => {
+    searchStates += 1;
+    if (searchStates > 20_000) return null;
+    if (orderIndex >= edgeOrder.length) return accepted;
+    const edgeIndex = edgeOrder[orderIndex];
+    for (const candidate of candidatesByEdge[edgeIndex]) {
+      if (accepted.some((route) => routesCollide(candidate, route))) continue;
+      const result = search(orderIndex + 1, [...accepted, candidate]);
+      if (result) return result;
+    }
+    return null;
+  };
+  const routes = search(0, []);
+  return routes ? new Map(routes.map((route) => [route.edgeIndex, route])) : null;
+};
+
 const buildVisualThesisElements = (
   spec: SemanticSlideSpec,
   sceneId: string,
@@ -784,6 +1123,10 @@ const buildVisualThesisElements = (
   const statement = slotText(spec.slots.statement ?? spec.slots.body);
   const points = listItems(spec.slots.points);
   const diagram = spec.slots.diagram?.kind === 'diagram' ? spec.slots.diagram : undefined;
+  const supportText = asBulletText(uniqueTextItems([
+    ...listItems(spec.slots.successCriteria),
+    ...listItems(spec.slots.requirements),
+  ]));
   const elements: SceneElement[] = [
     ...makeTitleBand(baseId, title),
     makeShape(`${baseId}-thesis-card`, 2, { x: 72, y: 180, w: 636, h: 430 }, 'EEF2FF', 'A5B4FC'),
@@ -798,12 +1141,12 @@ const buildVisualThesisElements = (
     text: [node.label, node.detail].map((value) => clampText(value ?? '')).filter(Boolean).join('\n'),
     role: node.role,
   })) ?? points.map((point, index) => ({ id: `point-${index + 1}`, text: point, role: 'process' }));
-  const edgeLabels = diagram?.edges.map((edge) => clampText(edge.label ?? '')).filter(Boolean) ?? [];
   const itemGap = 18;
-  const itemRegionY = edgeLabels.length > 0 ? 252 : 180;
-  const itemRegionHeight = edgeLabels.length > 0 ? 358 : 430;
+  const itemRegionY = 180;
+  const itemRegionHeight = 430;
   const itemHeight = Math.min(100, Math.floor((itemRegionHeight - itemGap * Math.max(0, rightItems.length - 1)) / Math.max(1, rightItems.length)));
   const rightStartY = itemRegionY + Math.floor((itemRegionHeight - (itemHeight * rightItems.length + itemGap * Math.max(0, rightItems.length - 1))) / 2);
+  const rightItemWidth = diagram ? THESIS_DIAGRAM_ITEM_WIDTH : 454;
 
   if (diagram && points.length > 0) {
     const pointHeight = Math.floor(220 / points.length);
@@ -820,27 +1163,13 @@ const buildVisualThesisElements = (
     });
   }
 
-  edgeLabels.forEach((label, index) => {
-    const column = index % 2;
-    const row = Math.floor(index / 2);
-    elements.push(makeText(
-      `${baseId}-thesis-edge-label-${index + 1}`,
-      30 + index,
-      { x: 754 + column * 235, y: 184 + row * 30, w: 219, h: 24 },
-      label,
-      'label',
-      14,
-      { align: 'center', valign: 'middle', color: '475569' },
-    ));
-  });
-
   rightItems.forEach((item, index) => {
     const y = rightStartY + index * (itemHeight + itemGap);
     const style = relationshipNodeStyle(item.role);
     elements.push(makeShape(
       `${baseId}-thesis-item-${index + 1}`,
       10 + index * 2,
-      { x: 754, y, w: 454, h: itemHeight },
+      { x: THESIS_DIAGRAM_ITEM_X, y, w: rightItemWidth, h: itemHeight },
       style.fill,
       style.stroke,
       style.shape === 'ellipse' ? 'ellipse' : 'roundRect',
@@ -849,7 +1178,7 @@ const buildVisualThesisElements = (
     elements.push(makeText(
       `${baseId}-thesis-item-text-${index + 1}`,
       11 + index * 2,
-      { x: 784, y: y + 12, w: 394, h: itemHeight - 24 },
+      { x: THESIS_DIAGRAM_ITEM_X + 24, y: y + 12, w: rightItemWidth - 48, h: itemHeight - 24 },
       item.text,
       'body',
       19,
@@ -858,26 +1187,67 @@ const buildVisualThesisElements = (
   });
 
   if (diagram) {
-    const frameByNodeId = new Map(diagram.nodes.map((node, index) => [
-      node.id,
-      { x: 754, y: rightStartY + index * (itemHeight + itemGap), w: 454, h: itemHeight },
-    ] as const));
+    const frameByNodeId = buildThesisDiagramItemFrames(diagram);
+    const orthogonalRoutes = buildThesisOrthogonalRoutes(diagram, frameByNodeId);
     diagram.edges.forEach((edge, index) => {
       const from = frameByNodeId.get(edge.from);
       const to = frameByNodeId.get(edge.to);
       if (!from || !to) return;
+      const fromId = `${baseId}-thesis-item-${diagram.nodes.findIndex((node) => node.id === edge.from) + 1}`;
+      const toId = `${baseId}-thesis-item-${diagram.nodes.findIndex((node) => node.id === edge.to) + 1}`;
+      const route = orthogonalRoutes?.get(index);
+      if (route) {
+        route.points.slice(0, -1).forEach((point, segmentIndex) => {
+          const isFirst = segmentIndex === 0;
+          const isLast = segmentIndex === route.points.length - 2;
+          elements.push(makeConnectorSegment(
+            `${baseId}-thesis-edge-${index + 1}-segment-${segmentIndex + 1}`,
+            30 + index * 4 + segmentIndex,
+            point,
+            route.points[segmentIndex + 1],
+            fromId,
+            toId,
+            isFirst && edge.direction === 'both',
+            isLast && (edge.direction === 'forward' || edge.direction === 'both'),
+          ));
+        });
+        if (route.labelFrame && edge.label) {
+          elements.push(makeText(
+            `${baseId}-thesis-edge-label-${index + 1}`,
+            50 + index,
+            route.labelFrame,
+            clampText(edge.label),
+            'label',
+            11,
+            { align: 'center', valign: 'middle', color: '475569' },
+          ));
+        }
+        return;
+      }
       const upper = from.y <= to.y ? from : to;
       const lower = from.y <= to.y ? to : from;
       elements.unshift(makeConnector(
         `${baseId}-thesis-edge-${index + 1}`,
         30 + index,
         { x: upper.x + upper.w / 2 - 2, y: upper.y + upper.h, w: 4, h: Math.max(4, lower.y - upper.y - upper.h) },
-        `${baseId}-thesis-item-${diagram.nodes.findIndex((node) => node.id === edge.from) + 1}`,
-        `${baseId}-thesis-item-${diagram.nodes.findIndex((node) => node.id === edge.to) + 1}`,
+        fromId,
+        toId,
         edge.direction === 'both' || edge.direction === 'none' ? edge.direction : 'forward',
         from.y > to.y,
       ));
     });
+  }
+
+  if (supportText) {
+    elements.push(makeText(
+      `${baseId}-thesis-support`,
+      60,
+      { x: 92, y: 620, w: 1096, h: 50 },
+      supportText,
+      'note',
+      16,
+      { align: 'center', valign: 'middle' },
+    ));
   }
 
   return elements;
@@ -1028,20 +1398,32 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
 const applyVisualSystemToElements = (
   elements: readonly SceneElement[],
   visualSystem?: DeckVisualSystem,
+  visualLayout = false,
 ): SceneElement[] => {
   if (!visualSystem) return [...elements];
   return elements.map((element) => {
-    if (element.kind === 'shape' && element.id.includes('-node-')) {
-      const stroke = element.shape === 'ellipse'
+    if (
+      visualLayout
+      && element.kind === 'shape'
+      && (element.id.includes('-node-') || element.id.includes('-thesis-item-'))
+    ) {
+      const stroke = element.stroke === '0369A1'
         ? visualSystem.palette.accentCool
-        : element.shape === 'diamond'
+        : element.stroke === 'B45309'
           ? visualSystem.palette.warning
-          : element.shape === 'pill'
+          : element.stroke === '15803D'
             ? visualSystem.palette.success
             : visualSystem.palette.accentWarm;
       return { ...element, fill: visualSystem.palette.surface, stroke };
     }
-    if (element.kind === 'shape' && element.id.includes('-choice-')) {
+    if (visualLayout && element.kind === 'shape' && element.id.endsWith('-prompt-card')) {
+      return {
+        ...element,
+        fill: visualSystem.palette.surfaceMuted,
+        stroke: visualSystem.palette.accentCool,
+      };
+    }
+    if (visualLayout && element.kind === 'shape' && element.id.includes('-choice-')) {
       return {
         ...element,
         fill: visualSystem.palette.surface,
@@ -1050,7 +1432,7 @@ const applyVisualSystemToElements = (
           : visualSystem.palette.accentWarm,
       };
     }
-    if (element.kind === 'shape' && element.id.includes('-panel-')) {
+    if (visualLayout && element.kind === 'shape' && element.id.includes('-panel-')) {
       const index = Number(element.id.match(/-panel-(\d+)$/)?.[1] ?? 1);
       const colors = [
         visualSystem.palette.accentCool,
@@ -1063,7 +1445,11 @@ const applyVisualSystemToElements = (
         stroke: colors[(index - 1) % colors.length],
       };
     }
-    if (element.kind === 'shape' && (element.id.includes('-thesis-') || element.id.endsWith('-title-band'))) {
+    if (
+      visualLayout
+      && element.kind === 'shape'
+      && (element.id.endsWith('-thesis-card') || element.id.endsWith('-title-band'))
+    ) {
       return {
         ...element,
         fill: visualSystem.palette.surface,
@@ -1089,9 +1475,21 @@ const applyVisualSystemToElements = (
       };
     }
     if (element.kind === 'text') {
-      const fontSize = element.role === 'title'
+      if (!visualLayout) {
+        return {
+          ...element,
+          runs: element.runs.map((run) => ({
+            ...run,
+            color: run.color ?? visualSystem.palette.ink,
+          })),
+        };
+      }
+      const roleSize = element.role === 'title'
         ? visualSystem.typography.titleSize
-        : Math.max(element.fontSize, visualSystem.typography.minReadableSize);
+        : element.role === 'label' || element.role === 'note'
+          ? visualSystem.typography.labelSize
+          : visualSystem.typography.bodySize;
+      const fontSize = Math.max(roleSize, visualSystem.typography.minReadableSize);
       return {
         ...element,
         fontSize,
@@ -1161,6 +1559,23 @@ const ASSET_FRAME_CANDIDATES: readonly SceneFrame[] = [
   { x: 968, y: 270, w: 214, h: 96 },
 ];
 
+const THESIS_ASSET_FRAME: SceneFrame = { x: 754, y: 180, w: 454, h: 430 };
+
+const assetFrameCandidatesForSpec = (spec: SemanticSlideSpec): readonly SceneFrame[] => {
+  if (spec.layoutId !== 'visual-thesis') return ASSET_FRAME_CANDIDATES;
+  const hasNativeDiagram = spec.slots.diagram?.kind === 'diagram' && spec.slots.diagram.nodes.length > 0;
+  const hasNativePoints = listItems(spec.slots.points).length > 0;
+  return hasNativeDiagram || hasNativePoints ? [] : [THESIS_ASSET_FRAME];
+};
+
+const occupiesAssetFrame = (element: SceneElement, visualLayout: boolean): boolean => {
+  if (!visualLayout) return element.kind === 'text' || element.kind === 'table';
+  if (element.kind === 'shape') {
+    return !element.id.endsWith('-bg') && !element.id.endsWith('-title-band');
+  }
+  return element.kind !== 'group';
+};
+
 const addResolvedAssetElements = (
   elements: readonly SceneElement[],
   spec: SemanticSlideSpec,
@@ -1170,12 +1585,14 @@ const addResolvedAssetElements = (
   const renderedAssets = assets.filter(isRenderedImageAsset);
   if (renderedAssets.length === 0) return [...elements];
   const maxReadingOrder = elements.reduce((max, element) => Math.max(max, element.readingOrder), 0);
+  const visualLayout = VISUAL_LAYOUT_IDS.has(spec.layoutId);
   const occupiedFrames = elements
-    .filter((element) => element.kind === 'text' || element.kind === 'table')
+    .filter((element) => occupiesAssetFrame(element, visualLayout))
     .map((element) => element.frame);
+  const frameCandidates = assetFrameCandidatesForSpec(spec);
   const imageElements: SceneImageElement[] = [];
   for (const [index, asset] of renderedAssets.slice(0, 2).entries()) {
-    const frame = ASSET_FRAME_CANDIDATES.find((candidate) => (
+    const frame = frameCandidates.find((candidate) => (
       [...occupiedFrames, ...imageElements.map((element) => element.frame)]
         .every((occupied) => !framesOverlap(candidate, occupied))
     ));
@@ -1193,7 +1610,11 @@ const buildSceneElements = (
   assets: readonly SceneResolvedAsset[] = [],
 ): SceneElement[] => (
   addResolvedAssetElements(
-    applyVisualSystemToElements(buildBaseSceneElements(spec, sceneId), visualSystem),
+    applyVisualSystemToElements(
+      buildBaseSceneElements(spec, sceneId),
+      visualSystem,
+      VISUAL_LAYOUT_IDS.has(spec.layoutId),
+    ),
     spec,
     sceneId,
     assets,
@@ -1368,13 +1789,13 @@ const compileSpecToScene = (
   };
 };
 
-const slotItemCount = (slot: SlideSlotValue): number => {
+const slotItemCount = (slot: SlideSlotValue, expandStructuredVisuals: boolean): number => {
   if (slot.kind === 'list') return slot.items.length;
   if (slot.kind === 'cards') return slot.cards.length;
   if (slot.kind === 'table') return slot.rows.length;
   if (slot.kind === 'steps') return slot.steps.length;
-  if (slot.kind === 'question') return 1 + slot.choices.length;
-  if (slot.kind === 'diagram') return slot.nodes.length;
+  if (slot.kind === 'question') return expandStructuredVisuals ? 1 + slot.choices.length : 1;
+  if (slot.kind === 'diagram') return expandStructuredVisuals ? slot.nodes.length : 1;
   return 1;
 };
 
@@ -1393,8 +1814,9 @@ const validateSemanticSpecLayoutCapacity = (
   const sceneId = `scene-${String(index + 1).padStart(3, '0')}`;
   if (!layout) return [];
   const diagnostics: SceneValidationDiagnostic[] = [];
+  const visualLayout = VISUAL_LAYOUT_IDS.has(spec.layoutId);
   const exceedsItemCapacity = Object.values(spec.slots)
-    .some((slot) => slotItemCount(slot) > layout.maxListItems);
+    .some((slot) => slotItemCount(slot, visualLayout) > layout.maxListItems);
   if (exceedsItemCapacity) {
     diagnostics.push(sceneDiagnostic(
       'scene_text_overflow',
@@ -1432,6 +1854,12 @@ const validateSemanticSpecLayoutCapacity = (
         || diagram.edges.some((edge) => edge.from === edge.to || !nodeIds.has(edge.from) || !nodeIds.has(edge.to))
       ) {
         diagnostics.push(sceneDiagnostic('scene_contract_invalid', `Semantic slide ${spec.id} has invalid relationship node references.`, { sceneId }));
+      } else if (!buildRelationshipOrthogonalRoutes(diagram, buildRelationshipNodeFrames(diagram))) {
+        diagnostics.push(sceneDiagnostic(
+          'scene_text_overflow',
+          `Semantic slide ${spec.id} has no collision-free bounded relationship route lanes.`,
+          { sceneId },
+        ));
       }
     }
   }
@@ -1475,6 +1903,12 @@ const validateSemanticSpecLayoutCapacity = (
       || diagram.edges.some((edge) => edge.from === edge.to || !nodeIds.has(edge.from) || !nodeIds.has(edge.to))
     ) {
       diagnostics.push(sceneDiagnostic('scene_contract_invalid', `Semantic slide ${spec.id} has invalid visual-thesis node references.`, { sceneId }));
+    } else if (!buildThesisOrthogonalRoutes(diagram, buildThesisDiagramItemFrames(diagram))) {
+      diagnostics.push(sceneDiagnostic(
+        'scene_text_overflow',
+        `Semantic slide ${spec.id} has no collision-free bounded visual-thesis route lanes.`,
+        { sceneId },
+      ));
     }
   }
 

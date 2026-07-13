@@ -7,11 +7,12 @@ import {
   doesSemanticSlideSpecFitScene,
   getSceneVisibleText,
   validateCompiledSlideScene,
+  type SceneConnectorElement,
   type SceneShapeElement,
 } from '../lib/compiledSlideScene.ts';
 import { SCENE_ASSET_REQUEST_VERSION, type SceneAssetRequest } from '../lib/sceneAssetRequests.ts';
 import { SCENE_ASSET_RESOLUTION_VERSION, type SceneResolvedAsset } from '../lib/sceneAssetResolver.ts';
-import { buildSemanticSlideSpecs } from '../lib/semanticSlideSpec.ts';
+import { buildSemanticSlideSpecs, type SemanticSlideSpec } from '../lib/semanticSlideSpec.ts';
 import {
   DENSE_STORYBOARD,
   EVIDENCE_OUTPUT_STORYBOARD,
@@ -39,6 +40,43 @@ const assertPeerFramesDoNotOverlap = (frames: Array<{ x: number; y: number; w: n
   });
 };
 
+const paddedFrame = (
+  frame: { x: number; y: number; w: number; h: number },
+  padding = 4,
+) => ({
+  x: frame.x - padding,
+  y: frame.y - padding,
+  w: frame.w + padding * 2,
+  h: frame.h + padding * 2,
+});
+
+const assertNoUnrelatedRouteCollisions = (scene: Parameters<typeof getSceneVisibleText>[0]): void => {
+  const segments = scene.elements.flatMap((element) => {
+    if (element.kind !== 'connector') return [];
+    const edgeIndex = Number(element.id.match(/-edge-(\d+)(?:-|$)/)?.[1] ?? 0);
+    return edgeIndex > 0 ? [{ edgeIndex, frame: element.frame }] : [];
+  });
+  const labels = scene.elements.flatMap((element) => {
+    if (element.kind !== 'text') return [];
+    const edgeIndex = Number(element.id.match(/-edge-label-(\d+)$/)?.[1] ?? 0);
+    return edgeIndex > 0 ? [{ edgeIndex, frame: paddedFrame(element.frame) }] : [];
+  });
+
+  labels.forEach((label, index) => {
+    for (const other of labels.slice(index + 1)) {
+      if (label.edgeIndex !== other.edgeIndex) assert.equal(framesOverlap(label.frame, other.frame), false);
+    }
+    for (const segment of segments) {
+      if (label.edgeIndex !== segment.edgeIndex) assert.equal(framesOverlap(label.frame, segment.frame), false);
+    }
+  });
+  segments.forEach((segment, index) => {
+    for (const other of segments.slice(index + 1)) {
+      if (segment.edgeIndex !== other.edgeIndex) assert.equal(framesOverlap(segment.frame, other.frame), false);
+    }
+  });
+};
+
 const specsFrom = () => {
   const result = buildSemanticSlideSpecs(EVIDENCE_OUTPUT_STORYBOARD);
   assert.equal(result.ok, true);
@@ -46,7 +84,8 @@ const specsFrom = () => {
   return result.specs;
 };
 
-const assetRequestForSpec = (spec: ReturnType<typeof specsFrom>[number]): SceneAssetRequest => ({
+const assetRequestForSpec = (spec: Pick<SemanticSlideSpec,
+  'id' | 'unitId' | 'sourceStepIds' | 'sourceObjectiveIds' | 'storyboardScreenId'>): SceneAssetRequest => ({
   contractVersion: SCENE_ASSET_REQUEST_VERSION,
   id: `assetreq-${spec.id}-001`,
   unitId: spec.unitId,
@@ -97,6 +136,29 @@ const resolvedAssetForRequest = (request: SceneAssetRequest): SceneResolvedAsset
   editableFallbackAvailable: true,
   costClass: 'cached',
 });
+
+const visualThesisAssetFixture = (withNativePoints = false) => {
+  const base = relationshipDiagramSemanticFixture();
+  const specWithoutRequest: SemanticSlideSpec = {
+    ...base,
+    intent: 'learning-targets',
+    layoutId: 'visual-thesis',
+    slots: {
+      title: { kind: 'text', text: 'Asset-Supported Thesis' },
+      statement: { kind: 'text', text: 'Use the supplied visual to inspect the source-backed relationship.' },
+      ...(withNativePoints
+        ? { points: { kind: 'list' as const, items: ['Native point alpha', 'Native point beta'] } }
+        : {}),
+    },
+    assetRequests: [],
+  };
+  const request = assetRequestForSpec(specWithoutRequest);
+  return {
+    request,
+    asset: resolvedAssetForRequest(request),
+    spec: { ...specWithoutRequest, assetRequests: [request] },
+  };
+};
 
 test('compiles semantic specs into 16:9 scenes with stable ids', () => {
   const result = compileSemanticSlideSpecsToScenes(specsFrom(), { title: 'Fixture Deck' });
@@ -261,6 +323,57 @@ test('rejects semantic candidates beyond the layout item ceiling', () => {
   assert.equal(result.diagnostics.some((diagnostic) => diagnostic.code === 'scene_text_overflow'), true);
 });
 
+test('preserves legacy generic diagram capacity as one structured item', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const genericDiagram: SemanticSlideSpec = {
+    ...base,
+    id: 'semslide-legacy-generic-diagram',
+    layoutId: 'generic-bullets',
+    slots: {
+      title: { kind: 'text', text: 'Legacy Generic Diagram' },
+      body: { kind: 'list', items: ['Keep the existing generic learner summary.'] },
+      diagram: {
+        kind: 'diagram',
+        nodes: Array.from({ length: 9 }, (_, index) => ({
+          id: `legacy-node-${index + 1}`,
+          label: `Legacy node ${index + 1}`,
+          role: 'process',
+        })),
+        edges: [],
+      },
+    },
+  };
+
+  assert.equal(doesSemanticSlideSpecFitScene(genericDiagram), true);
+  assert.equal(compileSemanticSlideSpecsToScenes([genericDiagram], { title: 'Legacy Generic Diagram Deck' }).ok, true);
+});
+
+test('preserves legacy generic question capacity as one structured item', () => {
+  const base = questionChoicesSemanticFixture();
+  const question = base.slots.question;
+  assert.equal(question.kind, 'question');
+  if (question.kind !== 'question') return;
+  const genericQuestion: SemanticSlideSpec = {
+    ...base,
+    id: 'semslide-legacy-generic-question',
+    layoutId: 'generic-bullets',
+    slots: {
+      title: { kind: 'text', text: 'Legacy Generic Question' },
+      body: { kind: 'list', items: ['Keep the existing generic learner prompt.'] },
+      question: {
+        ...question,
+        choices: Array.from({ length: 9 }, (_, index) => ({
+          id: `legacy-choice-${index + 1}`,
+          text: `Legacy choice ${index + 1}`,
+        })),
+      },
+    },
+  };
+
+  assert.equal(doesSemanticSlideSpecFitScene(genericQuestion), true);
+  assert.equal(compileSemanticSlideSpecsToScenes([genericQuestion], { title: 'Legacy Generic Question Deck' }).ok, true);
+});
+
 test('accounts for preview cell padding when estimating table text fit', () => {
   const specs = specsFrom();
   const exitSpec = specs.find((spec) => spec.layoutId === 'exit-ticket-card');
@@ -351,6 +464,42 @@ test('keeps bounded assets disjoint from editable text and table content', () =>
     && image.frame.y + image.frame.h > element.frame.y
   ));
   assert.equal(overlaps, false);
+});
+
+test('places a visual-thesis asset only in its empty right visual region without overlapping native content', () => {
+  const { asset, spec } = visualThesisAssetFixture();
+  const result = compileSemanticSlideSpecsToScenes([spec], {
+    title: 'Asset Thesis Deck',
+    resolvedAssetsBySpecId: { [spec.id]: [asset] },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const image = scene.elements.find((element) => element.kind === 'image');
+  assert.ok(image);
+  assert.equal(image.frame.x >= 754, true);
+  assert.equal(image.frame.y >= 180, true);
+  assert.equal(image.frame.x + image.frame.w <= 1208, true);
+  assert.equal(image.frame.y + image.frame.h <= 610, true);
+  const nonDecorativeElements = scene.elements.filter((element) => (
+    element.id !== image.id
+    && !(element.kind === 'shape' && (element.id.endsWith('-bg') || element.id.endsWith('-title-band')))
+  ));
+  assert.equal(nonDecorativeElements.some((element) => framesOverlap(image.frame, element.frame)), false);
+});
+
+test('omits a visual-thesis asset instead of overlapping native point or diagram occupants', () => {
+  const { asset, spec } = visualThesisAssetFixture(true);
+  const result = compileSemanticSlideSpecsToScenes([spec], {
+    title: 'Native Thesis Deck',
+    resolvedAssetsBySpecId: { [spec.id]: [asset] },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.presentation.scenes[0].elements.some((element) => element.kind === 'image'), false);
+  assert.deepEqual(validateCompiledSlideScene(result.presentation.scenes[0]), []);
 });
 
 test('omits an optional resolved asset when a full-width table leaves no collision-free frame', () => {
@@ -446,7 +595,7 @@ test('compiles a relationship diagram as editable native nodes and connectors', 
   ));
   const connectors = scene.elements.filter((element) => element.kind === 'connector');
   assert.equal(nodes.length, 3);
-  assert.equal(connectors.length, 2);
+  assert.equal(new Set(connectors.map((element) => `${element.from}->${element.to}`)).size, 2);
   assert.equal(nodes.some((element) => element.shape === 'ellipse'), true);
   assert.equal(nodes.some((element) => element.shape === 'diamond'), true);
   const diamond = nodes.find((element) => element.shape === 'diamond');
@@ -461,6 +610,62 @@ test('compiles a relationship diagram as editable native nodes and connectors', 
   for (const sourceText of ['Supplied push', 'Opposition', 'Measured flow', 'changes', 'constrains']) {
     assert.equal(visible.some((item) => item.includes(sourceText)), true);
   }
+});
+
+test('routes a unique non-adjacent relationship edge outside intermediate nodes with its own nearby label', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const diagram = base.slots.diagram;
+  assert.equal(diagram.kind, 'diagram');
+  if (diagram.kind !== 'diagram') return;
+  const routed = {
+    ...base,
+    slots: {
+      ...base.slots,
+      diagram: {
+        ...diagram,
+        edges: [{
+          from: diagram.nodes[0].id,
+          to: diagram.nodes[2].id,
+          label: 'Non-adjacent relationship sentinel',
+          direction: 'forward' as const,
+        }],
+      },
+    },
+  };
+
+  const result = compileSemanticSlideSpecsToScenes([routed], { title: 'Routed Relationship Deck' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const routeSegments = scene.elements.filter((element): element is SceneConnectorElement => (
+    element.kind === 'connector' && element.id.includes('-edge-1-segment-')
+  ));
+  assert.equal(routeSegments.length, 3);
+  const intermediateNode = scene.elements.find((element) => (
+    element.kind === 'shape' && element.id.endsWith('-node-2')
+  ));
+  assert.ok(intermediateNode);
+  assert.equal(routeSegments.some((segment) => framesOverlap(segment.frame, intermediateNode.frame)), false);
+
+  const horizontalLane = routeSegments.find((segment) => segment.frame.w > segment.frame.h);
+  const edgeLabel = scene.elements.find((element) => (
+    element.kind === 'text' && element.id.endsWith('-edge-label-1')
+  ));
+  assert.ok(horizontalLane);
+  assert.ok(edgeLabel);
+  const laneCenter = {
+    x: horizontalLane.frame.x + horizontalLane.frame.w / 2,
+    y: horizontalLane.frame.y + horizontalLane.frame.h / 2,
+  };
+  const labelCenter = {
+    x: edgeLabel.frame.x + edgeLabel.frame.w / 2,
+    y: edgeLabel.frame.y + edgeLabel.frame.h / 2,
+  };
+  assert.equal(Math.abs(labelCenter.x - laneCenter.x) <= 4, true);
+  assert.equal(Math.abs(labelCenter.y - laneCenter.y) <= 28, true);
+  assert.equal(routeSegments.slice(0, -1).every((segment) => !segment.arrowStart && !segment.arrowEnd), true);
+  assert.equal(routeSegments.at(-1)?.arrowEnd, true);
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
 });
 
 test('applies the owning deck visual system to native visual teaching elements', () => {
@@ -485,6 +690,149 @@ test('applies the owning deck visual system to native visual teaching elements',
   assert.equal(sourceNode.stroke, visualSystem.palette.accentCool);
   assert.equal(title.fontSize, visualSystem.typography.titleSize);
   assert.equal(title.runs[0]?.color, visualSystem.palette.ink);
+});
+
+test('preserves pre-Task-4 prompt styling for legacy layouts with a visual system', () => {
+  const base = specsFrom()[0];
+  const fixture = validVisualPlanFixture();
+  const visualSystem = fixture.endToEndInput.visualSystems.systemsByUnitId[base.unitId];
+  assert.ok(visualSystem);
+  const spec: SemanticSlideSpec = {
+    ...base,
+    id: 'semslide-legacy-prompt-style',
+    intent: 'discussion-prompt',
+    layoutId: 'prompt-card',
+    slots: {
+      title: { kind: 'text', text: 'Legacy Prompt' },
+      body: { kind: 'text', text: 'Explain the source-backed relationship.' },
+    },
+  };
+  const result = compileSemanticSlideSpecsToScenes([spec], {
+    title: 'Legacy Prompt Deck',
+    visualSystemsByUnitId: { [spec.unitId]: visualSystem },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const promptCard = scene.elements.find((element) => (
+    element.kind === 'shape' && element.id.endsWith('-prompt-card')
+  ));
+  const promptText = scene.elements.find((element) => (
+    element.kind === 'text' && element.id.endsWith('-prompt')
+  ));
+  assert.ok(promptCard?.kind === 'shape');
+  assert.ok(promptText?.kind === 'text');
+  assert.deepEqual([promptCard.fill, promptCard.stroke], ['F0FDFA', '99F6E4']);
+  assert.equal(promptText.fontSize, 25);
+});
+
+test('maps visual-system title body and label typography roles deterministically', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const fixture = validVisualPlanFixture();
+  const original = fixture.endToEndInput.visualSystems.systemsByUnitId[base.unitId];
+  assert.ok(original);
+  const visualSystem = {
+    ...original,
+    typography: {
+      ...original.typography,
+      titleSize: 38,
+      bodySize: 23,
+      labelSize: 16,
+      minReadableSize: 19,
+    },
+  };
+  const spec = {
+    ...base,
+    slots: {
+      ...base.slots,
+      statement: { kind: 'text' as const, text: 'Custom typography body sentinel.' },
+    },
+  };
+  const result = compileSemanticSlideSpecsToScenes([spec], {
+    title: 'Typography Role Deck',
+    visualSystemsByUnitId: { [spec.unitId]: visualSystem },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const textElements = result.presentation.scenes[0].elements.filter((element) => element.kind === 'text');
+  assert.equal(textElements.find((element) => element.role === 'title')?.fontSize, 38);
+  assert.equal(textElements.find((element) => element.id.endsWith('-relationship-context'))?.fontSize, 23);
+  assert.equal(textElements.find((element) => element.id.endsWith('-node-label-1'))?.fontSize, 19);
+  assert.equal(textElements.find((element) => element.id.endsWith('-edge-label-1'))?.fontSize, 19);
+});
+
+test('applies the custom visual palette to prompt choices nodes panels and thesis surfaces', () => {
+  const relationship = relationshipDiagramSemanticFixture();
+  const question = questionChoicesSemanticFixture();
+  const fixture = validVisualPlanFixture();
+  const original = fixture.endToEndInput.visualSystems.systemsByUnitId[relationship.unitId];
+  assert.ok(original);
+  const visualSystem = {
+    ...original,
+    palette: {
+      ...original.palette,
+      surface: 'FEFCE8',
+      surfaceMuted: 'E7E5E4',
+      ink: '1C1917',
+      mutedInk: '44403C',
+      accentCool: '1D4ED8',
+      accentWarm: 'B91C1C',
+      success: '15803D',
+      warning: 'A16207',
+    },
+  };
+  const comparison: SemanticSlideSpec = {
+    ...relationship,
+    id: 'semslide-custom-comparison',
+    intent: 'comparison-matrix',
+    layoutId: 'comparison-panels',
+    slots: {
+      title: { kind: 'text', text: 'Custom Comparison' },
+      body: {
+        kind: 'cards',
+        cards: [
+          { id: 'custom-panel-a', title: 'Panel A', body: 'Source-backed pattern A.' },
+          { id: 'custom-panel-b', title: 'Panel B', body: 'Source-backed pattern B.' },
+        ],
+      },
+    },
+  };
+  const thesis: SemanticSlideSpec = {
+    ...relationship,
+    id: 'semslide-custom-thesis',
+    intent: 'learning-targets',
+    layoutId: 'visual-thesis',
+    slots: {
+      title: { kind: 'text', text: 'Custom Thesis' },
+      statement: { kind: 'text', text: 'Use the source-backed relationship.' },
+      points: { kind: 'list', items: ['Native point A', 'Native point B'] },
+    },
+  };
+  const result = compileSemanticSlideSpecsToScenes([relationship, question, comparison, thesis], {
+    title: 'Custom Palette Deck',
+    visualSystemsByUnitId: { [relationship.unitId]: visualSystem },
+  });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const allShapes = result.presentation.scenes.flatMap((scene) => scene.elements)
+    .filter((element): element is SceneShapeElement => element.kind === 'shape');
+  const sourceNode = allShapes.find((element) => element.id.endsWith('-node-1'));
+  const titleBand = allShapes.find((element) => element.id.endsWith('-title-band'));
+  const promptCard = allShapes.find((element) => element.id.endsWith('-prompt-card'));
+  const choiceCard = allShapes.find((element) => element.id.endsWith('-choice-card-1'));
+  const panel = allShapes.find((element) => element.id.endsWith('-panel-1'));
+  const thesisCard = allShapes.find((element) => element.id.endsWith('-thesis-card'));
+  const thesisItem = allShapes.find((element) => element.id.endsWith('-thesis-item-1'));
+  assert.deepEqual([sourceNode?.fill, sourceNode?.stroke], [visualSystem.palette.surface, visualSystem.palette.accentCool]);
+  assert.deepEqual([titleBand?.fill, titleBand?.stroke], [visualSystem.palette.surface, visualSystem.palette.surfaceMuted]);
+  assert.deepEqual([promptCard?.fill, promptCard?.stroke], [visualSystem.palette.surfaceMuted, visualSystem.palette.accentCool]);
+  assert.deepEqual([choiceCard?.fill, choiceCard?.stroke], [visualSystem.palette.surface, visualSystem.palette.accentCool]);
+  assert.deepEqual([panel?.fill, panel?.stroke], [visualSystem.palette.surface, visualSystem.palette.accentCool]);
+  assert.deepEqual([thesisCard?.fill, thesisCard?.stroke], [visualSystem.palette.surface, visualSystem.palette.accentCool]);
+  assert.deepEqual([thesisItem?.fill, thesisItem?.stroke], [visualSystem.palette.surface, visualSystem.palette.accentWarm]);
 });
 
 test('retains relationship context points and success criteria as editable text', () => {
@@ -517,6 +865,29 @@ test('retains relationship context points and success criteria as editable text'
   assert.deepEqual(validateCompiledSlideScene(result.presentation.scenes[0]), []);
 });
 
+test('retains distinct relationship requirements and success criteria exactly once', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const requirement = 'RELATIONSHIP-REQUIREMENT-SENTINEL Record the requested evidence.';
+  const criterion = 'RELATIONSHIP-CRITERION-SENTINEL Explain the supported pattern.';
+  const spec = {
+    ...base,
+    slots: {
+      ...base.slots,
+      requirements: { kind: 'list' as const, items: [requirement] },
+      successCriteria: { kind: 'list' as const, items: [criterion] },
+    },
+  };
+
+  const result = compileSemanticSlideSpecsToScenes([spec], { title: 'Relationship Requirement Deck' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const visible = getSceneVisibleText(scene).join('\n');
+  assert.equal(visible.split(requirement).length - 1, 1);
+  assert.equal(visible.split(criterion).length - 1, 1);
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+});
+
 test('accepts the bounded relationship maximum without overlap or off-canvas elements', () => {
   const base = relationshipDiagramSemanticFixture();
   const nodes = Array.from({ length: 6 }, (_, index) => ({
@@ -524,12 +895,24 @@ test('accepts the bounded relationship maximum without overlap or off-canvas ele
     label: `Node ${index + 1}`,
     role: ['source', 'process', 'constraint', 'result'][index % 4],
   }));
-  const edges = Array.from({ length: 8 }, (_, index) => ({
-    from: nodes[index % 5].id,
-    to: nodes[(index % 5) + 1].id,
-    label: `Relation ${index + 1}`,
+  const edgeIndexes = [
+    [0, 1],
+    [1, 2],
+    [2, 3],
+    [3, 4],
+    [4, 5],
+    [0, 2],
+    [2, 4],
+    [3, 5],
+  ] as const;
+  const edges = edgeIndexes.map(([fromIndex, toIndex], index) => ({
+    from: nodes[fromIndex].id,
+    to: nodes[toIndex].id,
+    label: toIndex - fromIndex === 1 ? '' : `Unique relation ${index + 1}`,
     direction: 'forward',
   }));
+  assert.equal(new Set(edges.map((edge) => `${edge.from}->${edge.to}`)).size, edges.length);
+  assert.equal(new Set(edges.map((edge) => [edge.from, edge.to].sort().join('<->'))).size, edges.length);
   const bounded = {
     ...base,
     slots: {
@@ -548,9 +931,68 @@ test('accepts the bounded relationship maximum without overlap or off-canvas ele
     .map((element) => element.frame);
   assert.equal(nodeFrames.length, 6);
   assertPeerFramesDoNotOverlap(nodeFrames);
+  edges.forEach((edge, edgeIndex) => {
+    const fromIndex = nodes.findIndex((node) => node.id === edge.from);
+    const toIndex = nodes.findIndex((node) => node.id === edge.to);
+    const nonEndFrames = scene.elements.filter((element) => (
+      element.kind === 'shape'
+      && element.id.includes('-node-')
+      && !element.id.endsWith(`-node-${fromIndex + 1}`)
+      && !element.id.endsWith(`-node-${toIndex + 1}`)
+    )).map((element) => element.frame);
+    const segments = scene.elements.filter((element) => (
+      element.kind === 'connector'
+      && (element.id.endsWith(`-edge-${edgeIndex + 1}`) || element.id.includes(`-edge-${edgeIndex + 1}-segment-`))
+    ));
+    assert.equal(segments.length > 0, true);
+    assert.equal(segments.some((segment) => nonEndFrames.some((frame) => framesOverlap(segment.frame, frame))), false);
+  });
+  assertNoUnrelatedRouteCollisions(scene);
   assert.equal(validateCompiledSlideScene(scene).some((diagnostic) => (
     diagnostic.code === 'scene_element_off_canvas' || diagnostic.code === 'scene_text_overflow'
   )), false);
+});
+
+test('fails closed when a bounded unique relationship graph has no collision-free route assignment', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const nodes = Array.from({ length: 6 }, (_, index) => ({
+    id: `blocked-node-${index + 1}`,
+    label: `Blocked ${index + 1}`,
+    role: 'process',
+  }));
+  const edgeIndexes = [
+    [0, 1],
+    [0, 2],
+    [0, 3],
+    [0, 4],
+    [0, 5],
+    [1, 3],
+    [2, 4],
+    [3, 5],
+  ] as const;
+  const edges = edgeIndexes.map(([fromIndex, toIndex], index) => ({
+    from: nodes[fromIndex].id,
+    to: nodes[toIndex].id,
+    label: `Blocked relation ${index + 1}`,
+    direction: 'forward',
+  }));
+  assert.equal(new Set(edges.map((edge) => `${edge.from}->${edge.to}`)).size, edges.length);
+  assert.equal(new Set(edges.map((edge) => [edge.from, edge.to].sort().join('<->'))).size, edges.length);
+  const unroutable = {
+    ...base,
+    slots: {
+      ...base.slots,
+      diagram: { kind: 'diagram' as const, nodes, edges },
+    },
+  };
+
+  assert.equal(doesSemanticSlideSpecFitScene(unroutable), false);
+  const result = compileSemanticSlideSpecsToScenes([unroutable], { title: 'Unroutable Relationship Deck' });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'scene_text_overflow' && diagnostic.message.includes('route lanes')
+  )), true);
 });
 
 test('fails safely when relationship nodes or edges exceed their bounded capacity', () => {
@@ -703,5 +1145,82 @@ test('compiles a visual thesis with separate editable statement and points', () 
     assert.equal(visible.some((item) => item === point), true);
   }
   assert.equal(scene.elements.filter((element) => element.kind === 'text').every((element) => element.editable), true);
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+});
+
+test('retains distinct visual-thesis requirements and success criteria exactly once', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const requirement = 'THESIS-REQUIREMENT-SENTINEL Submit the source-backed claim.';
+  const criterion = 'THESIS-CRITERION-SENTINEL Connect the claim to the supplied evidence.';
+  const thesis = {
+    ...base,
+    intent: 'learning-targets' as const,
+    layoutId: 'visual-thesis' as const,
+    slots: {
+      title: { kind: 'text' as const, text: 'Requirement Thesis' },
+      statement: { kind: 'text' as const, text: 'Use the supplied model to state the relationship.' },
+      points: { kind: 'list' as const, items: ['Inspect the supplied pattern.', 'State the supported relationship.'] },
+      requirements: { kind: 'list' as const, items: [requirement] },
+      successCriteria: { kind: 'list' as const, items: [criterion] },
+    },
+  };
+
+  const result = compileSemanticSlideSpecsToScenes([thesis], { title: 'Thesis Requirement Deck' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const visible = getSceneVisibleText(scene).join('\n');
+  assert.equal(visible.split(requirement).length - 1, 1);
+  assert.equal(visible.split(criterion).length - 1, 1);
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+});
+
+test('routes a non-adjacent visual-thesis edge outside the intermediate native item', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const diagram = base.slots.diagram;
+  assert.equal(diagram.kind, 'diagram');
+  if (diagram.kind !== 'diagram') return;
+  const thesis = {
+    ...base,
+    intent: 'learning-targets' as const,
+    layoutId: 'visual-thesis' as const,
+    slots: {
+      title: { kind: 'text' as const, text: 'Routed Thesis' },
+      statement: { kind: 'text' as const, text: 'Use the source-backed model.' },
+      diagram: {
+        ...diagram,
+        edges: [{
+          from: diagram.nodes[0].id,
+          to: diagram.nodes[2].id,
+          label: 'Thesis route sentinel',
+          direction: 'forward' as const,
+        }],
+      },
+    },
+  };
+
+  const result = compileSemanticSlideSpecsToScenes([thesis], { title: 'Routed Thesis Deck' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const routeSegments = scene.elements.filter((element): element is SceneConnectorElement => (
+    element.kind === 'connector' && element.id.includes('-thesis-edge-1-segment-')
+  ));
+  const intermediateItem = scene.elements.find((element) => (
+    element.kind === 'shape' && element.id.endsWith('-thesis-item-2')
+  ));
+  const edgeLabel = scene.elements.find((element) => (
+    element.kind === 'text' && element.id.endsWith('-thesis-edge-label-1')
+  ));
+  assert.equal(routeSegments.length, 3);
+  assert.ok(intermediateItem);
+  assert.ok(edgeLabel);
+  assert.equal(routeSegments.some((segment) => framesOverlap(segment.frame, intermediateItem.frame)), false);
+  const verticalLane = routeSegments.find((segment) => segment.frame.h > segment.frame.w);
+  assert.ok(verticalLane);
+  const labelCenterY = edgeLabel.frame.y + edgeLabel.frame.h / 2;
+  assert.equal(edgeLabel.frame.x >= verticalLane.frame.x + verticalLane.frame.w, true);
+  assert.equal(labelCenterY >= verticalLane.frame.y && labelCenterY <= verticalLane.frame.y + verticalLane.frame.h, true);
+  assert.equal(Boolean(routeSegments.at(-1)?.arrowStart || routeSegments.at(-1)?.arrowEnd), true);
   assert.deepEqual(validateCompiledSlideScene(scene), []);
 });
