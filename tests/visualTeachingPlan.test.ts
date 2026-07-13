@@ -130,7 +130,7 @@ const publicFieldPlanFixture = () => {
     id: 'visual-scene-public-field',
     unitId: fieldDecision.unitId,
     sourceStepIds: [],
-    sourceObjectiveIds: [],
+    sourceObjectiveIds: [objective.id],
     sourceFieldIds: [fieldDecision.sourceId],
     storyboardScreenIds: [objectiveScreen.id],
     learnerTitle: 'Reference Comparison',
@@ -154,10 +154,10 @@ const publicFieldPlanFixture = () => {
     visibleContent: { statement: step.rawBlocks.join(' '), points: [], cards: [], steps: [] },
     visualGrammar: 'comparison-panels' as const,
   };
-  const sceneIdBySourceId = new Map([
-    [objective.id, objectiveScene.id],
-    [fieldDecision.sourceId, fieldScene.id],
-    [step.id, stepScene.id],
+  const sceneIdsBySourceId = new Map<string, string[]>([
+    [objective.id, [objectiveScene.id, fieldScene.id]],
+    [fieldDecision.sourceId, [fieldScene.id]],
+    [step.id, [stepScene.id]],
   ]);
   const plan = {
     ...templatePlan,
@@ -166,7 +166,7 @@ const publicFieldPlanFixture = () => {
     scenes: [objectiveScene, fieldScene, stepScene],
     sourceAccounting: dispositionResult.decisions.map((decision) => ({
       ...decision,
-      sceneIds: sceneIdBySourceId.has(decision.sourceId) ? [sceneIdBySourceId.get(decision.sourceId)!] : [],
+      sceneIds: sceneIdsBySourceId.get(decision.sourceId) ?? [],
     })),
     provenance: {
       sourceHash: manifestResult.manifest.provenance.sourceHash,
@@ -448,6 +448,23 @@ test('anchors a learner-visible public source field to a same-unit storyboard sc
     fixture.storyboard,
     fixture.dispositions,
   ), []);
+});
+
+test('rejects a public field scene that drops its storyboard anchor sources', () => {
+  const fixture = publicFieldPlanFixture();
+  const anchorObjectiveId = fixture.fieldScene.sourceObjectiveIds[0];
+  assert.ok(anchorObjectiveId);
+  const diagnostics = validateVisualTeachingPlan({
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === fixture.fieldScene.id
+      ? { ...scene, sourceObjectiveIds: [] }
+      : scene),
+    sourceAccounting: fixture.plan.sourceAccounting.map((entry) => entry.sourceId === anchorObjectiveId
+      ? { ...entry, sceneIds: entry.sceneIds.filter((sceneId) => sceneId !== fixture.fieldScene.id) }
+      : entry),
+  }, fixture.manifest, fixture.storyboard, fixture.dispositions);
+
+  assert.equal(diagnostics.some((item) => item.code === 'visual_plan_foreign_source'), true);
 });
 
 test('rejects foreign, administrative, or undeclared field attachments', () => {

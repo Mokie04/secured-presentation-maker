@@ -284,13 +284,10 @@ export const validateVisualTeachingPlan = (
     if (referencedScreens.length === scene.storyboardScreenIds.length && referencedScreens.length > 0) {
       const expectedStepIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceStepIds));
       const expectedObjectiveIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceObjectiveIds));
-      const isFieldOnlyScene = scene.sourceFieldIds.length > 0
-        && scene.sourceStepIds.length === 0
-        && scene.sourceObjectiveIds.length === 0;
-      if (!isFieldOnlyScene && (
+      if (
         !arraysEqual(scene.sourceStepIds, expectedStepIds)
         || !arraysEqual(scene.sourceObjectiveIds, expectedObjectiveIds)
-      )) {
+      ) {
         diagnostics.push(diagnostic(
           'visual_plan_foreign_source',
           `Scene ${scene.id} step or objective references do not match its storyboard screen provenance.`,
