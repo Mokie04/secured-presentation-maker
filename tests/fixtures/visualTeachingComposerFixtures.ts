@@ -308,8 +308,10 @@ export const relationshipDiagramSemanticFixture = (): FutureSemanticSlideSpec =>
     id: 'semslide-relationship-fixture',
     unitId: scene.unitId,
     storyboardScreenId: scene.storyboardScreenIds[0],
+    storyboardScreenIds: [...scene.storyboardScreenIds],
     sourceStepIds: [...scene.sourceStepIds],
     sourceObjectiveIds: [...scene.sourceObjectiveIds],
+    sourceFieldIds: [...scene.sourceFieldIds],
     intent: 'process-flow',
     layoutId: 'relationship-diagram',
     slots: {
@@ -333,8 +335,10 @@ export const questionChoicesSemanticFixture = (): FutureSemanticSlideSpec => {
     id: 'semslide-question-fixture',
     unitId: scene.unitId,
     storyboardScreenId: scene.storyboardScreenIds[0],
+    storyboardScreenIds: [...scene.storyboardScreenIds],
     sourceStepIds: [...scene.sourceStepIds],
     sourceObjectiveIds: [...scene.sourceObjectiveIds],
+    sourceFieldIds: [...scene.sourceFieldIds],
     intent: 'question',
     layoutId: 'question-choices',
     slots: {

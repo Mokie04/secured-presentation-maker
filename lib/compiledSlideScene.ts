@@ -313,7 +313,12 @@ const slotText = (slot: SlideSlotValue | undefined): string => {
   if (slot.kind === 'list') return slot.items.map(clampText).filter(Boolean).join('\n');
   if (slot.kind === 'cards') return slot.cards.map((card) => [card.title, card.body].map(clampText).filter(Boolean).join(': ')).join('\n');
   if (slot.kind === 'table') return [slot.headers.join(' | '), ...slot.rows.map((row) => row.join(' | '))].map(clampText).filter(Boolean).join('\n');
-  return slot.steps.map((step) => [step.label, step.body].map(clampText).filter(Boolean).join(': ')).join('\n');
+  if (slot.kind === 'steps') return slot.steps.map((step) => [step.label, step.body].map(clampText).filter(Boolean).join(': ')).join('\n');
+  if (slot.kind === 'question') return [slot.prompt, ...slot.choices.map((choice) => choice.text)].map(clampText).filter(Boolean).join('\n');
+  return [
+    ...slot.nodes.flatMap((node) => [node.label, node.detail]),
+    ...slot.edges.map((edge) => edge.label),
+  ].filter((value): value is string => Boolean(value)).map(clampText).join('\n');
 };
 
 const listItems = (slot: SlideSlotValue | undefined): string[] => {
@@ -322,7 +327,12 @@ const listItems = (slot: SlideSlotValue | undefined): string[] => {
   if (slot.kind === 'list') return slot.items.map(clampText).filter(Boolean);
   if (slot.kind === 'cards') return slot.cards.map((card) => [card.title, card.body].map(clampText).filter(Boolean).join(': ')).filter(Boolean);
   if (slot.kind === 'table') return slot.rows.map((row) => row.map(clampText).filter(Boolean).join(' | ')).filter(Boolean);
-  return slot.steps.map((step) => [step.label, step.body].map(clampText).filter(Boolean).join(': ')).filter(Boolean);
+  if (slot.kind === 'steps') return slot.steps.map((step) => [step.label, step.body].map(clampText).filter(Boolean).join(': ')).filter(Boolean);
+  if (slot.kind === 'question') return [slot.prompt, ...slot.choices.map((choice) => choice.text)].map(clampText).filter(Boolean);
+  return [
+    ...slot.nodes.flatMap((node) => [node.label, node.detail]),
+    ...slot.edges.map((edge) => edge.label),
+  ].filter((value): value is string => Boolean(value)).map(clampText);
 };
 
 const requirementRows = (spec: SemanticSlideSpec): string[][] => {
@@ -416,7 +426,12 @@ const asBulletText = (items: string[]): string => items.map((item) => `- ${item}
 
 const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): SceneElement[] => {
   const title = slotText(spec.slots.title) || spec.accessibility.slidePurpose;
-  const bodyItems = listItems(spec.slots.body);
+  const structuredFallbackSlots = ['statement', 'points', 'cards', 'steps', 'table', 'question', 'diagram']
+    .map((slotName) => spec.slots[slotName])
+    .filter((slot): slot is SlideSlotValue => Boolean(slot));
+  const bodyItems = spec.slots.body
+    ? listItems(spec.slots.body)
+    : structuredFallbackSlots.map(slotText).filter(Boolean);
   const successItems = listItems(spec.slots.successCriteria);
   const requirements = listItems(spec.slots.requirements);
   const bodyText = asBulletText(bodyItems);

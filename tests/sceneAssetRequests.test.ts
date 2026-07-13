@@ -10,6 +10,8 @@ import {
 } from '../lib/sceneAssetRequests.ts';
 import { EVIDENCE_OUTPUT_VISUAL_FIXTURE } from './fixtures/deckVisualSystemFixtures.ts';
 import { DENSE_STORYBOARD } from './fixtures/semanticSlideFixtures.ts';
+import { validVisualPlanFixture } from './fixtures/visualTeachingComposerFixtures.ts';
+import { buildSemanticSlideSpecsFromVisualTeachingPlan } from '../lib/visualTeachingSemanticBridge.ts';
 
 const requestFixture = () => {
   const visualSystems = buildDeckVisualSystems(EVIDENCE_OUTPUT_VISUAL_FIXTURE.storyboard, EVIDENCE_OUTPUT_VISUAL_FIXTURE.specs);
@@ -79,6 +81,60 @@ test('creates at most one asset request for adjacent continuations of one storyb
     const firstSpec = semanticResult.specs.find((spec) => spec.storyboardScreenId === request.storyboardScreenId);
     assert.equal(request.semanticSlideSpecId, firstSpec?.id);
   }
+});
+
+test('prefers one validated visual asset brief while preserving legacy inference without a brief', () => {
+  const fixture = validVisualPlanFixture();
+  const briefScene = fixture.plan.scenes.find((scene) => scene.visualGrammar === 'relationship-diagram');
+  assert.ok(briefScene);
+  const plan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === briefScene.id
+      ? {
+          ...scene,
+          assetBrief: {
+            purpose: 'Show the observable source-backed setup without slide copy.',
+            subject: 'A generic instructional apparatus',
+            style: 'illustration' as const,
+            mustNotContainText: true as const,
+          },
+        }
+      : scene),
+  };
+  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan(plan, fixture.storyboard);
+  assert.equal(semantic.ok, true);
+  if (!semantic.ok) return;
+  const visualSystems = buildDeckVisualSystems(fixture.storyboard, semantic.specs);
+  assert.equal(visualSystems.ok, true);
+  if (!visualSystems.ok) return;
+
+  const withBrief = buildSceneAssetRequests(fixture.storyboard, semantic.specs, visualSystems.bundle);
+  assert.equal(withBrief.ok, true);
+  if (!withBrief.ok) return;
+  const briefRequests = withBrief.requests.filter((request) => request.storyboardScreenId === briefScene.storyboardScreenIds[0]);
+  assert.equal(briefRequests.length, 1);
+  assert.equal(briefRequests[0].brief.sceneDescription, 'Show the observable source-backed setup without slide copy.');
+  assert.equal(briefRequests[0].brief.mustNotContainText, true);
+
+  const legacySpec = EVIDENCE_OUTPUT_VISUAL_FIXTURE.specs[0];
+  const legacySystems = buildDeckVisualSystems(
+    EVIDENCE_OUTPUT_VISUAL_FIXTURE.storyboard,
+    EVIDENCE_OUTPUT_VISUAL_FIXTURE.specs,
+  );
+  assert.equal(legacySystems.ok, true);
+  if (!legacySystems.ok) return;
+  const legacyBefore = buildSceneAssetRequests(
+    EVIDENCE_OUTPUT_VISUAL_FIXTURE.storyboard,
+    EVIDENCE_OUTPUT_VISUAL_FIXTURE.specs,
+    legacySystems.bundle,
+  );
+  const legacyAfter = buildSceneAssetRequests(
+    EVIDENCE_OUTPUT_VISUAL_FIXTURE.storyboard,
+    EVIDENCE_OUTPUT_VISUAL_FIXTURE.specs.map((spec) => ({ ...spec, visualAssetBrief: undefined })),
+    legacySystems.bundle,
+  );
+  assert.deepEqual(legacyAfter, legacyBefore);
+  assert.equal(legacySpec.visualAssetBrief, undefined);
 });
 
 test('rejects decorative or random asset requests', () => {

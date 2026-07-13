@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { validateSourceAlignment } from '../lib/sourceAlignmentValidation.ts';
+import { buildSemanticSlideSpecsFromVisualTeachingPlan } from '../lib/visualTeachingSemanticBridge.ts';
 import {
   buildEvidenceOutputEndToEndFixture,
   buildFiveSessionEndToEndFixture,
@@ -9,6 +10,57 @@ import {
   buildSourceBackedBlankTaskEndToEndFixture,
   buildTeacherScriptEndToEndFixture,
 } from './fixtures/endToEndValidationFixtures.ts';
+import { validVisualPlanFixture } from './fixtures/visualTeachingComposerFixtures.ts';
+
+test('does not treat exact authorized non-learner dispositions as semantic omissions', () => {
+  const fixture = validVisualPlanFixture();
+  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan(fixture.plan, fixture.storyboard);
+  assert.equal(semantic.ok, true);
+  if (!semantic.ok) return;
+
+  const alignment = validateSourceAlignment({
+    ...fixture.endToEndInput,
+    visualTeachingPlan: fixture.plan,
+    semanticSpecs: semantic.specs,
+  });
+
+  assert.equal(alignment.diagnostics.some((item) => item.code === 'e2e_source_step_coverage_failed'), false);
+});
+
+test('does not authorize omitted learner-visible steps or dispositions from an invalid plan', () => {
+  const fixture = validVisualPlanFixture();
+  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan(fixture.plan, fixture.storyboard);
+  assert.equal(semantic.ok, true);
+  if (!semantic.ok) return;
+  const withoutRelationship = semantic.specs.map((spec) => ({
+    ...spec,
+    sourceStepIds: spec.sourceStepIds.filter((id) => id !== fixture.relationshipStepId),
+  }));
+  const withoutRelationshipScenes = fixture.endToEndInput.presentation.scenes.map((scene) => ({
+    ...scene,
+    sourceStepIds: scene.sourceStepIds.filter((id) => id !== fixture.relationshipStepId),
+  }));
+  const learnerOmitted = validateSourceAlignment({
+    ...fixture.endToEndInput,
+    visualTeachingPlan: fixture.plan,
+    semanticSpecs: withoutRelationship,
+    presentation: { ...fixture.endToEndInput.presentation, scenes: withoutRelationshipScenes },
+  });
+  assert.equal(learnerOmitted.diagnostics.some((item) => item.code === 'e2e_source_step_coverage_failed'), true);
+
+  const invalidPlan = {
+    ...fixture.plan,
+    sourceAccounting: fixture.plan.sourceAccounting.map((entry) => entry.disposition === 'omit-administrative'
+      ? { ...entry, disposition: 'speaker-notes' as const, reason: 'planning-context-notes' as const }
+      : entry),
+  };
+  const invalidAuthorization = validateSourceAlignment({
+    ...fixture.endToEndInput,
+    visualTeachingPlan: invalidPlan,
+    semanticSpecs: semantic.specs,
+  });
+  assert.equal(invalidAuthorization.diagnostics.some((item) => item.code === 'e2e_source_step_coverage_failed'), true);
+});
 
 test('passes mandatory source-step coverage and objective preservation for valid fixtures', async () => {
   for (const fixtureBuilder of [

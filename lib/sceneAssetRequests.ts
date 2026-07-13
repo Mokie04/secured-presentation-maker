@@ -135,6 +135,21 @@ const styleForRole = (role: SceneAssetVisualRole): ProviderIndependentAssetBrief
   return 'illustration';
 };
 
+const explicitAssetDecision = (
+  spec: SemanticSlideSpec,
+): {
+  visualRole: SceneAssetVisualRole;
+  necessity: SceneAssetNecessity;
+  reason: SceneAssetDecisionReason;
+} | null => {
+  if (!spec.visualAssetBrief) return null;
+  return {
+    visualRole: spec.visualAssetBrief.style === 'photo' ? 'licensed-photo' : 'generated-illustration',
+    necessity: 'useful',
+    reason: 'source_requires_concept_model',
+  };
+};
+
 export const buildSceneAssetRequests = (
   _storyboard: TeachingStoryboard,
   specs: readonly SemanticSlideSpec[],
@@ -143,12 +158,16 @@ export const buildSceneAssetRequests = (
   const requests: SceneAssetRequest[] = [];
   const requestedScreenIds = new Set<string>();
 
-  specs.forEach((spec, index) => {
-    if (requestedScreenIds.has(spec.storyboardScreenId)) return;
-    requestedScreenIds.add(spec.storyboardScreenId);
+  specs.forEach((firstSpecForScreen, index) => {
+    if (requestedScreenIds.has(firstSpecForScreen.storyboardScreenId)) return;
+    requestedScreenIds.add(firstSpecForScreen.storyboardScreenId);
+    const spec = specs.find((candidate) => (
+      candidate.storyboardScreenId === firstSpecForScreen.storyboardScreenId
+      && candidate.visualAssetBrief
+    )) ?? firstSpecForScreen;
     const visualSystem = visualSystems.systemsByUnitId[spec.unitId];
     if (!visualSystem) return;
-    const decision = decideSceneAssetForSpec(spec);
+    const decision = explicitAssetDecision(spec) ?? decideSceneAssetForSpec(spec);
     if (decision.necessity === 'forbidden') return;
     const conceptId = firstConceptIdForSpec(spec);
     const sanitizedSummary = sanitizedSummaryForSpec(spec);
@@ -166,7 +185,8 @@ export const buildSceneAssetRequests = (
       conceptAnchor: {
         conceptId,
       },
-      instructionalPurpose: 'Support the source-backed learning task while preserving editable native text.',
+      instructionalPurpose: spec.visualAssetBrief?.purpose
+        ?? 'Support the source-backed learning task while preserving editable native text.',
       visualSystemVersion: visualSystem.contractVersion,
       altTextBasis: {
         sourceStepIds: [...spec.sourceStepIds],
@@ -174,10 +194,11 @@ export const buildSceneAssetRequests = (
         sanitizedSummary,
       },
       brief: {
-        subject: 'K-12',
+        subject: spec.visualAssetBrief?.subject ?? 'K-12',
         gradeBand: 'secondary',
         conceptId,
-        sceneDescription: `Text-free ${decision.visualRole.replaceAll('-', ' ')} for ${sanitizedSummary.toLowerCase() || 'a source-backed learning task'}.`,
+        sceneDescription: spec.visualAssetBrief?.purpose
+          ?? `Text-free ${decision.visualRole.replaceAll('-', ' ')} for ${sanitizedSummary.toLowerCase() || 'a source-backed learning task'}.`,
         composition: compositionForRole(decision.visualRole),
         style: styleForRole(decision.visualRole),
         mustNotContainText: true,
