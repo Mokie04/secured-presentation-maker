@@ -243,6 +243,7 @@ test('composed visual-plan quality failure blocks delivery and cache success', a
   for (const [index, title] of ['Learning Task 1', 'Learning Task (continued)'].entries()) {
     plan.scenes[index].learnerTitle = title;
   }
+  let releaseCalls = 0;
 
   const result = await resolveEndToEndValidatedScenePresentationForGeneration(
     policy,
@@ -257,6 +258,11 @@ test('composed visual-plan quality failure blocks delivery and cache success', a
         flagValue: 'true',
         language: 'EN',
         compose: async () => ({ ok: true as const, plan }),
+        authorizeGeneration: () => true,
+        releaseGeneration: () => {
+          releaseCalls += 1;
+        },
+        authorizationFailureMessage: 'Synthetic generation authorization failure.',
       },
     },
   );
@@ -267,4 +273,5 @@ test('composed visual-plan quality failure blocks delivery and cache success', a
   assert.equal(result.validationReport.presentationQuality.repeatedGenericTitleCount, 1);
   assert.equal(result.validationReport.cacheSafety.mayDeliverPresentation, false);
   assert.equal(result.validationReport.cacheSafety.mayWriteSuccessCache, false);
+  assert.equal(releaseCalls, 1);
 });

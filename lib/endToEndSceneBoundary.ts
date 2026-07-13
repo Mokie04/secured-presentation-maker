@@ -4,6 +4,7 @@ import {
   type DeckVisualSceneBoundaryDiagnostic,
   type DeckVisualSceneBoundaryOptions,
 } from './deckVisualSceneBoundary.ts';
+import { isDeckVisualSystemV1Enabled } from './deckVisualSystem.ts';
 import {
   formatEndToEndDiagnostics,
   isEndToEndValidationV1Enabled,
@@ -13,6 +14,7 @@ import {
 } from './endToEndValidation.ts';
 import type { K12GenerationRoutePolicy } from './k12GenerationRoutePolicy.ts';
 import type { LessonSourceManifest } from './lessonSourceManifest.ts';
+import { isSemanticSlidesV1Enabled } from './semanticSlideSpec.ts';
 import { classifySourceContent } from './sourceContentDisposition.ts';
 import {
   hasBlockingStoryboardDiagnostics,
@@ -44,6 +46,9 @@ export type EndToEndSceneBoundaryOptions = DeckVisualSceneBoundaryOptions & {
     flagValue: unknown;
     language: 'EN' | 'FIL';
     compose: typeof composeVisualTeachingPlanWithProvider;
+    authorizeGeneration: () => boolean;
+    releaseGeneration: () => void;
+    authorizationFailureMessage: string;
   };
 };
 
@@ -62,6 +67,23 @@ const visualCompositionFailure = (
   diagnostics,
 });
 
+export const shouldRunVisualTeachingComposer = (
+  policy: Pick<K12GenerationRoutePolicy, 'mode' | 'inputOrigin'>,
+  composerFlagValue: unknown,
+  semanticFlagValue: unknown,
+  deckVisualFlagValue: unknown,
+  endToEndValidationFlagValue: unknown,
+): boolean => (
+  isVisualTeachingComposerV1Enabled(
+    typeof composerFlagValue === 'string' ? composerFlagValue : undefined,
+  )
+  && policy.mode === 'source-primary'
+  && policy.inputOrigin === 'uploaded-file'
+  && isSemanticSlidesV1Enabled(semanticFlagValue)
+  && isDeckVisualSystemV1Enabled(deckVisualFlagValue)
+  && isEndToEndValidationV1Enabled(endToEndValidationFlagValue)
+);
+
 export const resolveEndToEndValidatedScenePresentationForGeneration = async (
   policy: Pick<K12GenerationRoutePolicy, 'mode' | 'inputOrigin'>,
   semanticFlagValue: unknown,
@@ -74,13 +96,16 @@ export const resolveEndToEndValidatedScenePresentationForGeneration = async (
   const { visualComposer, ...deckVisualOptions } = options;
   const composerEnabled = Boolean(
     visualComposer
-    && isVisualTeachingComposerV1Enabled(
-      typeof visualComposer.flagValue === 'string' ? visualComposer.flagValue : undefined,
-    )
-    && policy.mode === 'source-primary'
-    && policy.inputOrigin === 'uploaded-file',
+    && shouldRunVisualTeachingComposer(
+      policy,
+      visualComposer.flagValue,
+      semanticFlagValue,
+      deckVisualFlagValue,
+      endToEndValidationFlagValue,
+    ),
   );
   let resolvedDeckVisualOptions: DeckVisualSceneBoundaryOptions = deckVisualOptions;
+  let releaseComposerGeneration: (() => void) | undefined;
 
   if (composerEnabled && visualComposer) {
     if (
@@ -118,6 +143,20 @@ export const resolveEndToEndValidatedScenePresentationForGeneration = async (
       );
     }
 
+    if (!visualComposer.authorizeGeneration()) {
+      return visualCompositionFailure(
+        visualComposer.authorizationFailureMessage,
+        [visualCompositionDiagnostic(visualComposer.authorizationFailureMessage)],
+      );
+    }
+
+    let composerGenerationHeld = true;
+    releaseComposerGeneration = () => {
+      if (!composerGenerationHeld) return;
+      composerGenerationHeld = false;
+      visualComposer.releaseGeneration();
+    };
+
     let compositionResult;
     try {
       compositionResult = await visualComposer.compose({
@@ -127,6 +166,7 @@ export const resolveEndToEndValidatedScenePresentationForGeneration = async (
         language: visualComposer.language,
       });
     } catch (error) {
+      releaseComposerGeneration();
       const detail = error instanceof Error ? error.message : 'Unknown provider failure.';
       const diagnostic = visualCompositionDiagnostic(detail);
       return visualCompositionFailure(
@@ -136,6 +176,7 @@ export const resolveEndToEndValidatedScenePresentationForGeneration = async (
     }
 
     if (compositionResult.ok === false) {
+      releaseComposerGeneration();
       return visualCompositionFailure(
         `The visual teaching composition failed before semantic scene compilation. ${compositionResult.message}`,
         compositionResult.diagnostics,
@@ -162,17 +203,38 @@ export const resolveEndToEndValidatedScenePresentationForGeneration = async (
     );
   }
 
-  const gate4Result = await resolveDeckVisualScenePresentationForGeneration(
-    policy,
-    semanticFlagValue,
-    deckVisualFlagValue,
-    storyboard,
-    { ...resolvedDeckVisualOptions, includeValidationArtifacts: true },
-  );
+  let gate4Result: Awaited<ReturnType<typeof resolveDeckVisualScenePresentationForGeneration>>;
+  try {
+    gate4Result = await resolveDeckVisualScenePresentationForGeneration(
+      policy,
+      semanticFlagValue,
+      deckVisualFlagValue,
+      storyboard,
+      { ...resolvedDeckVisualOptions, includeValidationArtifacts: true },
+    );
+  } catch (error) {
+    releaseComposerGeneration?.();
+    throw error;
+  }
 
-  if (gate4Result.ok === false || !gate4Result.presentation) return gate4Result;
+  if (gate4Result.ok === false) {
+    releaseComposerGeneration?.();
+    return gate4Result;
+  }
+  if (!gate4Result.presentation) {
+    if (!releaseComposerGeneration) return gate4Result;
+    releaseComposerGeneration();
+    const diagnostic = visualCompositionDiagnostic(
+      'Visual teaching composition did not produce a compiled scene presentation.',
+    );
+    return visualCompositionFailure(
+      `The visual teaching composition failed before delivery. ${diagnostic.message}`,
+      [diagnostic],
+    );
+  }
 
   if (!sourceManifest || !storyboard || !gate4Result.validationArtifacts) {
+    releaseComposerGeneration?.();
     const diagnostics: EndToEndDiagnostic[] = [{
       code: 'e2e_source_manifest_invalid',
       severity: 'blocking',
@@ -185,18 +247,25 @@ export const resolveEndToEndValidatedScenePresentationForGeneration = async (
     };
   }
 
-  const validationResult = validateEndToEndScenePresentation({
-    sourceManifest,
-    storyboard,
-    semanticSpecs: gate4Result.validationArtifacts.semanticSpecs,
-    visualSystems: gate4Result.validationArtifacts.visualSystems,
-    assetRequests: gate4Result.validationArtifacts.assetRequests,
-    resolvedAssetsBySpecId: gate4Result.validationArtifacts.resolvedAssetsBySpecId,
-    presentation: gate4Result.presentation,
-    visualTeachingPlan: gate4Result.validationArtifacts.visualTeachingPlan,
-  });
+  let validationResult: ReturnType<typeof validateEndToEndScenePresentation>;
+  try {
+    validationResult = validateEndToEndScenePresentation({
+      sourceManifest,
+      storyboard,
+      semanticSpecs: gate4Result.validationArtifacts.semanticSpecs,
+      visualSystems: gate4Result.validationArtifacts.visualSystems,
+      assetRequests: gate4Result.validationArtifacts.assetRequests,
+      resolvedAssetsBySpecId: gate4Result.validationArtifacts.resolvedAssetsBySpecId,
+      presentation: gate4Result.presentation,
+      visualTeachingPlan: gate4Result.validationArtifacts.visualTeachingPlan,
+    });
+  } catch (error) {
+    releaseComposerGeneration?.();
+    throw error;
+  }
 
   if (validationResult.ok === false) {
+    releaseComposerGeneration?.();
     return {
       ok: false,
       message: validationResult.message,

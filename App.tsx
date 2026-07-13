@@ -3859,6 +3859,7 @@ const App: React.FC = () => {
     const generationLanguage = getPresentationLanguageForGeneration(content);
     setIsLoading(true);
     let shouldRollbackGeneration = false;
+    let visualComposerGenerationReserved = false;
 
     try {
         // College Flow
@@ -3977,6 +3978,17 @@ const App: React.FC = () => {
                         flagValue: VISUAL_TEACHING_COMPOSER_V1_FLAG,
                         language: generationLanguage,
                         compose: composeVisualTeachingPlanWithProvider,
+                        authorizeGeneration: () => {
+                          if (adminGenerationLimitBypassed) return true;
+                          visualComposerGenerationReserved = tryIncrementCount('generations');
+                          return visualComposerGenerationReserved;
+                        },
+                        releaseGeneration: () => {
+                          if (adminGenerationLimitBypassed || !visualComposerGenerationReserved) return;
+                          visualComposerGenerationReserved = false;
+                          decrementCount('generations');
+                        },
+                        authorizationFailureMessage: t.presentation.errorGenerationLimit,
                       },
                     },
                   );
@@ -3993,7 +4005,7 @@ const App: React.FC = () => {
                     return;
                   }
                   if (semanticSceneBoundary.presentation) {
-                    const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+                    const hasQuota = visualComposerGenerationReserved || adminGenerationLimitBypassed || tryIncrementCount('generations');
                     if (!hasQuota) {
                       setIsLoading(false);
                       setError(t.presentation.errorGenerationLimit);
@@ -4204,6 +4216,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     let shouldRollbackGeneration = false;
+    let visualComposerGenerationReserved = false;
     
     try {
         const dayToGenerate = lessonBlueprint.days[dayIndex];
@@ -4297,6 +4310,17 @@ const App: React.FC = () => {
                 flagValue: VISUAL_TEACHING_COMPOSER_V1_FLAG,
                 language: getPresentationLanguageForGeneration(content),
                 compose: composeVisualTeachingPlanWithProvider,
+                authorizeGeneration: () => {
+                  if (adminGenerationLimitBypassed) return true;
+                  visualComposerGenerationReserved = tryIncrementCount('generations');
+                  return visualComposerGenerationReserved;
+                },
+                releaseGeneration: () => {
+                  if (adminGenerationLimitBypassed || !visualComposerGenerationReserved) return;
+                  visualComposerGenerationReserved = false;
+                  decrementCount('generations');
+                },
+                authorizationFailureMessage: t.presentation.errorGenerationLimit,
               },
             },
           );
@@ -4319,7 +4343,7 @@ const App: React.FC = () => {
             return;
           }
           if (semanticSceneBoundary.presentation) {
-            const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+            const hasQuota = visualComposerGenerationReserved || adminGenerationLimitBypassed || tryIncrementCount('generations');
             if (!hasQuota) {
               setError(t.presentation.errorGenerationLimit);
               setLessonBlueprint(prev => {
