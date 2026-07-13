@@ -11,6 +11,7 @@ import { resolveEndToEndValidatedScenePresentationForGeneration } from '../lib/e
 import {
   buildDenseStoryboardEndToEndFixture,
   buildEvidenceOutputEndToEndFixture,
+  buildVisualTeachingQualityEndToEndFixture,
 } from './fixtures/endToEndValidationFixtures.ts';
 
 test('accepts only documented true-like Gate 5 flag values', () => {
@@ -33,6 +34,43 @@ test('builds a passing end-to-end validation report for a valid source-primary s
   assert.equal(result.report.scenes.fullSlideRasterCount, 0);
   assert.equal(result.report.cacheSafety.mayDeliverPresentation, true);
   assert.equal(result.report.cacheSafety.mayWriteSuccessCache, true);
+  assert.equal('presentationQuality' in result.report, false);
+});
+
+test('includes a passing presentation quality report when a visual teaching plan exists', () => {
+  const fixture = buildVisualTeachingQualityEndToEndFixture();
+  const result = validateEndToEndScenePresentation(fixture);
+
+  assert.equal(result.ok, true);
+  assert.ok(result.report.presentationQuality);
+  assert.equal(result.report.presentationQuality.contractVersion, 'presentation-quality-v1');
+  assert.equal(result.report.presentationQuality.meaningfulVisualGrammarRatio >= 0.75, true);
+  assert.equal(result.report.presentationQuality.explanatoryStructureRatio >= 0.40, true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, true);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, true);
+});
+
+test('blocks delivery and success-cache writes when visual presentation quality fails', () => {
+  const fixture = buildVisualTeachingQualityEndToEndFixture();
+  const presentation = structuredClone(fixture.presentation);
+  for (const [index, title] of ['Learning Task 1', 'Learning Task (continued)'].entries()) {
+    const titleElement = presentation.scenes[index].elements.find((element) => (
+      element.kind === 'text' && element.role === 'title'
+    ));
+    assert.ok(titleElement?.kind === 'text');
+    titleElement.runs = [{ text: title }];
+  }
+
+  const result = validateEndToEndScenePresentation({ ...fixture, presentation });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.report.presentationQuality);
+  assert.equal(result.report.presentationQuality.repeatedGenericTitleCount, 1);
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'e2e_presentation_quality_failed'
+  )), true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
 });
 
 test('preserves complete source coverage across dense continuation scenes', async () => {

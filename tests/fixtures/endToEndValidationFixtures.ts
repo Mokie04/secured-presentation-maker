@@ -13,6 +13,7 @@ import {
 } from '../../lib/sceneAssetResolver.ts';
 import { buildSemanticSlideSpecs } from '../../lib/semanticSlideSpec.ts';
 import { buildTeachingStoryboard } from '../../lib/teachingStoryboard.ts';
+import { buildSemanticSlideSpecsFromVisualTeachingPlan } from '../../lib/visualTeachingSemanticBridge.ts';
 import {
   DENSE_STORYBOARD_DOCUMENT,
   EVIDENCE_OUTPUT_DOCUMENT,
@@ -23,6 +24,7 @@ import {
   FIVE_SESSION_MATRIX_DOCUMENT,
   MULTI_OBJECTIVE_UNIT_DOCUMENT,
 } from './lessonSourceManifestFixtures.ts';
+import { validVisualPlanFixture } from './visualTeachingComposerFixtures.ts';
 
 const materializeFixture = async (document: Parameters<typeof buildLessonSourceManifest>[0]) => {
   const manifestResult = buildLessonSourceManifest(document);
@@ -87,6 +89,52 @@ export const buildFiveSessionEndToEndFixture = () => materializeFixture(FIVE_SES
 export const buildMultiObjectiveEndToEndFixture = () => materializeFixture(MULTI_OBJECTIVE_UNIT_DOCUMENT);
 export const buildDenseStoryboardEndToEndFixture = () => materializeFixture(DENSE_STORYBOARD_DOCUMENT);
 export const buildSourceBackedBlankTaskEndToEndFixture = () => materializeFixture(SOURCE_BACKED_BLANK_TASK_DOCUMENT);
+
+export const buildVisualTeachingQualityEndToEndFixture = () => {
+  const fixture = validVisualPlanFixture();
+  const semanticResult = buildSemanticSlideSpecsFromVisualTeachingPlan({
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    dispositions: fixture.dispositions,
+    plan: fixture.plan,
+  });
+  assert.equal(semanticResult.ok, true);
+  if (!semanticResult.ok) throw new Error('visual teaching quality semantic fixture failed');
+
+  const visualResult = buildDeckVisualSystems(fixture.storyboard, semanticResult.specs);
+  assert.equal(visualResult.ok, true);
+  if (!visualResult.ok) throw new Error('visual teaching quality visual system fixture failed');
+
+  const requestsResult = buildSceneAssetRequests(
+    fixture.storyboard,
+    semanticResult.specs,
+    visualResult.bundle,
+  );
+  assert.equal(requestsResult.ok, true);
+  if (!requestsResult.ok) throw new Error('visual teaching quality asset request fixture failed');
+
+  const semanticSpecs = semanticResult.specs.map((spec) => ({
+    ...spec,
+    assetRequests: requestsResult.requests.filter((request) => request.semanticSlideSpecId === spec.id),
+  }));
+  const sceneResult = compileSemanticSlideSpecsToScenes(semanticSpecs, {
+    title: 'Sanitized Visual Teaching Quality Deck',
+    visualSystemsByUnitId: visualResult.bundle.systemsByUnitId,
+  });
+  assert.equal(sceneResult.ok, true);
+  if (!sceneResult.ok) throw new Error('visual teaching quality scene fixture failed');
+
+  return {
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    semanticSpecs,
+    visualSystems: visualResult.bundle,
+    assetRequests: requestsResult.requests,
+    resolvedAssetsBySpecId: {},
+    presentation: sceneResult.presentation,
+    visualTeachingPlan: fixture.plan,
+  };
+};
 
 export const flattenResolvedAssets = (resolvedAssetsBySpecId: Record<string, SceneResolvedAsset[]>): SceneResolvedAsset[] => (
   Object.values(resolvedAssetsBySpecId).flat()

@@ -4,6 +4,10 @@ import {
 } from './deckVisualSystem.ts';
 import type { CompiledScenePresentation } from './compiledSlideScene.ts';
 import type { LessonSourceManifest } from './lessonSourceManifest.ts';
+import {
+  validatePresentationQuality,
+  type PresentationQualityReport,
+} from './presentationQualityValidation.ts';
 import { validatePptxRoundTrip } from './pptxRoundTripValidation.ts';
 import { validateRenderedScenes } from './renderedSceneValidation.ts';
 import type { SceneAssetRequest } from './sceneAssetRequests.ts';
@@ -12,6 +16,7 @@ import type { SceneResolvedAsset } from './sceneAssetResolver.ts';
 import type { SemanticSlideSpec } from './semanticSlideSpec.ts';
 import { validateSourceAlignment } from './sourceAlignmentValidation.ts';
 import type { TeachingStoryboard } from './teachingStoryboard.ts';
+import type { VisualTeachingPlan } from './visualTeachingPlan.ts';
 
 export const END_TO_END_VALIDATION_VERSION = 'end-to-end-validation-v1';
 
@@ -33,6 +38,7 @@ export type EndToEndDiagnosticCode =
   | 'e2e_preview_text_not_editable'
   | 'e2e_pptx_round_trip_invalid'
   | 'e2e_full_slide_raster'
+  | 'e2e_presentation_quality_failed'
   | 'e2e_cache_write_forbidden';
 
 export type EndToEndDiagnostic = {
@@ -123,6 +129,7 @@ export type EndToEndValidationReport = {
   scenes: RenderValidationSummary;
   renderedPreview: RenderValidationSummary;
   pptxRoundTrip: PptxRoundTripSummary;
+  presentationQuality?: PresentationQualityReport;
   cacheSafety: CacheSafetyDecision;
   diagnostics: EndToEndDiagnostic[];
 };
@@ -135,6 +142,7 @@ export type EndToEndValidationInput = {
   assetRequests: SceneAssetRequest[];
   resolvedAssetsBySpecId: Record<string, SceneResolvedAsset[]>;
   presentation: CompiledScenePresentation;
+  visualTeachingPlan?: VisualTeachingPlan;
 };
 
 export type EndToEndValidationResult =
@@ -241,6 +249,7 @@ export const buildEndToEndValidationReport = (
     renderedPreview: RenderValidationSummary;
     pptxRoundTrip: PptxRoundTripSummary;
     visualSystemAndAssets: EndToEndValidationReport['visualSystemAndAssets'];
+    presentationQuality?: PresentationQualityReport;
   },
 ): EndToEndValidationReport => {
   const selectedUnitIds = input.storyboard.provenance.selectedUnitIds.length > 0
@@ -275,6 +284,9 @@ export const buildEndToEndValidationReport = (
     scenes: summaries.scenes,
     renderedPreview: summaries.renderedPreview,
     pptxRoundTrip: summaries.pptxRoundTrip,
+    ...(summaries.presentationQuality
+      ? { presentationQuality: summaries.presentationQuality }
+      : {}),
     cacheSafety,
     diagnostics: [...diagnostics],
   };
@@ -288,12 +300,27 @@ export const validateEndToEndScenePresentation = (
   const pptxRoundTrip = validatePptxRoundTrip(input.presentation);
   const visualDiagnostics = visualSystemAndAssetDiagnostics(input);
   const manifestDiagnostics = sourceManifestDiagnostics(input);
+  const presentationQuality = input.visualTeachingPlan
+    ? validatePresentationQuality({
+        visualTeachingPlan: input.visualTeachingPlan,
+        semanticSpecs: input.semanticSpecs,
+        presentation: input.presentation,
+      })
+    : undefined;
+  const presentationQualityDiagnostics: EndToEndDiagnostic[] = presentationQuality?.ok === false
+    ? [{
+        code: 'e2e_presentation_quality_failed',
+        severity: 'blocking',
+        message: `Presentation quality validation failed: ${presentationQuality.diagnostics.map((item) => item.code).join(', ')}.`,
+      }]
+    : [];
   const allDiagnostics = [
     ...manifestDiagnostics,
     ...sourceAlignment.diagnostics,
     ...visualDiagnostics,
     ...renderedScenes.diagnostics,
     ...pptxRoundTrip.diagnostics,
+    ...presentationQualityDiagnostics,
   ];
   const resolvedAssets = Object.values(input.resolvedAssetsBySpecId).flat();
   const requestById = new Map(input.assetRequests.map((request) => [request.id, request] as const));
@@ -321,6 +348,9 @@ export const validateEndToEndScenePresentation = (
     renderedPreview: renderedScenes.summary,
     pptxRoundTrip: pptxRoundTrip.summary,
     visualSystemAndAssets,
+    ...(presentationQuality
+      ? { presentationQuality: presentationQuality.report }
+      : {}),
   });
 
   if (hasBlockingEndToEndDiagnostics(allDiagnostics)) {
