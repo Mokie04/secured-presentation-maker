@@ -121,6 +121,11 @@ const RELATIONSHIP_SOURCE_PATTERN = /\b(?:relationship|cause|effect|compare|cont
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
+const normalizePlanningLabelPunctuation = (value: string): string => value
+  .normalize('NFKC')
+  .replace(/[\u2018\u2019\u02bc]/g, "'")
+  .replace(/[\u2010-\u2015\u2212\ufe58\ufe63\uff0d]/g, '-');
+
 const diagnostic = (
   code: PresentationQualityDiagnosticCode,
   message: string,
@@ -381,8 +386,9 @@ export const validatePresentationQuality = (
     const closeReadingAuthorized = sourceLabels.some((label) => CLOSE_READING_SOURCE_PATTERN.test(label));
 
     for (const unit of slide.visibleText) {
-      const referenceLabelVisible = REFERENCE_LABEL_PATTERN.test(unit.text);
-      const administrativeLabelVisible = ADMINISTRATIVE_LABEL_PATTERN.test(unit.text);
+      const planningLabelText = normalizePlanningLabelPunctuation(unit.text);
+      const referenceLabelVisible = REFERENCE_LABEL_PATTERN.test(planningLabelText);
+      const administrativeLabelVisible = ADMINISTRATIVE_LABEL_PATTERN.test(planningLabelText);
       if (administrativeLabelVisible || (referenceLabelVisible && !referencesAuthorized)) {
         planningLabelViolationCount += 1;
         diagnostics.push(diagnostic(

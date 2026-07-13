@@ -125,6 +125,41 @@ test('blocks every anchored planning label in English and conservative Filipino 
   }
 });
 
+test('blocks anchored planning labels with Unicode apostrophes and dash delimiters', () => {
+  const labels = [
+    'Teacher’s Notes',
+    'Teacherʼs Notes',
+    'Sources — websites',
+    'Sources – websites',
+    'Sources ‑ websites',
+    'Teacher Preparation − internal',
+  ];
+
+  for (const label of labels) {
+    const result = validatePresentationQuality(withVisibleTitle(passingQualityFixture(), label));
+    assert.equal(result.ok, false, label);
+    assert.equal(
+      result.diagnostics.some((item) => item.code === 'quality_planning_label_visible'),
+      true,
+      label,
+    );
+  }
+});
+
+test('does not treat non-label sentences containing planning words as planning labels', () => {
+  const sentences = [
+    'Learners compare sources — websites can provide different evidence.',
+    'Discuss the teacher’s notes only after examining the learner-facing prompt.',
+    'Use observations of learners as a phrase to analyze in this quoted sentence.',
+  ];
+
+  for (const sentence of sentences) {
+    const result = validatePresentationQuality(withVisibleTitle(passingQualityFixture(), sentence));
+    assert.equal(result.ok, true, sentence);
+    assert.equal(result.report.planningLabelViolationCount, 0, sentence);
+  }
+});
+
 test('blocks paragraph dumps and repeated normalized generic titles', () => {
   const result = validatePresentationQuality(withRepeatedGenericParagraphSlides(
     passingQualityFixture(),
