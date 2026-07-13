@@ -24,6 +24,7 @@ import { compilePptxSceneOperations } from './lib/compiledScenePptx';
 import { resolveEndToEndValidatedScenePresentationForGeneration } from './lib/endToEndSceneBoundary';
 import { buildSourcePrimarySceneTelemetryEvent } from './lib/sourcePrimarySceneTelemetry';
 import { resolveSourcePrimarySceneRolloutForGeneration, shouldRunSourcePrimaryScenePreflight } from './lib/sourcePrimarySceneRollout';
+import { SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION, resolveSourcePrimaryWeeklyBlueprintForGeneration } from './lib/sourcePrimaryWeeklyBlueprint';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -4051,6 +4052,7 @@ const App: React.FC = () => {
                 const cacheKey = await buildGenerationCacheKey('k12-lesson-plan', [
                   GENERATION_CACHE_VERSION,
                   ...routePolicy.cacheKeyParts,
+                  ...(runSourcePrimaryScenePreflight ? [SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION] : []),
                   content,
                   DEFAULT_LESSON_FORMAT,
                   generationLanguage,
@@ -4104,6 +4106,48 @@ const App: React.FC = () => {
                   setAppStep(shouldTreatAsComplete ? 'presenting' : 'planning');
                   shouldRollbackGeneration = false;
                   return;
+                }
+
+                if (runSourcePrimaryScenePreflight) {
+                  const weeklyBlueprintBoundary = resolveSourcePrimaryWeeklyBlueprintForGeneration(
+                    routePolicy,
+                    sourceManifestBoundary.manifest,
+                    generationLanguage,
+                  );
+                  if (weeklyBlueprintBoundary.ok === false) {
+                    setError(weeklyBlueprintBoundary.message);
+                    setIsLoading(false);
+                    return;
+                  }
+
+                  if (weeklyBlueprintBoundary.blueprint) {
+                    const blueprintWithStatus = resetBlueprintStatus(weeklyBlueprintBoundary.blueprint);
+                    const imageSemanticScope = buildK12ImageSemanticScope(weeklyBlueprintBoundary.blueprint);
+                    setLessonBlueprint(blueprintWithStatus);
+
+                    const initialSlides = buildK12InitialSlides(weeklyBlueprintBoundary.blueprint, generationLanguage);
+                    const processedInitialSlides = await processSlidesForImages(
+                      initialSlides,
+                      generationLanguage,
+                      { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope },
+                    );
+                    const initialPresentation = {
+                        title: weeklyBlueprintBoundary.blueprint.mainTitle,
+                        slides: processedInitialSlides
+                    };
+
+                    setCompiledScenePresentation(null);
+                    setPresentation(initialPresentation);
+                    await setCachedGeneration(cacheKey, {
+                      blueprint: blueprintWithStatus,
+                      initialPresentation,
+                    });
+
+                    await finishLoadingProgress(setLoadingProgress);
+                    setAppStep('planning');
+                    shouldRollbackGeneration = false;
+                    return;
+                  }
                 }
 
                 const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, generationLanguage);
