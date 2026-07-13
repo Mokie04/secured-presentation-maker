@@ -96,6 +96,9 @@ const TEXT_IN_IMAGE_PATTERN =
   /\b(?:with|include|show|inside|visible)\s+(?:text|labels?|captions?|letters?|numbers?)\b|\bcaption\s+text\b/i;
 const EXPLICIT_WRITING_PATTERN =
   /\b(?:text|words?|phrases?|labels?|captions?|signage|screen[- ]writing|board[- ]writing|lettering|typography)\b|\b(?:show|display|write|include|feature|contain|place)\b.{0,48}\b(?:board|screen)\b/i;
+const EXPLICIT_SYMBOLIC_WRITING_PATTERN = /\b(?:equations?|formulas?|notation|code)\b/i;
+const SYMBOLIC_EXPRESSION_PATTERN =
+  /(?:^|[\s([])(?:[A-Z][A-Z0-9_]{0,3}|[a-z]\d*|\d+(?:\.\d+)?)(?:\s*(?:=|≠|≤|≥|≈|[+*/×÷±∓])\s*(?:[A-Z][A-Z0-9_]{0,3}|[a-z]\d*|\d+(?:\.\d+)?))+(?=$|[\s)\],.;:])/;
 const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
 const EMAIL_PATTERN = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i;
 const PHONE_PATTERN = /(?:^|\D)\+?\d[\d\s().-]{7,}\d(?:\D|$)/;
@@ -168,6 +171,10 @@ const validateExplicitAssetBrief = (
     candidate?.mustNotContainText !== true
     || EXPLICIT_WRITING_PATTERN.test(purpose)
     || EXPLICIT_WRITING_PATTERN.test(subject)
+    || EXPLICIT_SYMBOLIC_WRITING_PATTERN.test(purpose)
+    || EXPLICIT_SYMBOLIC_WRITING_PATTERN.test(subject)
+    || SYMBOLIC_EXPRESSION_PATTERN.test(purpose)
+    || SYMBOLIC_EXPRESSION_PATTERN.test(subject)
   ) {
     diagnostics.push(assetDiagnostic(
       'scene_asset_request_text_in_image',

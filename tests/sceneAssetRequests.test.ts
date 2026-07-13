@@ -243,6 +243,38 @@ test('fails closed before precedence when an explicit brief requests written wor
   assert.equal(result.diagnostics.some((item) => item.code === 'scene_asset_request_text_in_image'), true);
 });
 
+test('fails closed when an explicit brief requests equations, formulas, notation, code, or symbolic expressions', () => {
+  for (const purpose of [
+    'Depict the equation V = I × R in the illustration.',
+    'Render V=IR prominently within the circuit diagram.',
+    'Show the resistance formula in mathematical notation.',
+    'Include source code in the apparatus screen.',
+    'Illustrate I+V/R beside the circuit.',
+  ]) {
+    const { result } = explicitBriefRequestFixture({
+      purpose,
+      subject: 'Generic circuit apparatus',
+      style: 'illustration',
+      mustNotContainText: true,
+    });
+
+    assert.equal(result.ok, false);
+    if (result.ok) continue;
+    assert.equal(result.diagnostics.some((item) => item.code === 'scene_asset_request_text_in_image'), true);
+  }
+});
+
+test('allows ordinary concept prose when no symbolic rendering is requested', () => {
+  const { result } = explicitBriefRequestFixture({
+    purpose: 'Illustrate the relationship among voltage, current, and resistance using a generic circuit apparatus.',
+    subject: 'Generic circuit apparatus',
+    style: 'illustration',
+    mustNotContainText: true,
+  });
+
+  assert.equal(result.ok, true);
+});
+
 test('fails closed on suspicious contact, identifier, control, or unbounded explicit briefs', () => {
   for (const assetBrief of [
     {
