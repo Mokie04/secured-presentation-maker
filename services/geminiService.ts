@@ -1,7 +1,7 @@
 
-import { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata, ImageAttribution } from '../types';
-import { K12_ADAPTIVE_PRESENTATION_STANDARD } from '../lib/presentationStandards';
-import { buildFinalImagePrompt } from '../lib/imagePrompting';
+import type { Presentation, Slide, LessonBlueprint, DayPlan, ImageStyle, ImageSemanticMetadata, ImageAttribution } from '../types.ts';
+import { K12_ADAPTIVE_PRESENTATION_STANDARD } from '../lib/presentationStandards.ts';
+import { buildFinalImagePrompt } from '../lib/imagePrompting.ts';
 
 type ClientEnv = {
     VITE_GEMINI_PROXY_BASE_URL?: string;
@@ -64,6 +64,8 @@ type GroundingChunk = {
 type GeminiTextResponse = {
     text?: string;
     groundingChunks?: GroundingChunk[];
+    provider?: string;
+    modelUsed?: string;
 };
 
 type GeminiImageResponse = {
@@ -217,6 +219,37 @@ function parseJsonModelResponse<T>(text: string | undefined, label: string): T {
         console.error(`Failed to parse generated JSON for ${label}.`);
         throw error;
     }
+}
+
+export type StructuredTextRequest = {
+    prompt: string;
+    responseSchema: Record<string, unknown>;
+    label: string;
+    temperature?: number;
+};
+
+export type StructuredTextResult<T> = {
+    value: T;
+    provider?: string;
+    model?: string;
+};
+
+export async function generateStructuredText<T>(request: StructuredTextRequest): Promise<StructuredTextResult<T>> {
+    const response = await callGeminiProxy<GeminiTextResponse>({
+        task: 'text',
+        model: TEXT_MODELS,
+        contents: request.prompt,
+        config: {
+            responseMimeType: 'application/json',
+            responseSchema: request.responseSchema,
+            temperature: request.temperature ?? 0.2,
+        },
+    });
+    return {
+        value: parseJsonModelResponse<T>(response.text, request.label),
+        provider: response.provider,
+        model: response.modelUsed,
+    };
 }
 
 function appendGroundingSources(slides: Slide[], groundingChunks?: GroundingChunk[]): void {
