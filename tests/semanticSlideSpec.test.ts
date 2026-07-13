@@ -50,6 +50,7 @@ test('legacy semantic builder behavior is unchanged apart from explicit screen p
   for (const spec of result.specs) {
     assert.deepEqual(spec.storyboardScreenIds, [spec.storyboardScreenId]);
     assert.deepEqual(spec.sourceFieldIds, []);
+    assert.equal(spec.visualTeachingSceneId, undefined);
     assert.equal(spec.visualGrammar, undefined);
     assert.equal(spec.visualAssetBrief, undefined);
   }

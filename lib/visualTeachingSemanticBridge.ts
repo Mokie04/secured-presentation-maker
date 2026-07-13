@@ -1,19 +1,30 @@
 import {
   SEMANTIC_SLIDE_SPEC_VERSION,
   hasBlockingSemanticSlideDiagnostics,
+  revalidateVisualTeachingSemanticContext,
   validateSemanticSlideSpecs,
   type SemanticLayoutId,
   type SemanticSlideIntent,
   type SemanticSlideSpec,
   type SemanticSlideSpecResult,
   type SlideSlotValue,
+  type VisualTeachingSemanticValidationContext,
 } from './semanticSlideSpec.ts';
+import type { LessonSourceManifest } from './lessonSourceManifest.ts';
+import type { SourceDispositionDecision } from './sourceContentDisposition.ts';
 import type { TeachingStoryboard } from './teachingStoryboard.ts';
 import type {
   VisualGrammar,
   VisualTeachingPlan,
   VisualTeachingScene,
 } from './visualTeachingPlan.ts';
+
+export type VisualTeachingSemanticBridgeInput = {
+  sourceManifest: LessonSourceManifest;
+  storyboard: TeachingStoryboard;
+  dispositions: readonly SourceDispositionDecision[];
+  plan: VisualTeachingPlan;
+};
 
 const layoutForGrammar: Record<VisualGrammar, SemanticLayoutId> = {
   'concept-map': 'relationship-diagram',
@@ -102,13 +113,28 @@ const structuredSlotsForScene = (scene: VisualTeachingScene): Record<string, Sli
   if (scene.requiredOutputs.length > 0) {
     slots.outputs = { kind: 'list', items: [...scene.requiredOutputs] };
   }
+  const requirements = [
+    ...scene.requiredEvidence.map((item) => `Evidence: ${item}`),
+    ...scene.requiredOutputs.map((item) => `Output: ${item}`),
+  ];
+  if (requirements.length > 0) {
+    slots.requirements = { kind: 'list', items: requirements };
+  }
   return slots;
 };
 
 export const buildSemanticSlideSpecsFromVisualTeachingPlan = (
-  plan: VisualTeachingPlan,
-  storyboard: TeachingStoryboard,
+  input: VisualTeachingSemanticBridgeInput,
 ): SemanticSlideSpecResult => {
+  const { sourceManifest, storyboard, dispositions, plan } = input;
+  const validationContext: VisualTeachingSemanticValidationContext = {
+    sourceManifest,
+    dispositions,
+    visualTeachingPlan: plan,
+  };
+  const contextResult = revalidateVisualTeachingSemanticContext(validationContext, storyboard);
+  if (contextResult.ok === false) return { ok: false, diagnostics: contextResult.diagnostics };
+
   if (plan.scenes.some((scene) => scene.storyboardScreenIds.length === 0)) {
     return {
       ok: false,
@@ -131,6 +157,7 @@ export const buildSemanticSlideSpecsFromVisualTeachingPlan = (
       sourceStepIds: [...scene.sourceStepIds],
       sourceObjectiveIds: [...scene.sourceObjectiveIds],
       sourceFieldIds: [...scene.sourceFieldIds],
+      visualTeachingSceneId: scene.id,
       intent: intentForScene(scene),
       layoutId: layoutForGrammar[scene.visualGrammar],
       visualGrammar: scene.visualGrammar,
@@ -145,7 +172,7 @@ export const buildSemanticSlideSpecsFromVisualTeachingPlan = (
     };
   });
 
-  const diagnostics = validateSemanticSlideSpecs(specs, storyboard, plan);
+  const diagnostics = validateSemanticSlideSpecs(specs, storyboard, validationContext);
   return hasBlockingSemanticSlideDiagnostics(diagnostics)
     ? { ok: false, diagnostics }
     : { ok: true, specs };

@@ -1,4 +1,5 @@
 import type { K12GenerationRoutePolicy } from './k12GenerationRoutePolicy.ts';
+import type { LessonSourceManifest } from './lessonSourceManifest.ts';
 import type { SceneAssetRequest } from './sceneAssetRequests.ts';
 import {
   compileSemanticSlideSpecsToScenes,
@@ -7,14 +8,19 @@ import {
   type CompiledScenePresentation,
   type SceneValidationDiagnostic,
 } from './compiledSlideScene.ts';
+import {
+  classifySourceContent,
+  type SourceDispositionDecision,
+} from './sourceContentDisposition.ts';
 import type {
   StoryboardScreen,
   TeachingStoryboard,
 } from './teachingStoryboard.ts';
-import type {
-  VisualGrammar,
-  VisualTeachingPlan,
-  VisualTeachingScene,
+import {
+  validateVisualTeachingPlan,
+  type VisualGrammar,
+  type VisualTeachingPlan,
+  type VisualTeachingScene,
 } from './visualTeachingPlan.ts';
 
 export const SEMANTIC_SLIDE_SPEC_VERSION = 'semantic-slide-spec-v1';
@@ -25,6 +31,7 @@ export type SemanticSlideDiagnosticCode =
   | 'semantic_spec_contract_invalid'
   | 'semantic_spec_storyboard_mapping_invalid'
   | 'semantic_spec_source_step_mismatch'
+  | 'semantic_spec_source_field_mismatch'
   | 'semantic_spec_objective_mismatch'
   | 'semantic_spec_layout_unsupported'
   | 'semantic_spec_generic_layout_coverage_low'
@@ -84,6 +91,7 @@ export type SemanticSlideSpec = {
   sourceStepIds: string[];
   sourceObjectiveIds: string[];
   sourceFieldIds: string[];
+  visualTeachingSceneId?: string;
   intent: SemanticSlideIntent;
   layoutId: SemanticLayoutId;
   visualGrammar?: VisualGrammar;
@@ -107,6 +115,16 @@ export type SemanticSlideDiagnostic = {
 
 export type SemanticSlideSpecResult =
   | { ok: true; specs: SemanticSlideSpec[] }
+  | { ok: false; diagnostics: SemanticSlideDiagnostic[] };
+
+export type VisualTeachingSemanticValidationContext = {
+  sourceManifest: LessonSourceManifest;
+  dispositions: readonly SourceDispositionDecision[];
+  visualTeachingPlan: VisualTeachingPlan;
+};
+
+export type RevalidatedVisualTeachingSemanticContext =
+  | { ok: true; visualTeachingPlan: VisualTeachingPlan }
   | { ok: false; diagnostics: SemanticSlideDiagnostic[] };
 
 export type SemanticScenePresentationBoundary =
@@ -145,6 +163,65 @@ const semanticDiagnostic = (
 const arraysEqual = (a: readonly string[], b: readonly string[]): boolean => (
   a.length === b.length && a.every((value, index) => value === b[index])
 );
+
+const dispositionDecisionsEqual = (
+  left: readonly SourceDispositionDecision[],
+  right: readonly SourceDispositionDecision[],
+): boolean => left.length === right.length && left.every((item, index) => {
+  const expected = right[index];
+  return Boolean(
+    expected
+    && item.sourceKind === expected.sourceKind
+    && item.sourceId === expected.sourceId
+    && item.unitId === expected.unitId
+    && item.sourceOrder === expected.sourceOrder
+    && item.sourceLabel === expected.sourceLabel
+    && item.disposition === expected.disposition
+    && item.reason === expected.reason
+  );
+});
+
+export const revalidateVisualTeachingSemanticContext = (
+  context: VisualTeachingSemanticValidationContext,
+  storyboard: TeachingStoryboard,
+): RevalidatedVisualTeachingSemanticContext => {
+  const deterministicDispositions = classifySourceContent(context.sourceManifest, storyboard);
+  if (deterministicDispositions.ok === false) {
+    return {
+      ok: false,
+      diagnostics: [semanticDiagnostic(
+        'semantic_spec_contract_invalid',
+        `Source disposition validation failed before semantic authorization: ${deterministicDispositions.diagnostics.map((item) => item.code).join(', ')}.`,
+      )],
+    };
+  }
+  if (!dispositionDecisionsEqual(context.dispositions, deterministicDispositions.decisions)) {
+    return {
+      ok: false,
+      diagnostics: [semanticDiagnostic(
+        'semantic_spec_contract_invalid',
+        'Visual teaching semantic context does not match deterministic source dispositions.',
+      )],
+    };
+  }
+
+  const planDiagnostics = validateVisualTeachingPlan(
+    context.visualTeachingPlan,
+    context.sourceManifest,
+    storyboard,
+    deterministicDispositions.decisions,
+  );
+  if (planDiagnostics.length > 0) {
+    return {
+      ok: false,
+      diagnostics: [semanticDiagnostic(
+        'semantic_spec_contract_invalid',
+        `Visual teaching plan validation failed before semantic authorization: ${planDiagnostics.map((item) => item.code).join(', ')}.`,
+      )],
+    };
+  }
+  return { ok: true, visualTeachingPlan: context.visualTeachingPlan };
+};
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
@@ -404,14 +481,27 @@ const splitDenseSemanticSpec = (
 export const validateSemanticSlideSpecs = (
   specs: readonly SemanticSlideSpec[],
   storyboard: TeachingStoryboard,
-  visualTeachingPlan?: VisualTeachingPlan,
+  visualTeachingContext?: VisualTeachingSemanticValidationContext,
 ): SemanticSlideDiagnostic[] => {
   const diagnostics: SemanticSlideDiagnostic[] = [];
   const screensById = new Map(storyboard.screens.map((screen) => [screen.id, screen] as const));
   const screenOrder = new Map(storyboard.screens.map((screen, index) => [screen.id, index] as const));
   const coveredScreenIds = new Set<string>();
+  const coveredVisualSceneIds = new Set<string>();
   let previousScreenIndex = -1;
   let previousScreenIds: string[] | null = null;
+  let validatedVisualTeachingPlan: VisualTeachingPlan | null = null;
+  if (visualTeachingContext) {
+    const contextResult = revalidateVisualTeachingSemanticContext(visualTeachingContext, storyboard);
+    if (contextResult.ok === true) {
+      validatedVisualTeachingPlan = contextResult.visualTeachingPlan;
+    } else {
+      diagnostics.push(...contextResult.diagnostics);
+    }
+  }
+  const visualSceneById = new Map(
+    validatedVisualTeachingPlan?.scenes.map((scene) => [scene.id, scene] as const) ?? [],
+  );
 
   for (const spec of specs) {
     const storyboardScreenIds = spec.storyboardScreenIds;
@@ -455,6 +545,48 @@ export const validateSemanticSlideSpecs = (
     previousScreenIds = storyboardScreenIds;
     storyboardScreenIds.forEach((screenId) => coveredScreenIds.add(screenId));
 
+    if (spec.visualTeachingSceneId || visualTeachingContext) {
+      const visualScene = spec.visualTeachingSceneId
+        ? visualSceneById.get(spec.visualTeachingSceneId)
+        : undefined;
+      if (
+        !visualScene
+        || !spec.visualTeachingSceneId
+        || coveredVisualSceneIds.has(spec.visualTeachingSceneId)
+        || visualScene.unitId !== spec.unitId
+        || !arraysEqual(visualScene.storyboardScreenIds, spec.storyboardScreenIds)
+      ) {
+        diagnostics.push(semanticDiagnostic(
+          'semantic_spec_contract_invalid',
+          `Semantic slide ${spec.id} is not uniquely bound to its exact validated visual teaching scene.`,
+          { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
+        ));
+      } else {
+        coveredVisualSceneIds.add(spec.visualTeachingSceneId);
+        if (!arraysEqual(spec.sourceStepIds, visualScene.sourceStepIds)) {
+          diagnostics.push(semanticDiagnostic(
+            'semantic_spec_source_step_mismatch',
+            `Semantic slide ${spec.id} changes source-step provenance from visual scene ${visualScene.id}.`,
+            { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
+          ));
+        }
+        if (!arraysEqual(spec.sourceObjectiveIds, visualScene.sourceObjectiveIds)) {
+          diagnostics.push(semanticDiagnostic(
+            'semantic_spec_objective_mismatch',
+            `Semantic slide ${spec.id} changes objective provenance from visual scene ${visualScene.id}.`,
+            { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
+          ));
+        }
+        if (!arraysEqual(spec.sourceFieldIds, visualScene.sourceFieldIds)) {
+          diagnostics.push(semanticDiagnostic(
+            'semantic_spec_source_field_mismatch',
+            `Semantic slide ${spec.id} changes source-field provenance from visual scene ${visualScene.id}.`,
+            { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
+          ));
+        }
+      }
+    }
+
     if (referencedScreens.some((referencedScreen) => referencedScreen.unitId !== spec.unitId)) {
       diagnostics.push(semanticDiagnostic(
         'semantic_spec_storyboard_mapping_invalid',
@@ -492,12 +624,23 @@ export const validateSemanticSlideSpecs = (
 
   }
 
+  if (validatedVisualTeachingPlan) {
+    for (const scene of validatedVisualTeachingPlan.scenes) {
+      if (!coveredVisualSceneIds.has(scene.id)) {
+        diagnostics.push(semanticDiagnostic(
+          'semantic_spec_contract_invalid',
+          `Validated visual teaching scene ${scene.id} is not represented exactly once by semantic specs.`,
+        ));
+      }
+    }
+  }
+
   const planAccounting = new Map(
-    visualTeachingPlan?.sourceAccounting.map((entry) => [entry.sourceId, entry] as const) ?? [],
+    validatedVisualTeachingPlan?.sourceAccounting.map((entry) => [entry.sourceId, entry] as const) ?? [],
   );
   for (const screen of storyboard.screens) {
     const isAuthorizedNonLearnerScreen = Boolean(
-      visualTeachingPlan
+      validatedVisualTeachingPlan
       && screen.sourceObjectiveIds.length === 0
       && [...screen.sourceStepIds, ...screen.sourceFieldIds].length > 0
       && [...screen.sourceStepIds, ...screen.sourceFieldIds].every((sourceId) => {

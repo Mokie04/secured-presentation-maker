@@ -13,6 +13,32 @@ import { DENSE_STORYBOARD } from './fixtures/semanticSlideFixtures.ts';
 import { validVisualPlanFixture } from './fixtures/visualTeachingComposerFixtures.ts';
 import { buildSemanticSlideSpecsFromVisualTeachingPlan } from '../lib/visualTeachingSemanticBridge.ts';
 
+const explicitBriefRequestFixture = (assetBrief: unknown) => {
+  const fixture = validVisualPlanFixture();
+  const briefScene = fixture.plan.scenes.find((scene) => scene.visualGrammar === 'relationship-diagram');
+  assert.ok(briefScene);
+  const plan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === briefScene.id
+      ? { ...scene, assetBrief: assetBrief as typeof scene.assetBrief }
+      : scene),
+  };
+  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan({
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    dispositions: fixture.dispositions,
+    plan,
+  });
+  assert.equal(semantic.ok, true);
+  if (!semantic.ok) throw new Error('semantic bridge failed');
+  const visualSystems = buildDeckVisualSystems(fixture.storyboard, semantic.specs);
+  assert.equal(visualSystems.ok, true);
+  if (!visualSystems.ok) throw new Error('visual systems failed');
+  return {
+    result: buildSceneAssetRequests(fixture.storyboard, semantic.specs, visualSystems.bundle),
+  };
+};
+
 const requestFixture = () => {
   const visualSystems = buildDeckVisualSystems(EVIDENCE_OUTPUT_VISUAL_FIXTURE.storyboard, EVIDENCE_OUTPUT_VISUAL_FIXTURE.specs);
   assert.equal(visualSystems.ok, true);
@@ -93,15 +119,20 @@ test('prefers one validated visual asset brief while preserving legacy inference
       ? {
           ...scene,
           assetBrief: {
-            purpose: 'Show the observable source-backed setup without slide copy.',
-            subject: 'A generic instructional apparatus',
+            purpose: '  Show the observable   source-backed setup without slide copy.  ',
+            subject: '  A generic instructional   apparatus  ',
             style: 'illustration' as const,
             mustNotContainText: true as const,
           },
         }
       : scene),
   };
-  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan(plan, fixture.storyboard);
+  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan({
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    dispositions: fixture.dispositions,
+    plan,
+  });
   assert.equal(semantic.ok, true);
   if (!semantic.ok) return;
   const visualSystems = buildDeckVisualSystems(fixture.storyboard, semantic.specs);
@@ -114,6 +145,7 @@ test('prefers one validated visual asset brief while preserving legacy inference
   const briefRequests = withBrief.requests.filter((request) => request.storyboardScreenId === briefScene.storyboardScreenIds[0]);
   assert.equal(briefRequests.length, 1);
   assert.equal(briefRequests[0].brief.sceneDescription, 'Show the observable source-backed setup without slide copy.');
+  assert.equal(briefRequests[0].brief.subject, 'A generic instructional apparatus');
   assert.equal(briefRequests[0].brief.mustNotContainText, true);
 
   const legacySpec = EVIDENCE_OUTPUT_VISUAL_FIXTURE.specs[0];
@@ -196,4 +228,70 @@ test('rejects image briefs that request visible text or labels inside the image'
     visualSystems,
   );
   assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'scene_asset_request_text_in_image'), true);
+});
+
+test('fails closed before precedence when an explicit brief requests written words', () => {
+  const { result } = explicitBriefRequestFixture({
+    purpose: 'Show the word VOLTAGE on a classroom board.',
+    subject: 'Generic apparatus',
+    style: 'illustration',
+    mustNotContainText: true,
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.diagnostics.some((item) => item.code === 'scene_asset_request_text_in_image'), true);
+});
+
+test('fails closed on suspicious contact, identifier, control, or unbounded explicit briefs', () => {
+  for (const assetBrief of [
+    {
+      purpose: 'Contact lesson-owner@example.test or call +63 917 123 4567.',
+      subject: 'Generic apparatus',
+      style: 'photo',
+      mustNotContainText: true,
+    },
+    {
+      purpose: 'Show a source-safe apparatus.',
+      subject: 'Student name: Sample Participant',
+      style: 'illustration',
+      mustNotContainText: true,
+    },
+    {
+      purpose: 'Show a source-safe apparatus.',
+      subject: 'Learner ID: ABC-123',
+      style: 'illustration',
+      mustNotContainText: true,
+    },
+    {
+      purpose: 'Show a source-safe apparatus.\u0007',
+      subject: 'Generic apparatus',
+      style: 'illustration',
+      mustNotContainText: true,
+    },
+    {
+      purpose: `Show ${'bounded '.repeat(80)}apparatus.`,
+      subject: 'Generic apparatus',
+      style: 'illustration',
+      mustNotContainText: true,
+    },
+  ]) {
+    const { result } = explicitBriefRequestFixture(assetBrief);
+    assert.equal(result.ok, false);
+    if (result.ok) continue;
+    assert.equal(result.diagnostics.some((item) => item.code === 'scene_asset_request_private_text_leak'), true);
+  }
+});
+
+test('rejects runtime text permission instead of silently rewriting it to text-free', () => {
+  const { result } = explicitBriefRequestFixture({
+    purpose: 'Show a source-safe apparatus.',
+    subject: 'Generic apparatus',
+    style: 'illustration',
+    mustNotContainText: false,
+  });
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.diagnostics.some((item) => item.code === 'scene_asset_request_text_in_image'), true);
 });

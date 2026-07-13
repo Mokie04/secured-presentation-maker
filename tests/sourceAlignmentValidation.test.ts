@@ -14,7 +14,12 @@ import { validVisualPlanFixture } from './fixtures/visualTeachingComposerFixture
 
 test('does not treat exact authorized non-learner dispositions as semantic omissions', () => {
   const fixture = validVisualPlanFixture();
-  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan(fixture.plan, fixture.storyboard);
+  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan({
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    dispositions: fixture.dispositions,
+    plan: fixture.plan,
+  });
   assert.equal(semantic.ok, true);
   if (!semantic.ok) return;
 
@@ -29,7 +34,12 @@ test('does not treat exact authorized non-learner dispositions as semantic omiss
 
 test('does not authorize omitted learner-visible steps or dispositions from an invalid plan', () => {
   const fixture = validVisualPlanFixture();
-  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan(fixture.plan, fixture.storyboard);
+  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan({
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    dispositions: fixture.dispositions,
+    plan: fixture.plan,
+  });
   assert.equal(semantic.ok, true);
   if (!semantic.ok) return;
   const withoutRelationship = semantic.specs.map((spec) => ({

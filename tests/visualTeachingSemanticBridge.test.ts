@@ -5,13 +5,27 @@ import {
   compileSemanticSlideSpecsToScenes,
   getSceneVisibleText,
 } from '../lib/compiledSlideScene.ts';
-import { validateVisualTeachingPlan } from '../lib/visualTeachingPlan.ts';
+import { validateSemanticSlideSpecs } from '../lib/semanticSlideSpec.ts';
+import {
+  validateVisualTeachingPlan,
+  type VisualTeachingScene,
+} from '../lib/visualTeachingPlan.ts';
 import { buildSemanticSlideSpecsFromVisualTeachingPlan } from '../lib/visualTeachingSemanticBridge.ts';
 import { validVisualPlanFixture } from './fixtures/visualTeachingComposerFixtures.ts';
 
+const buildFixtureSemanticSpecs = (
+  fixture: ReturnType<typeof validVisualPlanFixture>,
+  plan = fixture.plan,
+) => buildSemanticSlideSpecsFromVisualTeachingPlan({
+  sourceManifest: fixture.manifest,
+  storyboard: fixture.storyboard,
+  dispositions: fixture.dispositions,
+  plan,
+});
+
 test('maps visual scenes to semantic specs with merged provenance and typed structures', () => {
   const fixture = validVisualPlanFixture();
-  const result = buildSemanticSlideSpecsFromVisualTeachingPlan(fixture.plan, fixture.storyboard);
+  const result = buildFixtureSemanticSpecs(fixture);
 
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -30,6 +44,7 @@ test('maps visual scenes to semantic specs with merged provenance and typed stru
     assert.deepEqual(spec.sourceStepIds, scene.sourceStepIds);
     assert.deepEqual(spec.sourceObjectiveIds, scene.sourceObjectiveIds);
     assert.deepEqual(spec.sourceFieldIds, scene.sourceFieldIds);
+    assert.equal(spec.visualTeachingSceneId, scene.id);
     assert.equal(spec.storyboardScreenId, scene.storyboardScreenIds[0]);
   }
 
@@ -37,6 +52,53 @@ test('maps visual scenes to semantic specs with merged provenance and typed stru
   const question = result.specs.find((spec) => spec.layoutId === 'question-choices');
   assert.equal(relationship?.slots.diagram?.kind, 'diagram');
   assert.equal(question?.slots.question?.kind, 'question');
+});
+
+test('revalidates plan accounting before authorizing an omitted learner-visible screen', () => {
+  const fixture = validVisualPlanFixture();
+  const relationshipScene = fixture.plan.scenes.find((scene) => scene.sourceStepIds.includes(fixture.relationshipStepId));
+  assert.ok(relationshipScene);
+  const invalidPlan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.filter((scene) => scene.id !== relationshipScene.id),
+    sourceAccounting: fixture.plan.sourceAccounting.map((entry) => entry.sourceId === fixture.relationshipStepId
+      ? {
+          ...entry,
+          disposition: 'speaker-notes' as const,
+          reason: 'teacher-action-notes' as const,
+          sceneIds: [],
+        }
+      : entry),
+  };
+
+  const result = buildFixtureSemanticSpecs(fixture, invalidPlan);
+
+  assert.equal(result.ok, false);
+});
+
+test('does not trust caller-supplied dispositions that disagree with deterministic classification', () => {
+  const fixture = validVisualPlanFixture();
+  const relationshipScene = fixture.plan.scenes.find((scene) => scene.sourceStepIds.includes(fixture.relationshipStepId));
+  assert.ok(relationshipScene);
+  const dispositions = fixture.dispositions.map((entry) => entry.sourceId === fixture.relationshipStepId
+    ? { ...entry, disposition: 'speaker-notes' as const, reason: 'teacher-action-notes' as const }
+    : entry);
+  const plan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.filter((scene) => scene.id !== relationshipScene.id),
+    sourceAccounting: fixture.plan.sourceAccounting.map((entry) => entry.sourceId === fixture.relationshipStepId
+      ? { ...dispositions.find((item) => item.sourceId === entry.sourceId)!, sceneIds: [] }
+      : entry),
+  };
+
+  const result = buildSemanticSlideSpecsFromVisualTeachingPlan({
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    dispositions,
+    plan,
+  });
+
+  assert.equal(result.ok, false);
 });
 
 test('merges only contiguous storyboard ownership into one semantic spec', () => {
@@ -85,7 +147,7 @@ test('merges only contiguous storyboard ownership into one semantic spec', () =>
     fixture.dispositions,
   ), []);
 
-  const result = buildSemanticSlideSpecsFromVisualTeachingPlan(plan, fixture.storyboard);
+  const result = buildFixtureSemanticSpecs(fixture, plan);
 
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -105,11 +167,11 @@ test('rejects non-contiguous or mismatched merged storyboard provenance', () => 
       : scene),
   };
 
-  const result = buildSemanticSlideSpecsFromVisualTeachingPlan(invalid, fixture.storyboard);
+  const result = buildFixtureSemanticSpecs(fixture, invalid);
 
   assert.equal(result.ok, false);
   if (result.ok) return;
-  assert.equal(result.diagnostics.some((item) => item.code === 'semantic_spec_storyboard_mapping_invalid'), true);
+  assert.equal(result.diagnostics.some((item) => item.code === 'semantic_spec_contract_invalid'), true);
 });
 
 test('maps every structured visible-content shape into typed semantic slots', () => {
@@ -137,7 +199,7 @@ test('maps every structured visible-content shape into typed semantic slots', ()
     scenes: fixture.plan.scenes.map((item) => item.id === scene.id ? scene : item),
   };
 
-  const result = buildSemanticSlideSpecsFromVisualTeachingPlan(plan, fixture.storyboard);
+  const result = buildFixtureSemanticSpecs(fixture, plan);
 
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -154,7 +216,7 @@ test('maps every structured visible-content shape into typed semantic slots', ()
 
 test('retains question and diagram copy in the generic native compatibility scene', () => {
   const fixture = validVisualPlanFixture();
-  const semantic = buildSemanticSlideSpecsFromVisualTeachingPlan(fixture.plan, fixture.storyboard);
+  const semantic = buildFixtureSemanticSpecs(fixture);
   assert.equal(semantic.ok, true);
   if (!semantic.ok) return;
 
@@ -165,4 +227,133 @@ test('retains question and diagram copy in the generic native compatibility scen
 
   assert.match(visibleText, /supplied push/i);
   assert.match(visibleText, /pattern alpha/i);
+});
+
+test('retains distinct evidence and output requirements as editable compiled text', () => {
+  const fixture = validVisualPlanFixture();
+  const evidenceScene = fixture.plan.scenes.find((scene) => scene.teachingMove === 'evidence');
+  assert.ok(evidenceScene);
+  const plan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === evidenceScene.id
+      ? {
+          ...scene,
+          requiredEvidence: ['EVIDENCE-SENTINEL-ALPHA'],
+          requiredOutputs: ['OUTPUT-SENTINEL-BETA'],
+        }
+      : scene),
+  };
+  const semantic = buildFixtureSemanticSpecs(fixture, plan);
+  assert.equal(semantic.ok, true);
+  if (!semantic.ok) return;
+  const compiled = compileSemanticSlideSpecsToScenes(semantic.specs, { title: 'Requirement Fixture' });
+  assert.equal(compiled.ok, true);
+  if (!compiled.ok) return;
+  const visibleText = compiled.presentation.scenes.flatMap(getSceneVisibleText).join(' ');
+  const editableText = compiled.presentation.scenes.flatMap((scene) => scene.elements).flatMap((element) => {
+    if (!element.editable) return [];
+    if (element.kind === 'text') return element.runs.map((run) => run.text);
+    if (element.kind === 'table') return [...element.headers, ...element.rows.flat()];
+    return [];
+  }).join(' ');
+
+  assert.match(visibleText, /EVIDENCE-SENTINEL-ALPHA/);
+  assert.match(visibleText, /OUTPUT-SENTINEL-BETA/);
+  assert.match(editableText, /EVIDENCE-SENTINEL-ALPHA/);
+  assert.match(editableText, /OUTPUT-SENTINEL-BETA/);
+});
+
+test('rejects semantic field provenance that differs from its exact visual scene', () => {
+  const fixture = validVisualPlanFixture();
+  const semantic = buildFixtureSemanticSpecs(fixture);
+  assert.equal(semantic.ok, true);
+  if (!semantic.ok) return;
+  const invalid = semantic.specs.map((spec, index) => index === 0
+    ? { ...spec, sourceFieldIds: ['field-foreign'] }
+    : spec);
+
+  const diagnostics = validateSemanticSlideSpecs(invalid, fixture.storyboard, {
+    sourceManifest: fixture.manifest,
+    dispositions: fixture.dispositions,
+    visualTeachingPlan: fixture.plan,
+  });
+
+  assert.equal(diagnostics.some((item) => item.code === 'semantic_spec_source_field_mismatch'), true);
+});
+
+test('rejects foreign and cross-unit visual scene field ownership before mapping', () => {
+  const fixture = validVisualPlanFixture();
+  const templateUnit = fixture.manifest.units[0];
+  const foreignField = {
+    id: 'field-owned-by-unit-002',
+    key: 'crossUnitField',
+    label: 'Cross-unit source field',
+    value: 'Source-safe field content.',
+    state: 'present' as const,
+    sourceOrder: 99,
+    sourceLocation: { blockId: 'field-owned-by-unit-002' },
+  };
+  const secondUnit = {
+    ...templateUnit,
+    id: 'unit-002',
+    label: 'Session 2',
+    sourceOrder: 99,
+    objectiveIds: [],
+    steps: [],
+    fields: { crossUnitField: foreignField },
+  };
+  const storyboard = {
+    ...fixture.storyboard,
+    provenance: {
+      ...fixture.storyboard.provenance,
+      selectedUnitIds: [...fixture.storyboard.provenance.selectedUnitIds, secondUnit.id],
+    },
+  };
+  const targetScene = fixture.plan.scenes[0];
+  const plan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene): VisualTeachingScene => scene.id === targetScene.id
+      ? { ...scene, sourceFieldIds: [foreignField.id] }
+      : scene),
+    sourceAccounting: [
+      ...fixture.plan.sourceAccounting,
+      {
+        sourceKind: 'field' as const,
+        sourceId: foreignField.id,
+        unitId: secondUnit.id,
+        sourceOrder: foreignField.sourceOrder,
+        sourceLabel: foreignField.label,
+        disposition: 'learner-visible' as const,
+        reason: 'instructional-step-visible' as const,
+        sceneIds: [targetScene.id],
+      },
+    ],
+    provenance: {
+      ...fixture.plan.provenance,
+      selectedUnitIds: [...fixture.plan.provenance.selectedUnitIds, secondUnit.id],
+    },
+  };
+  const manifest = { ...fixture.manifest, units: [...fixture.manifest.units, secondUnit] };
+
+  const dispositions = [
+    ...fixture.dispositions,
+    {
+      sourceKind: 'field' as const,
+      sourceId: foreignField.id,
+      unitId: secondUnit.id,
+      sourceOrder: foreignField.sourceOrder,
+      sourceLabel: foreignField.label,
+      disposition: 'learner-visible' as const,
+      reason: 'instructional-step-visible' as const,
+    },
+  ];
+  const result = buildSemanticSlideSpecsFromVisualTeachingPlan({
+    sourceManifest: manifest,
+    storyboard,
+    dispositions,
+    plan,
+  });
+
+  assert.equal(result.ok, false);
+  assert.ok(manifest.units.some((unit) => unit.id === secondUnit.id));
 });
