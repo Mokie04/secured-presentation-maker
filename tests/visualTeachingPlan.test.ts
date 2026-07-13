@@ -51,6 +51,61 @@ test('rejects foreign source and storyboard references', () => {
   assert.equal(diagnostics.some((item) => item.code === 'visual_plan_foreign_source'), true);
 });
 
+test('rejects learner-visible scenes without storyboard ownership', () => {
+  const fixture = validVisualPlanFixture();
+  const firstScene = fixture.plan.scenes[0];
+  const diagnostics = validateVisualTeachingPlan({
+    ...fixture.plan,
+    scenes: [{
+      ...firstScene,
+      storyboardScreenIds: [],
+      learnerTitle: 'Arbitrary learner content',
+      visibleContent: {
+        statement: 'This statement has no storyboard provenance.',
+        points: [],
+        cards: [],
+        steps: [],
+      },
+    }, ...fixture.plan.scenes.slice(1)],
+  }, fixture.manifest, fixture.storyboard, fixture.dispositions);
+
+  assert.equal(diagnostics.some((item) => item.code === 'visual_plan_contract_invalid'), true);
+});
+
+test('rejects scene source references that do not match their storyboard screens', () => {
+  const fixture = validVisualPlanFixture();
+  const stepScenes = fixture.plan.scenes.filter((scene) => scene.sourceStepIds.length > 0);
+  const firstScene = stepScenes[0];
+  const secondScene = stepScenes[1];
+  assert.ok(firstScene);
+  assert.ok(secondScene);
+
+  const mutations = [
+    {
+      ...firstScene,
+      sourceStepIds: [],
+      sourceObjectiveIds: [],
+      sourceFieldIds: [],
+    },
+    {
+      ...firstScene,
+      storyboardScreenIds: [...secondScene.storyboardScreenIds],
+    },
+  ];
+
+  for (const scene of mutations) {
+    const diagnostics = validateVisualTeachingPlan({
+      ...fixture.plan,
+      scenes: fixture.plan.scenes.map((candidate) => candidate.id === firstScene.id ? scene : candidate),
+    }, fixture.manifest, fixture.storyboard, fixture.dispositions);
+    assert.equal(
+      diagnostics.some((item) => item.code === 'visual_plan_foreign_source'),
+      true,
+      scene.id,
+    );
+  }
+});
+
 test('rejects source order inversions', () => {
   const fixture = validVisualPlanFixture();
   const objectiveScenes = fixture.plan.scenes.filter((scene) => scene.sourceStepIds.length === 0);
@@ -226,12 +281,32 @@ test('accounts for a learner-visible source field through scene field ownership'
       fields: { learnerReference: field },
     }],
   };
+  const fieldScreenId = 'screen-field-reference';
   const storyboard = {
     ...fixture.storyboard,
+    screens: [...fixture.storyboard.screens, {
+      id: fieldScreenId,
+      unitId: fixture.plan.unitId,
+      sourceStepIds: [],
+      sourceObjectiveIds: [],
+      sourceFieldIds: [field.id],
+      instructionalPurpose: 'Expose a source-required learner reference action.',
+      learnerTitle: 'Reference Comparison',
+      learnerContent: {
+        task: field.value,
+        questions: [],
+        directions: [field.value],
+        successCriteria: [],
+      },
+      teacherNotes: '',
+      requiredEvidence: [],
+      requiredOutputs: [],
+      communicationIntent: 'activity-task' as const,
+    }],
     sourceFieldAccounting: [...fixture.storyboard.sourceFieldAccounting, {
       sourceFieldId: field.id,
       unitId: fixture.plan.unitId,
-      screenIds: [],
+      screenIds: [fieldScreenId],
       state: field.state,
       status: 'metadata' as const,
     }],
@@ -249,7 +324,7 @@ test('accounts for a learner-visible source field through scene field ownership'
     sourceStepIds: [],
     sourceObjectiveIds: [],
     sourceFieldIds: [field.id],
-    storyboardScreenIds: [],
+    storyboardScreenIds: [fieldScreenId],
     learnerTitle: 'Reference Comparison',
     visibleContent: {
       statement: field.value,

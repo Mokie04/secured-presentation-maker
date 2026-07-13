@@ -126,6 +126,15 @@ const arraysEqual = (left: readonly string[], right: readonly string[]): boolean
   left.length === right.length && left.every((value, index) => value === right[index])
 );
 
+const uniqueInOrder = (values: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+};
+
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim().toLowerCase();
 
 const getVisibleSceneText = (scene: VisualTeachingScene): string => normalizeText([
@@ -203,6 +212,7 @@ export const validateVisualTeachingPlan = (
   const stepById = new Map(selectedSteps.map((step) => [step.id, step]));
   const fieldById = new Map(selectedFields.map((field) => [field.id, field]));
   const screenById = new Map(storyboard.screens.map((screen) => [screen.id, screen]));
+  const screenOrderById = new Map(storyboard.screens.map((screen, index) => [screen.id, index]));
   const sceneById = new Map(plan.scenes.map((scene) => [scene.id, scene]));
   const dispositionById = new Map(dispositions.map((item) => [item.sourceId, item]));
 
@@ -215,6 +225,14 @@ export const validateVisualTeachingPlan = (
       diagnostics.push(diagnostic(
         'visual_plan_grammar_unsupported',
         `Scene ${scene.id} uses unsupported visual grammar ${scene.visualGrammar}.`,
+        { sceneId: scene.id },
+      ));
+    }
+
+    if (scene.storyboardScreenIds.length === 0 || new Set(scene.storyboardScreenIds).size !== scene.storyboardScreenIds.length) {
+      diagnostics.push(diagnostic(
+        'visual_plan_contract_invalid',
+        `Scene ${scene.id} must reference at least one unique storyboard screen.`,
         { sceneId: scene.id },
       ));
     }
@@ -246,6 +264,35 @@ export const validateVisualTeachingPlan = (
         `Scene ${scene.id} contains a source or storyboard reference outside the selected lesson units.`,
         { sourceId: foreignSourceId ?? ownershipMismatchSourceId, sceneId: scene.id },
       ));
+    }
+
+    const referencedScreens = scene.storyboardScreenIds
+      .map((screenId) => screenById.get(screenId))
+      .filter((screen): screen is TeachingStoryboard['screens'][number] => Boolean(screen));
+    if (referencedScreens.length === scene.storyboardScreenIds.length && referencedScreens.length > 0) {
+      const expectedStepIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceStepIds));
+      const expectedObjectiveIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceObjectiveIds));
+      const expectedFieldIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceFieldIds));
+      if (
+        !arraysEqual(scene.sourceStepIds, expectedStepIds)
+        || !arraysEqual(scene.sourceObjectiveIds, expectedObjectiveIds)
+        || !arraysEqual(scene.sourceFieldIds, expectedFieldIds)
+      ) {
+        diagnostics.push(diagnostic(
+          'visual_plan_foreign_source',
+          `Scene ${scene.id} source references do not match its storyboard screen provenance.`,
+          { sceneId: scene.id },
+        ));
+      }
+
+      const storyboardOrders = scene.storyboardScreenIds.map((screenId) => screenOrderById.get(screenId)!);
+      if (storyboardOrders.some((order, index) => index > 0 && order < storyboardOrders[index - 1])) {
+        diagnostics.push(diagnostic(
+          'visual_plan_order_inversion',
+          `Scene ${scene.id} inverts its storyboard screen order.`,
+          { sceneId: scene.id },
+        ));
+      }
     }
   }
 
