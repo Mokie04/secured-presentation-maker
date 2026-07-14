@@ -34,12 +34,22 @@ export type SourceContentDispositionResult =
   | { ok: true; decisions: SourceDispositionDecision[] }
   | { ok: false; diagnostics: VisualTeachingPlanDiagnostic[] };
 
-const ADMINISTRATIVE_LABEL =
-  /^(?:references?(?:\s*\([^)]*\))?|declaration of ai use|teacher preparation|administrative notes?)\s*:?$/i;
-const PLANNING_CONTEXT_LABEL =
-  /^(?:learner context|observations? of learners|ways forward|intentions?)\s*:?$/i;
+const ADMINISTRATIVE_LABEL_PREFIX =
+  /^(?:references?(?:\s*\([^)]*\))?|declaration of ai use|teacher preparation|administrative notes?)/i;
+const PLANNING_CONTEXT_LABEL_PREFIX =
+  /^(?:learner context|observations? of learners|ways forward|intentions?)/i;
 const LEARNER_REFERENCE_ACTION =
   /\b(?:learners?|students?)\s+(?:use|consult|compare|evaluate|cite)\b|\b(?:use|consult|compare|evaluate|cite)\s+(?:the\s+)?(?:reference|source)/i;
+
+const matchesAllowlistedLabelBoundary = (value: string, prefix: RegExp): boolean => {
+  const normalized = value.trim();
+  const match = normalized.match(prefix);
+  if (!match) return false;
+  const remainder = normalized.slice(match[0].length);
+  return !remainder.trim()
+    || /^\s*[:.\-–—]/.test(remainder)
+    || /^[A-Z]/.test(remainder);
+};
 
 const compareCodePoints = (left: string, right: string): number => {
   const leftPoints = [...left];
@@ -54,23 +64,23 @@ const compareCodePoints = (left: string, right: string): number => {
 
 const dispositionForStep = (step: SourceStep): Pick<SourceDispositionDecision, 'disposition' | 'reason'> => {
   const sourceText = step.rawBlocks.join(' ');
-  if (ADMINISTRATIVE_LABEL.test(step.sourceLabel) && !LEARNER_REFERENCE_ACTION.test(sourceText)) {
+  if (matchesAllowlistedLabelBoundary(step.sourceLabel, ADMINISTRATIVE_LABEL_PREFIX) && !LEARNER_REFERENCE_ACTION.test(sourceText)) {
     return { disposition: 'omit-administrative', reason: 'administrative-omission' };
   }
-  if (PLANNING_CONTEXT_LABEL.test(step.sourceLabel)) {
+  if (matchesAllowlistedLabelBoundary(step.sourceLabel, PLANNING_CONTEXT_LABEL_PREFIX)) {
     return { disposition: 'speaker-notes', reason: 'planning-context-notes' };
   }
   return { disposition: 'learner-visible', reason: 'instructional-step-visible' };
 };
 
 const dispositionForField = (field: SourceField): Pick<SourceDispositionDecision, 'disposition' | 'reason'> => {
-  if (ADMINISTRATIVE_LABEL.test(field.label)) {
+  if (matchesAllowlistedLabelBoundary(field.label, ADMINISTRATIVE_LABEL_PREFIX)) {
     if (LEARNER_REFERENCE_ACTION.test(field.value)) {
       return { disposition: 'learner-visible', reason: 'instructional-step-visible' };
     }
     return { disposition: 'omit-administrative', reason: 'administrative-omission' };
   }
-  if (PLANNING_CONTEXT_LABEL.test(field.label)) {
+  if (matchesAllowlistedLabelBoundary(field.label, PLANNING_CONTEXT_LABEL_PREFIX)) {
     return { disposition: 'speaker-notes', reason: 'planning-context-notes' };
   }
   if (field.state === 'ambiguous') {

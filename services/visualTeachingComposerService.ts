@@ -269,6 +269,8 @@ Preserve objective ownership, learner-visible requirements, evidence, outputs, a
 Planning-only and administrative dispositions must not appear in learner-visible titles or content.
 Create a coherent teaching arc; do not create one slide for every source row by default.
 Use visual grammar to explain relationships, processes, comparisons, evidence, activities, and assessments.
+No more than 20% of plan scenes may use minimal-statement visual grammar.
+At least 40% of plan scenes must use explanatory visual grammar: relationship-diagram, process-flow, comparison-panels, classification-map, timeline, worked-example, data-table, or evidence-board, as appropriate to the source.
 Parse each assessment question and each choice into separate structured fields.
 Do not emit coordinates, PowerPoint operations, markdown, image text, new facts, new activities, or new requirements.
 Keep teacher facilitation in teacherNotes.
@@ -417,6 +419,31 @@ const contractDiagnostic = (): VisualTeachingPlanDiagnostic => ({
   message: 'The structured visual teaching plan does not match visual-teaching-plan-v1.',
 });
 
+const isRecord = (value: unknown): value is Record<string, unknown> => (
+  Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+);
+
+const normalizeRequiredVisualContentCollections = (value: unknown): unknown => {
+  if (!isRecord(value) || !Array.isArray(value.scenes)) return value;
+
+  return {
+    ...value,
+    scenes: value.scenes.map((candidate) => {
+      if (!isRecord(candidate) || !isRecord(candidate.visibleContent)) return candidate;
+      const visibleContent = candidate.visibleContent;
+      return {
+        ...candidate,
+        visibleContent: {
+          ...visibleContent,
+          ...(visibleContent.points === undefined ? { points: [] } : {}),
+          ...(visibleContent.cards === undefined ? { cards: [] } : {}),
+          ...(visibleContent.steps === undefined ? { steps: [] } : {}),
+        },
+      };
+    }),
+  };
+};
+
 const uniqueInOrder = (values: readonly string[]): string[] => {
   const seen = new Set<string>();
   return values.filter((value) => {
@@ -433,6 +460,39 @@ const sceneReferencesDisposition = (
   if (disposition.sourceKind === 'objective') return scene.sourceObjectiveIds.includes(disposition.sourceId);
   if (disposition.sourceKind === 'field') return scene.sourceFieldIds.includes(disposition.sourceId);
   return scene.sourceStepIds.includes(disposition.sourceId);
+};
+
+const canonicalizeMinimalVisualGrammar = (
+  scene: VisualTeachingPlan['scenes'][number],
+): VisualTeachingPlan['scenes'][number]['visualGrammar'] => {
+  if (scene.visualGrammar !== 'minimal-statement') return scene.visualGrammar;
+
+  const { visibleContent } = scene;
+  if (visibleContent.diagram && visibleContent.diagram.nodes.length >= 2 && visibleContent.diagram.edges.length > 0) {
+    return 'relationship-diagram';
+  }
+  if (visibleContent.question && visibleContent.question.choices.length >= 2) return 'question-choices';
+  if (visibleContent.table && visibleContent.table.headers.length > 0 && visibleContent.table.rows.length > 0) {
+    return 'data-table';
+  }
+  if (visibleContent.steps.length >= 2) {
+    return scene.teachingMove === 'model' ? 'worked-example' : 'process-flow';
+  }
+  if (visibleContent.cards.length >= 2) return 'comparison-panels';
+  if (scene.teachingMove === 'evidence' && scene.requiredEvidence.length > 0) return 'evidence-board';
+  if (
+    (scene.teachingMove === 'target' || scene.teachingMove === 'synthesize')
+    && Boolean(visibleContent.statement)
+  ) {
+    return 'visual-thesis';
+  }
+  if (
+    (scene.teachingMove === 'orient' || scene.teachingMove === 'practice')
+    && Boolean(visibleContent.statement || visibleContent.points.length > 0)
+  ) {
+    return 'activity-board';
+  }
+  return scene.visualGrammar;
 };
 
 const canonicalizeProviderProvenance = (
@@ -453,20 +513,26 @@ const canonicalizeProviderProvenance = (
         return { scene, originalIndex, earliestScreenOrder: Number.POSITIVE_INFINITY };
       }
 
-      const trustedScreens = referencedScreens as TeachingStoryboard['screens'];
+      const orderedScreenIds = [...scene.storyboardScreenIds].sort((left, right) => (
+        screenOrderById.get(left)! - screenOrderById.get(right)!
+      ));
+      const trustedScreens = orderedScreenIds.map((screenId) => screenById.get(screenId)!) as TeachingStoryboard['screens'];
       const unitIds = new Set(trustedScreens.map((screen) => screen.unitId));
+      const canonicalScene = {
+        ...scene,
+        storyboardScreenIds: orderedScreenIds,
+        ...(unitIds.size === 1 ? { unitId: trustedScreens[0].unitId } : {}),
+        sourceStepIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceStepIds)),
+        sourceObjectiveIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceObjectiveIds)),
+        sourceFieldIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceFieldIds)),
+      };
       return {
         scene: {
-          ...scene,
-          ...(unitIds.size === 1 ? { unitId: trustedScreens[0].unitId } : {}),
-          sourceStepIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceStepIds)),
-          sourceObjectiveIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceObjectiveIds)),
-          sourceFieldIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceFieldIds)),
+          ...canonicalScene,
+          visualGrammar: canonicalizeMinimalVisualGrammar(canonicalScene),
         },
         originalIndex,
-        earliestScreenOrder: Math.min(
-          ...scene.storyboardScreenIds.map((screenId) => screenOrderById.get(screenId)!),
-        ),
+        earliestScreenOrder: screenOrderById.get(orderedScreenIds[0])!,
       };
     })
     .sort((left, right) => (
@@ -497,12 +563,13 @@ const validateProviderValue = (
   provider?: string,
   model?: string,
 ): { plan: VisualTeachingPlan | null; diagnostics: VisualTeachingPlanDiagnostic[] } => {
-  if (!matchesSchema(value, visualTeachingPlanSchema)) {
+  const normalizedValue = normalizeRequiredVisualContentCollections(value);
+  if (!matchesSchema(normalizedValue, visualTeachingPlanSchema)) {
     return { plan: null, diagnostics: [contractDiagnostic()] };
   }
 
   const plan = canonicalizeProviderProvenance({
-    ...(value as Omit<VisualTeachingPlan, 'provenance'>),
+    ...(normalizedValue as Omit<VisualTeachingPlan, 'provenance'>),
     provenance: {
       sourceHash: input.manifest.provenance.sourceHash,
       storyboardVersion: input.storyboard.contractVersion,

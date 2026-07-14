@@ -164,6 +164,28 @@ const planWithoutRelationshipScene = (fixture: ReturnType<typeof visualComposerF
   scenes: fixture.providerPlan.scenes.filter((scene) => scene.visualGrammar !== 'relationship-diagram'),
 });
 
+const planWithMinimalSceneCount = (
+  fixture: ReturnType<typeof visualComposerFixture>,
+  minimalSceneCount: number,
+) => ({
+  ...fixture.providerPlan,
+  scenes: fixture.providerPlan.scenes.map((scene, index) => ({
+    ...scene,
+    ...(index < minimalSceneCount
+      ? {
+          teachingMove: 'explain' as const,
+          visibleContent: {
+            statement: scene.visibleContent.statement ?? scene.learnerTitle,
+            points: [],
+            cards: [],
+            steps: [],
+          },
+          visualGrammar: 'minimal-statement' as const,
+        }
+      : {}),
+  })),
+});
+
 test('returns a validated provider plan with local provenance', async () => {
   const fixture = visualComposerFixture();
   const calls: StructuredComposerRequest[] = [];
@@ -194,6 +216,36 @@ test('returns a validated provider plan with local provenance', async () => {
   assert.equal(result.plan.provenance.provider, 'fixture');
   assert.equal(result.plan.provenance.model, 'fixture-model');
   assert.equal(result.plan.scenes.some((scene) => scene.visualGrammar === 'relationship-diagram'), true);
+});
+
+test('fills only missing required visual-content collections before strict validation', async () => {
+  const fixture = visualComposerFixture();
+  const providerPlan = structuredClone(fixture.providerPlan) as unknown as Record<string, unknown>;
+  const scenes = providerPlan.scenes as Array<Record<string, unknown>>;
+  const target = scenes.find((scene) => {
+    const visibleContent = scene.visibleContent as Record<string, unknown>;
+    return Boolean(visibleContent.question || visibleContent.table || visibleContent.diagram);
+  });
+  assert.ok(target);
+  const visibleContent = target.visibleContent as Record<string, unknown>;
+  delete visibleContent.points;
+  delete visibleContent.cards;
+  delete visibleContent.steps;
+
+  let calls = 0;
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    calls += 1;
+    return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(calls, 1);
+  if (!result.ok) return;
+  const normalizedScene = result.plan.scenes.find((scene) => scene.id === target.id);
+  assert.ok(normalizedScene);
+  assert.deepEqual(normalizedScene.visibleContent.points, []);
+  assert.deepEqual(normalizedScene.visibleContent.cards, []);
+  assert.deepEqual(normalizedScene.visibleContent.steps, []);
 });
 
 test('uses version-isolated prompts and recursively strict object schemas', async () => {
@@ -248,6 +300,14 @@ test('binds exact storyboard provenance and disposition accounting in compose an
   assert.equal(result.ok, true);
   assert.deepEqual(calls.map((call) => call.purpose), ['compose', 'repair']);
   for (const { prompt } of calls) {
+    assert.match(
+      prompt,
+      /No more than 20% of plan scenes may use minimal-statement visual grammar\./,
+    );
+    assert.match(
+      prompt,
+      /At least 40% of plan scenes must use explanatory visual grammar: relationship-diagram, process-flow, comparison-panels, classification-map, timeline, worked-example, data-table, or evidence-board, as appropriate to the source\./,
+    );
     assert.match(
       prompt,
       /For each scene, sourceStepIds and sourceObjectiveIds must exactly equal the ordered, de-duplicated union of those IDs from its referenced storyboardScreenIds; never attach a unit objective unless a referenced storyboard screen owns that objective\./,
@@ -322,6 +382,45 @@ test('allows one repair call and validates the repaired plan from scratch', asyn
   assert.deepEqual(calls.map((call) => call.purpose), ['compose', 'repair']);
   assert.match(calls[1].prompt, /^visual-teaching-plan-v1\nprompt-schema-version: visual-teaching-composer-schema-v1\npurpose: repair\n/);
   assert.equal(result.ok, true);
+});
+
+test('repairs an initial three-of-six minimal-statement plan to the twenty-percent limit', async () => {
+  const fixture = visualComposerFixture();
+  const calls: StructuredComposerRequest[] = [];
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async (request) => {
+    calls.push(request);
+    return {
+      value: planWithMinimalSceneCount(fixture, calls.length === 1 ? 3 : 1),
+      provider: 'fixture',
+      model: 'fixture-model',
+    };
+  });
+
+  assert.deepEqual(calls.map((call) => call.purpose), ['compose', 'repair']);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.plan.scenes.filter((scene) => scene.visualGrammar === 'minimal-statement').length, 1);
+});
+
+test('fails closed when both responses exceed the minimal-statement limit', async () => {
+  const fixture = visualComposerFixture();
+  let callCount = 0;
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    callCount += 1;
+    return {
+      value: planWithMinimalSceneCount(fixture, callCount === 1 ? 3 : 2),
+      provider: 'fixture',
+      model: 'fixture-model',
+    };
+  });
+
+  assert.equal(callCount, 2);
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(
+    result.diagnostics.some((item) => item.code === 'visual_plan_minimal_statement_overuse'),
+    true,
+  );
 });
 
 test('sends only blocking diagnostic codes and messages to repair', async () => {
@@ -424,6 +523,67 @@ test('canonicalizes schema-valid provider provenance from the trusted storyboard
       .map((scene) => scene.id),
   }));
   assert.deepEqual(result.plan.sourceAccounting, expectedAccounting);
+});
+
+test('restores trusted storyboard order within a merged provider scene', async () => {
+  const fixture = visualComposerFixture();
+  const firstScene = fixture.providerPlan.scenes[0];
+  const nextScene = fixture.providerPlan.scenes[1];
+  const providerPlan = {
+    ...fixture.providerPlan,
+    scenes: [
+      {
+        ...firstScene,
+        storyboardScreenIds: [
+          ...nextScene.storyboardScreenIds,
+          ...firstScene.storyboardScreenIds,
+        ],
+      },
+      ...fixture.providerPlan.scenes.slice(2),
+    ],
+  };
+  let callCount = 0;
+
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    callCount += 1;
+    return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(callCount, 1);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.plan.scenes[0].storyboardScreenIds, [
+    ...firstScene.storyboardScreenIds,
+    ...nextScene.storyboardScreenIds,
+  ]);
+});
+
+test('upgrades only compatible minimal statements to concrete native grammars', async () => {
+  const fixture = visualComposerFixture();
+  const compatibleGrammars = new Set(['visual-thesis', 'relationship-diagram', 'question-choices']);
+  const providerPlan = {
+    ...fixture.providerPlan,
+    scenes: fixture.providerPlan.scenes.map((scene) => ({
+      ...scene,
+      visualGrammar: compatibleGrammars.has(scene.visualGrammar)
+        ? 'minimal-statement' as const
+        : scene.visualGrammar,
+    })),
+  };
+  let callCount = 0;
+
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    callCount += 1;
+    return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(callCount, 1);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.plan.scenes.map((scene) => scene.visualGrammar),
+    fixture.providerPlan.scenes.map((scene) => scene.visualGrammar),
+  );
 });
 
 test('keeps empty, duplicate, foreign, and mixed-unit storyboard references fail-closed after repair', async () => {

@@ -357,6 +357,19 @@ test('rejects unsupported visual grammars and invalid contract versions', () => 
   assert.equal(diagnostics.some((item) => item.code === 'visual_plan_grammar_unsupported'), true);
 });
 
+test('rejects plans where minimal statements exceed twenty percent of scenes', () => {
+  const fixture = validVisualPlanFixture();
+  assert.equal(fixture.plan.scenes.length, 6);
+  const diagnostics = validateVisualTeachingPlan({
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene, index) => (
+      index < 2 ? { ...scene, visualGrammar: 'minimal-statement' as const } : scene
+    )),
+  }, fixture.manifest, fixture.storyboard, fixture.dispositions);
+
+  assert.equal(diagnostics.some((item) => item.code === 'visual_plan_minimal_statement_overuse'), true);
+});
+
 test('requires each disposition exactly once', () => {
   const fixture = validVisualPlanFixture();
   const duplicated = fixture.plan.sourceAccounting[0];

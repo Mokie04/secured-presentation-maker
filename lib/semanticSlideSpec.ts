@@ -502,6 +502,18 @@ export const validateSemanticSlideSpecs = (
   const visualSceneById = new Map(
     validatedVisualTeachingPlan?.scenes.map((scene) => [scene.id, scene] as const) ?? [],
   );
+  const planAccounting = new Map(
+    validatedVisualTeachingPlan?.sourceAccounting.map((entry) => [entry.sourceId, entry] as const) ?? [],
+  );
+  const isAuthorizedNonLearnerScreen = (screen: StoryboardScreen): boolean => Boolean(
+    validatedVisualTeachingPlan
+    && screen.sourceObjectiveIds.length === 0
+    && [...screen.sourceStepIds, ...screen.sourceFieldIds].length > 0
+    && [...screen.sourceStepIds, ...screen.sourceFieldIds].every((sourceId) => {
+      const entry = planAccounting.get(sourceId);
+      return Boolean(entry && entry.disposition !== 'learner-visible' && entry.sceneIds.length === 0);
+    }),
+  );
 
   for (const spec of specs) {
     const storyboardScreenIds = spec.storyboardScreenIds;
@@ -514,7 +526,19 @@ export const validateSemanticSlideSpecs = (
     const screen = referencedScreens[0];
     const currentScreenIndex = screenIndices[0];
     const hasUniqueScreenIds = new Set(storyboardScreenIds).size === storyboardScreenIds.length;
-    const isContiguous = screenIndices.every((index, position) => position === 0 || index === screenIndices[position - 1] + 1);
+    const isContiguous = referencedScreens.length === storyboardScreenIds.length
+      && screenIndices.every((index, position) => {
+        if (position === 0) return true;
+        const previousIndex = screenIndices[position - 1];
+        const previousScreen = referencedScreens[position - 1];
+        const currentScreen = referencedScreens[position];
+        if (index <= previousIndex || previousScreen.unitId !== currentScreen.unitId) return false;
+        if (index === previousIndex + 1) return true;
+        return storyboard.screens.slice(previousIndex + 1, index).every((interveningScreen) => (
+          interveningScreen.unitId === currentScreen.unitId
+          && isAuthorizedNonLearnerScreen(interveningScreen)
+        ));
+      });
     if (
       storyboardScreenIds.length === 0
       || spec.storyboardScreenId !== storyboardScreenIds[0]
@@ -635,20 +659,8 @@ export const validateSemanticSlideSpecs = (
     }
   }
 
-  const planAccounting = new Map(
-    validatedVisualTeachingPlan?.sourceAccounting.map((entry) => [entry.sourceId, entry] as const) ?? [],
-  );
   for (const screen of storyboard.screens) {
-    const isAuthorizedNonLearnerScreen = Boolean(
-      validatedVisualTeachingPlan
-      && screen.sourceObjectiveIds.length === 0
-      && [...screen.sourceStepIds, ...screen.sourceFieldIds].length > 0
-      && [...screen.sourceStepIds, ...screen.sourceFieldIds].every((sourceId) => {
-        const entry = planAccounting.get(sourceId);
-        return Boolean(entry && entry.disposition !== 'learner-visible' && entry.sceneIds.length === 0);
-      }),
-    );
-    if (!coveredScreenIds.has(screen.id) && !isAuthorizedNonLearnerScreen) {
+    if (!coveredScreenIds.has(screen.id) && !isAuthorizedNonLearnerScreen(screen)) {
       diagnostics.push(semanticDiagnostic(
         'semantic_spec_storyboard_mapping_invalid',
         `Storyboard screen ${screen.id} is not represented by a semantic slide spec.`,

@@ -85,6 +85,7 @@ export type VisualTeachingPlanDiagnostic = {
     | 'visual_plan_unauthorized_omission'
     | 'visual_plan_planning_text_visible'
     | 'visual_plan_assessment_unparsed'
+    | 'visual_plan_minimal_statement_overuse'
     | 'visual_plan_grammar_unsupported';
   severity: 'blocking';
   message: string;
@@ -304,6 +305,16 @@ export const validateVisualTeachingPlan = (
         ));
       }
     }
+  }
+
+  const minimalStatementCount = plan.scenes.filter((scene) => (
+    scene.visualGrammar === 'minimal-statement'
+  )).length;
+  if (minimalStatementCount * 5 > plan.scenes.length) {
+    diagnostics.push(diagnostic(
+      'visual_plan_minimal_statement_overuse',
+      'No more than 20% of visual teaching scenes may use minimal-statement grammar.',
+    ));
   }
 
   const expectedObjectiveIds = storyboard.objectives.map((objective) => objective.sourceObjectiveId);

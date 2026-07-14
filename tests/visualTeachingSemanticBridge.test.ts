@@ -156,6 +156,42 @@ test('merges only contiguous storyboard ownership into one semantic spec', () =>
   assert.deepEqual(merged.sourceStepIds, mergedScene.sourceStepIds);
 });
 
+test('allows merged storyboard ownership across validated non-learner screens', () => {
+  const fixture = validVisualPlanFixture();
+  const firstScene = fixture.plan.scenes[0];
+  const nextScene = fixture.plan.scenes[1];
+  const mergedScene = {
+    ...firstScene,
+    sourceStepIds: [...firstScene.sourceStepIds, ...nextScene.sourceStepIds],
+    sourceObjectiveIds: [...firstScene.sourceObjectiveIds, ...nextScene.sourceObjectiveIds],
+    sourceFieldIds: [...firstScene.sourceFieldIds, ...nextScene.sourceFieldIds],
+    storyboardScreenIds: [...firstScene.storyboardScreenIds, ...nextScene.storyboardScreenIds],
+  };
+  const plan = {
+    ...fixture.plan,
+    scenes: [mergedScene, ...fixture.plan.scenes.slice(2)],
+    sourceAccounting: fixture.plan.sourceAccounting.map((entry) => ({
+      ...entry,
+      sceneIds: entry.sceneIds.includes(nextScene.id) ? [mergedScene.id] : entry.sceneIds,
+    })),
+  };
+  assert.deepEqual(validateVisualTeachingPlan(
+    plan,
+    fixture.manifest,
+    fixture.storyboard,
+    fixture.dispositions,
+  ), []);
+
+  const result = buildFixtureSemanticSpecs(fixture, plan);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.specs[0].storyboardScreenIds, [
+    firstScene.storyboardScreenIds[0],
+    nextScene.storyboardScreenIds[0],
+  ]);
+});
+
 test('rejects non-contiguous or mismatched merged storyboard provenance', () => {
   const fixture = validVisualPlanFixture();
   const first = fixture.plan.scenes[1];

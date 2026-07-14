@@ -48,6 +48,34 @@ test('uses anchored administrative labels and preserves explicit learner referen
   assert.equal(result.decisions.find((item) => item.sourceId === instructionalStep.id)?.disposition, 'learner-visible');
 });
 
+test('recognizes browser-flattened planning-label boundaries without hiding instructional mentions', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const planningStep = manifest.units[0].steps[0];
+  const instructionalStep = manifest.units[0].steps[1];
+  assert.ok(planningStep);
+  assert.ok(instructionalStep);
+
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      steps: manifest.units[0].steps.map((step) => (
+        step.id === planningStep.id
+          ? { ...step, sourceLabel: 'Ways Forward.Meaningful learning can also happen beyond the classroom.' }
+          : step.id === instructionalStep.id
+            ? { ...step, sourceLabel: 'Compare possible ways forward using the recorded evidence.' }
+            : step
+      )),
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceId === planningStep.id)?.disposition, 'speaker-notes');
+  assert.equal(result.decisions.find((item) => item.sourceId === instructionalStep.id)?.disposition, 'learner-visible');
+});
+
 test('classifies subject-neutral humanities steps as learner-visible', () => {
   const manifestResult = buildLessonSourceManifest(VISUAL_COMPOSER_HUMANITIES_DOCUMENT);
   assert.equal(manifestResult.ok, true);
