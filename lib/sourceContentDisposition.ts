@@ -48,6 +48,7 @@ const matchesAllowlistedLabelBoundary = (value: string, prefix: RegExp): boolean
   const remainder = normalized.slice(match[0].length);
   return !remainder.trim()
     || /^\s*[:.\-–—]/.test(remainder)
+    || /^\s+[A-Z]/.test(remainder)
     || /^[A-Z]/.test(remainder);
 };
 

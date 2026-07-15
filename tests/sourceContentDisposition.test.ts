@@ -76,6 +76,29 @@ test('recognizes browser-flattened planning-label boundaries without hiding inst
   assert.equal(result.decisions.find((item) => item.sourceId === instructionalStep.id)?.disposition, 'learner-visible');
 });
 
+test('recognizes browser-flattened planning labels separated by a space and uppercase helper text', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const planningStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Learner Context');
+  assert.ok(planningStep);
+
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      steps: manifest.units[0].steps.map((step) => (
+        step.id === planningStep.id
+          ? { ...step, sourceLabel: 'Learner Context Observations of learners.' }
+          : step
+      )),
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceId === planningStep.id)?.disposition, 'speaker-notes');
+});
+
 test('classifies subject-neutral humanities steps as learner-visible', () => {
   const manifestResult = buildLessonSourceManifest(VISUAL_COMPOSER_HUMANITIES_DOCUMENT);
   assert.equal(manifestResult.ok, true);
