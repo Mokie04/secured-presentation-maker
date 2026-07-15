@@ -115,6 +115,15 @@ const visibleContentForStep = (sourceLabel: string, rawText: string): VisualTeac
     : {}),
 });
 
+const uniqueInOrder = (values: readonly string[]): string[] => {
+  const seen = new Set<string>();
+  return values.filter((value) => {
+    if (seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+};
+
 const sceneForDecision = (
   decision: SourceDispositionDecision,
   fixture: ReturnType<typeof scienceFixture>,
@@ -181,6 +190,35 @@ export const validVisualPlanFixture = () => {
 
   const visibleDecisions = dispositionResult.decisions.filter((decision) => decision.disposition === 'learner-visible');
   const scenes = visibleDecisions.map((decision, index) => sceneForDecision(decision, fixture, index + 1));
+  const screenOrderById = new Map(fixture.storyboard.screens.map((screen, index) => [screen.id, index]));
+  const visibleSourceIds = new Set(visibleDecisions.map((decision) => decision.sourceId));
+  for (const decision of dispositionResult.decisions.filter((item) => item.disposition === 'speaker-notes')) {
+    const noteScreen = fixture.storyboard.screens.find((screen) => (
+      screen.sourceStepIds.includes(decision.sourceId)
+      || screen.sourceFieldIds.includes(decision.sourceId)
+    ));
+    assert.ok(noteScreen);
+    const noteScreenOrder = screenOrderById.get(noteScreen.id)!;
+    const targetScene = scenes.find((scene) => (
+      scene.unitId === decision.unitId
+      && scene.storyboardScreenIds.some((screenId) => screenOrderById.get(screenId)! > noteScreenOrder)
+    )) ?? [...scenes].reverse().find((scene) => scene.unitId === decision.unitId);
+    assert.ok(targetScene);
+    const mergedScreens = uniqueInOrder([...targetScene.storyboardScreenIds, noteScreen.id])
+      .sort((left, right) => screenOrderById.get(left)! - screenOrderById.get(right)!)
+      .map((screenId) => fixture.storyboard.screens.find((screen) => screen.id === screenId)!);
+    targetScene.storyboardScreenIds = mergedScreens.map((screen) => screen.id);
+    targetScene.sourceStepIds = uniqueInOrder(mergedScreens.flatMap((screen) => screen.sourceStepIds));
+    targetScene.sourceObjectiveIds = uniqueInOrder(mergedScreens.flatMap((screen) => screen.sourceObjectiveIds));
+    targetScene.sourceFieldIds = uniqueInOrder(mergedScreens.flatMap((screen) => screen.sourceFieldIds));
+    targetScene.teacherNotes = mergedScreens.map((screen) => screen.teacherNotes).filter(Boolean).join('\n');
+    const learnerVisibleScreens = mergedScreens.filter((screen) => (
+      [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
+        .some((sourceId) => visibleSourceIds.has(sourceId))
+    ));
+    targetScene.requiredEvidence = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence));
+    targetScene.requiredOutputs = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs));
+  }
   const sceneIdsBySourceId = new Map(scenes.flatMap((scene) => [
     ...scene.sourceStepIds.map((sourceId) => [sourceId, scene.id] as const),
     ...scene.sourceObjectiveIds.map((sourceId) => [sourceId, scene.id] as const),

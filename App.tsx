@@ -21,7 +21,7 @@ import { buildTeachingStoryboard, resolveTeachingStoryboardForGeneration } from 
 import CompiledSlideSceneView from './components/CompiledSlideSceneView';
 import { COMPILED_SLIDE_SCENE_VERSION, type CompiledScenePresentation, type CompiledSlideScene } from './lib/compiledSlideScene';
 import { compilePptxSceneOperations } from './lib/compiledScenePptx';
-import { resolveEndToEndValidatedScenePresentationForGeneration } from './lib/endToEndSceneBoundary';
+import { resolveEndToEndValidatedScenePresentationForGeneration, shouldRunVisualTeachingComposer } from './lib/endToEndSceneBoundary';
 import { buildSourcePrimarySceneTelemetryEvent } from './lib/sourcePrimarySceneTelemetry';
 import { resolveSourcePrimarySceneRolloutForGeneration, shouldRunSourcePrimaryScenePreflight } from './lib/sourcePrimarySceneRollout';
 import { SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION, resolveSourcePrimaryWeeklyBlueprintForGeneration } from './lib/sourcePrimaryWeeklyBlueprint';
@@ -3927,6 +3927,13 @@ const App: React.FC = () => {
             );
             const routePolicy = rolloutDecision.effectiveRoutePolicy;
             const runSourcePrimaryScenePreflight = shouldRunSourcePrimaryScenePreflight(rolloutDecision);
+            const useSourcePrimaryWeeklyBlueprint = runSourcePrimaryScenePreflight && shouldRunVisualTeachingComposer(
+              routePolicy,
+              VISUAL_TEACHING_COMPOSER_V1_FLAG,
+              SEMANTIC_SLIDES_V1_FLAG,
+              DECK_VISUAL_SYSTEM_V1_FLAG,
+              END_TO_END_VALIDATION_V1_FLAG,
+            );
             void buildSourcePrimarySceneTelemetryEvent({
               decision: rolloutDecision,
               sourceHash: lessonSourceManifestResult?.ok === true
@@ -4071,7 +4078,7 @@ const App: React.FC = () => {
                 const cacheKey = await buildGenerationCacheKey('k12-lesson-plan', [
                   GENERATION_CACHE_VERSION,
                   ...routePolicy.cacheKeyParts,
-                  ...(runSourcePrimaryScenePreflight ? [SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION] : []),
+                  ...(useSourcePrimaryWeeklyBlueprint ? [SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION] : []),
                   content,
                   DEFAULT_LESSON_FORMAT,
                   generationLanguage,
@@ -4127,7 +4134,7 @@ const App: React.FC = () => {
                   return;
                 }
 
-                if (runSourcePrimaryScenePreflight) {
+                if (useSourcePrimaryWeeklyBlueprint) {
                   const weeklyBlueprintBoundary = resolveSourcePrimaryWeeklyBlueprintForGeneration(
                     routePolicy,
                     sourceManifestBoundary.manifest,

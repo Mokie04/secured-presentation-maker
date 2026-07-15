@@ -338,6 +338,28 @@ test('allows one deliberate prompt and reveal pair after title normalization', (
   assert.equal(result.report.repeatedGenericTitleCount, 0);
 });
 
+test('credits the native visual-thesis fallback when an optional image is omitted', () => {
+  const baseline = validatePresentationQuality(passingQualityFixture());
+  const mutated = cloneFixture(passingQualityFixture());
+  const visualThesisScene = mutated.visualTeachingPlan.scenes.find((scene) => (
+    scene.visualGrammar === 'visual-thesis'
+  ));
+  assert.ok(visualThesisScene);
+  visualThesisScene.visualGrammar = 'image-led-explanation';
+  const compiledScene = mutated.presentation.scenes.find((scene) => {
+    const spec = mutated.semanticSpecs.find((candidate) => candidate.id === scene.semanticSlideSpecId);
+    return spec?.visualTeachingSceneId === visualThesisScene.id;
+  });
+  assert.ok(compiledScene);
+  assert.equal(compiledScene.elements.some((element) => element.kind === 'image'), false);
+
+  const result = validatePresentationQuality(mutated);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.report.meaningfulVisualGrammarRatio, baseline.report.meaningfulVisualGrammarRatio);
+  assert.equal(result.report.plainTitleBodyRatio, baseline.report.plainTitleBodyRatio);
+});
+
 test('passes a source-aligned editable visual teaching deck', () => {
   const result = validatePresentationQuality(passingQualityFixture());
 

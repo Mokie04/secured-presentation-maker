@@ -23,6 +23,35 @@ const buildFixtureSemanticSpecs = (
   plan,
 });
 
+const mergeSceneOwnership = (
+  fixture: ReturnType<typeof validVisualPlanFixture>,
+  firstScene: VisualTeachingScene,
+  nextScene: VisualTeachingScene,
+): VisualTeachingScene => {
+  const storyboardScreenIds = [...firstScene.storyboardScreenIds, ...nextScene.storyboardScreenIds];
+  const screens = storyboardScreenIds.map((screenId) => (
+    fixture.storyboard.screens.find((screen) => screen.id === screenId)!
+  ));
+  const learnerVisibleSourceIds = new Set(fixture.dispositions
+    .filter((item) => item.disposition === 'learner-visible')
+    .map((item) => item.sourceId));
+  const learnerVisibleScreens = screens.filter((screen) => (
+    [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
+      .some((sourceId) => learnerVisibleSourceIds.has(sourceId))
+  ));
+
+  return {
+    ...firstScene,
+    sourceStepIds: screens.flatMap((screen) => screen.sourceStepIds),
+    sourceObjectiveIds: screens.flatMap((screen) => screen.sourceObjectiveIds),
+    sourceFieldIds: screens.flatMap((screen) => screen.sourceFieldIds),
+    storyboardScreenIds,
+    teacherNotes: screens.map((screen) => screen.teacherNotes).filter(Boolean).join('\n'),
+    requiredEvidence: learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence),
+    requiredOutputs: learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs),
+  };
+};
+
 test('maps visual scenes to semantic specs with merged provenance and typed structures', () => {
   const fixture = validVisualPlanFixture();
   const result = buildFixtureSemanticSpecs(fixture);
@@ -107,25 +136,11 @@ test('merges only contiguous storyboard ownership into one semantic spec', () =>
   assert.notEqual(relationshipIndex, -1);
   const nextScene = fixture.plan.scenes[relationshipIndex + 1];
   assert.ok(nextScene);
-  const mergedScene = {
-    ...fixture.plan.scenes[relationshipIndex],
-    sourceStepIds: [
-      ...fixture.plan.scenes[relationshipIndex].sourceStepIds,
-      ...nextScene.sourceStepIds,
-    ],
-    sourceObjectiveIds: [
-      ...fixture.plan.scenes[relationshipIndex].sourceObjectiveIds,
-      ...nextScene.sourceObjectiveIds,
-    ],
-    sourceFieldIds: [
-      ...fixture.plan.scenes[relationshipIndex].sourceFieldIds,
-      ...nextScene.sourceFieldIds,
-    ],
-    storyboardScreenIds: [
-      ...fixture.plan.scenes[relationshipIndex].storyboardScreenIds,
-      ...nextScene.storyboardScreenIds,
-    ],
-  };
+  const mergedScene = mergeSceneOwnership(
+    fixture,
+    fixture.plan.scenes[relationshipIndex],
+    nextScene,
+  );
   const plan = {
     ...fixture.plan,
     scenes: [
@@ -160,13 +175,7 @@ test('allows merged storyboard ownership across validated non-learner screens', 
   const fixture = validVisualPlanFixture();
   const firstScene = fixture.plan.scenes[0];
   const nextScene = fixture.plan.scenes[1];
-  const mergedScene = {
-    ...firstScene,
-    sourceStepIds: [...firstScene.sourceStepIds, ...nextScene.sourceStepIds],
-    sourceObjectiveIds: [...firstScene.sourceObjectiveIds, ...nextScene.sourceObjectiveIds],
-    sourceFieldIds: [...firstScene.sourceFieldIds, ...nextScene.sourceFieldIds],
-    storyboardScreenIds: [...firstScene.storyboardScreenIds, ...nextScene.storyboardScreenIds],
-  };
+  const mergedScene = mergeSceneOwnership(fixture, firstScene, nextScene);
   const plan = {
     ...fixture.plan,
     scenes: [mergedScene, ...fixture.plan.scenes.slice(2)],
@@ -187,8 +196,8 @@ test('allows merged storyboard ownership across validated non-learner screens', 
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(result.specs[0].storyboardScreenIds, [
-    firstScene.storyboardScreenIds[0],
-    nextScene.storyboardScreenIds[0],
+    ...firstScene.storyboardScreenIds,
+    ...nextScene.storyboardScreenIds,
   ]);
 });
 
@@ -267,19 +276,11 @@ test('retains question and diagram copy in the generic native compatibility scen
 
 test('retains distinct evidence and output requirements as editable compiled text', () => {
   const fixture = validVisualPlanFixture();
-  const evidenceScene = fixture.plan.scenes.find((scene) => scene.teachingMove === 'evidence');
-  assert.ok(evidenceScene);
-  const plan = {
-    ...fixture.plan,
-    scenes: fixture.plan.scenes.map((scene) => scene.id === evidenceScene.id
-      ? {
-          ...scene,
-          requiredEvidence: ['EVIDENCE-SENTINEL-ALPHA'],
-          requiredOutputs: ['OUTPUT-SENTINEL-BETA'],
-        }
-      : scene),
-  };
-  const semantic = buildFixtureSemanticSpecs(fixture, plan);
+  const evidence = fixture.plan.scenes.flatMap((scene) => scene.requiredEvidence)[0];
+  const output = fixture.plan.scenes.flatMap((scene) => scene.requiredOutputs)[0];
+  assert.ok(evidence);
+  assert.ok(output);
+  const semantic = buildFixtureSemanticSpecs(fixture);
   assert.equal(semantic.ok, true);
   if (!semantic.ok) return;
   const compiled = compileSemanticSlideSpecsToScenes(semantic.specs, { title: 'Requirement Fixture' });
@@ -293,10 +294,10 @@ test('retains distinct evidence and output requirements as editable compiled tex
     return [];
   }).join(' ');
 
-  assert.match(visibleText, /EVIDENCE-SENTINEL-ALPHA/);
-  assert.match(visibleText, /OUTPUT-SENTINEL-BETA/);
-  assert.match(editableText, /EVIDENCE-SENTINEL-ALPHA/);
-  assert.match(editableText, /OUTPUT-SENTINEL-BETA/);
+  assert.equal(visibleText.includes(evidence), true);
+  assert.equal(visibleText.includes(output), true);
+  assert.equal(editableText.includes(evidence), true);
+  assert.equal(editableText.includes(output), true);
 });
 
 test('rejects semantic field provenance that differs from its exact visual scene', () => {

@@ -124,6 +124,7 @@ const publicFieldPlanFixture = () => {
     learnerTitle: 'Learning Target',
     visibleContent: { statement: objective.rawText, points: [], cards: [], steps: [] },
     visualGrammar: 'visual-thesis' as const,
+    teacherNotes: objectiveScreen.teacherNotes,
   };
   const fieldScene = {
     ...templateScene,
@@ -141,6 +142,7 @@ const publicFieldPlanFixture = () => {
       steps: [],
     },
     visualGrammar: 'activity-board' as const,
+    teacherNotes: objectiveScreen.teacherNotes,
   };
   const stepScene = {
     ...templateScene,
@@ -153,6 +155,9 @@ const publicFieldPlanFixture = () => {
     learnerTitle: step.sourceLabel,
     visibleContent: { statement: step.rawBlocks.join(' '), points: [], cards: [], steps: [] },
     visualGrammar: 'comparison-panels' as const,
+    teacherNotes: stepScreen.teacherNotes,
+    requiredEvidence: [...stepScreen.requiredEvidence],
+    requiredOutputs: [...stepScreen.requiredOutputs],
   };
   const sceneIdsBySourceId = new Map<string, string[]>([
     [objective.id, [objectiveScene.id, fieldScene.id]],
@@ -194,6 +199,174 @@ test('accepts a fully reconciled visual teaching plan', () => {
     fixture.storyboard,
     fixture.dispositions,
   ), []);
+});
+
+test('requires scene evidence to preserve the ordered storyboard evidence', () => {
+  const fixture = validVisualPlanFixture();
+  const evidenceScene = fixture.plan.scenes.find((scene) => scene.requiredEvidence.length > 0);
+  assert.ok(evidenceScene);
+
+  const diagnostics = validateVisualTeachingPlan({
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === evidenceScene.id
+      ? { ...scene, requiredEvidence: [] }
+      : scene),
+  }, fixture.manifest, fixture.storyboard, fixture.dispositions);
+
+  assert.equal(diagnostics.some((item) => item.code === 'visual_plan_source_unaccounted'), true);
+});
+
+test('allows a concise exact source excerpt for a long evidence requirement', () => {
+  const fixture = validVisualPlanFixture();
+  const evidenceScene = fixture.plan.scenes.find((scene) => scene.requiredEvidence.length > 0);
+  assert.ok(evidenceScene);
+  const sourceRequirement = evidenceScene.requiredEvidence[0];
+  const exactExcerpt = 'two observations and one measurement';
+  assert.equal(sourceRequirement.toLowerCase().includes(exactExcerpt), true);
+
+  const diagnostics = validateVisualTeachingPlan({
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === evidenceScene.id
+      ? { ...scene, requiredEvidence: [exactExcerpt] }
+      : scene),
+  }, fixture.manifest, fixture.storyboard, fixture.dispositions);
+
+  assert.deepEqual(diagnostics, []);
+});
+
+test('requires scene outputs to preserve the ordered storyboard outputs', () => {
+  const fixture = validVisualPlanFixture();
+  const outputScene = fixture.plan.scenes.find((scene) => scene.requiredOutputs.length > 0);
+  assert.ok(outputScene);
+
+  const diagnostics = validateVisualTeachingPlan({
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === outputScene.id
+      ? { ...scene, requiredOutputs: [] }
+      : scene),
+  }, fixture.manifest, fixture.storyboard, fixture.dispositions);
+
+  assert.equal(diagnostics.some((item) => item.code === 'visual_plan_source_unaccounted'), true);
+});
+
+test('requires speaker-note source dispositions to retain teacher-note ownership', () => {
+  const fixture = validVisualPlanFixture();
+  const speakerNoteEntry = fixture.plan.sourceAccounting.find((entry) => entry.disposition === 'speaker-notes');
+  assert.ok(speakerNoteEntry);
+  const speakerNoteScreen = fixture.storyboard.screens.find((screen) => (
+    screen.sourceStepIds.includes(speakerNoteEntry.sourceId)
+    || screen.sourceFieldIds.includes(speakerNoteEntry.sourceId)
+  ));
+  assert.ok(speakerNoteScreen);
+  const ownerScene = fixture.plan.scenes.find((scene) => scene.storyboardScreenIds.includes(speakerNoteScreen.id));
+  assert.ok(ownerScene);
+  const remainingScreens = ownerScene.storyboardScreenIds
+    .filter((screenId) => screenId !== speakerNoteScreen.id)
+    .map((screenId) => fixture.storyboard.screens.find((screen) => screen.id === screenId)!);
+  const mutatedPlan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === ownerScene.id
+      ? {
+          ...scene,
+          storyboardScreenIds: remainingScreens.map((screen) => screen.id),
+          sourceStepIds: remainingScreens.flatMap((screen) => screen.sourceStepIds),
+          sourceObjectiveIds: remainingScreens.flatMap((screen) => screen.sourceObjectiveIds),
+          sourceFieldIds: remainingScreens.flatMap((screen) => screen.sourceFieldIds),
+          teacherNotes: remainingScreens.map((screen) => screen.teacherNotes).filter(Boolean).join('\n'),
+          requiredEvidence: remainingScreens.flatMap((screen) => screen.requiredEvidence),
+          requiredOutputs: remainingScreens.flatMap((screen) => screen.requiredOutputs),
+        }
+      : scene),
+    sourceAccounting: fixture.plan.sourceAccounting.map((entry) => entry.sourceId === speakerNoteEntry.sourceId
+      ? { ...entry, sceneIds: [] }
+      : entry),
+  };
+
+  const diagnostics = validateVisualTeachingPlan(
+    mutatedPlan,
+    fixture.manifest,
+    fixture.storyboard,
+    fixture.dispositions,
+  );
+
+  assert.equal(diagnostics.some((item) => (
+    item.code === 'visual_plan_source_unaccounted'
+    && item.sourceId === speakerNoteEntry.sourceId
+  )), true);
+});
+
+test('keeps speaker-note evidence out of learner-visible requirement slots', () => {
+  const fixture = validVisualPlanFixture();
+  const speakerNoteEntry = fixture.plan.sourceAccounting.find((entry) => entry.disposition === 'speaker-notes');
+  assert.ok(speakerNoteEntry);
+  const speakerNoteScreen = fixture.storyboard.screens.find((screen) => (
+    screen.sourceStepIds.includes(speakerNoteEntry.sourceId)
+    || screen.sourceFieldIds.includes(speakerNoteEntry.sourceId)
+  ));
+  assert.ok(speakerNoteScreen);
+  assert.notEqual(speakerNoteScreen.requiredEvidence.length, 0);
+
+  const visibleRequirements = fixture.plan.scenes.flatMap((scene) => [
+    ...scene.requiredEvidence,
+    ...scene.requiredOutputs,
+  ]);
+  for (const planningOnlyRequirement of speakerNoteScreen.requiredEvidence) {
+    assert.equal(visibleRequirements.includes(planningOnlyRequirement), false);
+  }
+  const ownerScene = fixture.plan.scenes.find((scene) => scene.storyboardScreenIds.includes(speakerNoteScreen.id));
+  assert.ok(ownerScene);
+  assert.equal(ownerScene.teacherNotes.includes(speakerNoteScreen.teacherNotes), true);
+});
+
+test('preserves a planning-context source field in speaker notes without making it visible', () => {
+  const fixture = validVisualPlanFixture();
+  const speakerNoteField = {
+    id: 'field-speaker-note-context',
+    label: 'Learner Context',
+    value: 'Planning observation about prior classroom experience.',
+    state: 'present' as const,
+    sourceOrder: 99,
+    sourceLocation: { blockId: 'field-speaker-note-context' },
+  };
+  const manifest = {
+    ...fixture.manifest,
+    units: fixture.manifest.units.map((unit) => unit.id === fixture.plan.unitId
+      ? { ...unit, fields: { ...unit.fields, speakerNoteContext: speakerNoteField } }
+      : unit),
+  };
+  const dispositionResult = classifySourceContent(manifest, fixture.storyboard);
+  assert.equal(dispositionResult.ok, true);
+  if (!dispositionResult.ok) return;
+  const speakerNoteDecision = dispositionResult.decisions.find((item) => item.sourceId === speakerNoteField.id);
+  assert.equal(speakerNoteDecision?.disposition, 'speaker-notes');
+  const ownerScene = fixture.plan.scenes.at(-1);
+  assert.ok(ownerScene);
+  const plan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === ownerScene.id
+      ? {
+          ...scene,
+          sourceFieldIds: [...scene.sourceFieldIds, speakerNoteField.id],
+          teacherNotes: `${scene.teacherNotes}\nSource field (${speakerNoteField.label}): ${speakerNoteField.value}`,
+        }
+      : scene),
+    sourceAccounting: dispositionResult.decisions.map((decision) => ({
+      ...decision,
+      sceneIds: decision.sourceId === speakerNoteField.id
+        ? [ownerScene.id]
+        : fixture.plan.sourceAccounting.find((entry) => entry.sourceId === decision.sourceId)?.sceneIds ?? [],
+    })),
+  };
+
+  const diagnostics = validateVisualTeachingPlan(
+    plan,
+    manifest,
+    fixture.storyboard,
+    dispositionResult.decisions,
+  );
+
+  assert.deepEqual(diagnostics, []);
+  assert.equal(ownerScene.visibleContent.statement?.includes(speakerNoteField.value) ?? false, false);
 });
 
 test('rejects a visual plan that drops a learner-visible source step', () => {

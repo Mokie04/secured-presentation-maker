@@ -296,7 +296,7 @@ const hasConcreteGrammarStructure = (slide: InstructionalSlide): boolean => {
     case 'visual-thesis':
       return hasVisualThesisStructure(slide.scene);
     case 'image-led-explanation':
-      return hasBoundedImage(slide.scene);
+      return hasBoundedImage(slide.scene) || hasVisualThesisStructure(slide.scene);
     case 'minimal-statement':
     default:
       return false;

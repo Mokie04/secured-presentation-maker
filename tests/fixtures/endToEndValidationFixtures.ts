@@ -248,9 +248,17 @@ export const buildCloseReadingQualityEndToEndFixture = () => {
   ));
   assert.ok(storyboardScreen);
   planScene.learnerTitle = 'Close Reading Passage';
-  planScene.storyboardScreenIds = [storyboardScreen.id];
+  const trustedScreens = planScene.storyboardScreenIds.map((screenId) => (
+    storyboardResult.storyboard.screens.find((screen) => screen.id === screenId)!
+  ));
+  planScene.storyboardScreenIds = trustedScreens.map((screen) => screen.id);
+  planScene.sourceStepIds = trustedScreens.flatMap((screen) => screen.sourceStepIds);
+  planScene.sourceObjectiveIds = trustedScreens.flatMap((screen) => screen.sourceObjectiveIds);
+  planScene.sourceFieldIds = trustedScreens.flatMap((screen) => screen.sourceFieldIds);
   planScene.visibleContent.statement = 'Read the source-provided passage closely and identify two pieces of evidence.';
-  planScene.teacherNotes = storyboardScreen.teacherNotes;
+  planScene.teacherNotes = trustedScreens.map((screen) => screen.teacherNotes).filter(Boolean).join('\n');
+  planScene.requiredEvidence = ['careful evidence reading'];
+  planScene.requiredOutputs = [...storyboardScreen.requiredOutputs];
 
   return materializeVisualTeachingQualityFixture(reconcilePlanAccounting({
     manifest,

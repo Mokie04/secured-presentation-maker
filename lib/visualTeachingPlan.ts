@@ -138,6 +138,16 @@ const uniqueInOrder = (values: readonly string[]): string[] => {
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim().toLowerCase();
 
+const requirementsPreserveSource = (
+  actual: readonly string[],
+  expected: readonly string[],
+): boolean => actual.length === expected.length && actual.every((item, index) => {
+  const normalizedItem = normalizeText(item);
+  const normalizedSource = normalizeText(expected[index] ?? '');
+  return normalizedItem === normalizedSource
+    || (normalizedItem.length >= 12 && normalizedSource.includes(normalizedItem));
+});
+
 const getVisibleSceneText = (scene: VisualTeachingScene): string => normalizeText([
   scene.learnerTitle,
   scene.visibleContent.statement,
@@ -255,7 +265,8 @@ export const validateVisualTeachingPlan = (
     });
     const unauthorizedFieldId = scene.sourceFieldIds.find((sourceFieldId) => {
       const disposition = dispositionById.get(sourceFieldId);
-      return disposition?.sourceKind !== 'field' || disposition.disposition !== 'learner-visible';
+      return disposition?.sourceKind !== 'field'
+        || (disposition.disposition !== 'learner-visible' && disposition.disposition !== 'speaker-notes');
     });
     if (
       foreignSourceId
@@ -274,7 +285,7 @@ export const validateVisualTeachingPlan = (
       const disposition = dispositionById.get(unauthorizedFieldId);
       diagnostics.push(diagnostic(
         disposition ? 'visual_plan_unauthorized_omission' : 'visual_plan_foreign_source',
-        `Scene ${scene.id} attaches field ${unauthorizedFieldId} without a learner-visible field disposition.`,
+        `Scene ${scene.id} attaches field ${unauthorizedFieldId} without an authorized visible or speaker-note disposition.`,
         { sourceId: unauthorizedFieldId, sceneId: scene.id },
       ));
     }
@@ -285,6 +296,22 @@ export const validateVisualTeachingPlan = (
     if (referencedScreens.length === scene.storyboardScreenIds.length && referencedScreens.length > 0) {
       const expectedStepIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceStepIds));
       const expectedObjectiveIds = uniqueInOrder(referencedScreens.flatMap((screen) => screen.sourceObjectiveIds));
+      const learnerVisibleScreens = referencedScreens.filter((screen) => (
+        [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
+          .some((sourceId) => dispositionById.get(sourceId)?.disposition === 'learner-visible')
+      ));
+      const expectedEvidence = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence));
+      const expectedOutputs = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs));
+      const speakerNoteFields = scene.sourceFieldIds
+        .filter((sourceFieldId) => dispositionById.get(sourceFieldId)?.disposition === 'speaker-notes')
+        .flatMap((sourceFieldId) => {
+          const field = fieldById.get(sourceFieldId);
+          return field ? [field] : [];
+        });
+      const expectedTeacherNotes = normalizeText([
+        ...referencedScreens.map((screen) => screen.teacherNotes),
+        ...speakerNoteFields.map((field) => `Source field (${field.label}): ${field.value}`),
+      ].filter(Boolean).join(' '));
       if (
         !arraysEqual(scene.sourceStepIds, expectedStepIds)
         || !arraysEqual(scene.sourceObjectiveIds, expectedObjectiveIds)
@@ -292,6 +319,17 @@ export const validateVisualTeachingPlan = (
         diagnostics.push(diagnostic(
           'visual_plan_foreign_source',
           `Scene ${scene.id} step or objective references do not match its storyboard screen provenance.`,
+          { sceneId: scene.id },
+        ));
+      }
+      if (
+        !requirementsPreserveSource(scene.requiredEvidence, expectedEvidence)
+        || !requirementsPreserveSource(scene.requiredOutputs, expectedOutputs)
+        || normalizeText(scene.teacherNotes) !== expectedTeacherNotes
+      ) {
+        diagnostics.push(diagnostic(
+          'visual_plan_source_unaccounted',
+          `Scene ${scene.id} changes source-owned evidence, outputs, or teacher notes from its storyboard screens.`,
           { sceneId: scene.id },
         ));
       }
@@ -357,7 +395,17 @@ export const validateVisualTeachingPlan = (
       .filter((scene) => sceneReferencesSource(scene, expected))
       .map((scene) => scene.id);
     const ownershipMatches = sceneIdsMatchOwnership(entry.sceneIds, actualSceneIds);
-    if (!ownershipMatches || (expected.disposition === 'learner-visible' && actualSceneIds.length === 0)) {
+    if (
+      !ownershipMatches
+      || (
+        expected.disposition === 'learner-visible'
+        && actualSceneIds.length === 0
+      )
+      || (
+        expected.disposition === 'speaker-notes'
+        && actualSceneIds.length !== 1
+      )
+    ) {
       diagnostics.push(diagnostic(
         'visual_plan_source_unaccounted',
         `Source ${entry.sourceId} scene accounting does not exactly match direct scene ownership.`,
@@ -381,6 +429,24 @@ export const validateVisualTeachingPlan = (
         { sourceId: expected.sourceId },
       ));
     }
+  }
+
+  const learnerVisibleScreens = storyboard.screens.filter((screen) => (
+    [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
+      .some((sourceId) => dispositionById.get(sourceId)?.disposition === 'learner-visible')
+  ));
+  const expectedEvidence = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence));
+  const expectedOutputs = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs));
+  const actualEvidence = uniqueInOrder(plan.scenes.flatMap((scene) => scene.requiredEvidence));
+  const actualOutputs = uniqueInOrder(plan.scenes.flatMap((scene) => scene.requiredOutputs));
+  if (
+    !requirementsPreserveSource(actualEvidence, expectedEvidence)
+    || !requirementsPreserveSource(actualOutputs, expectedOutputs)
+  ) {
+    diagnostics.push(diagnostic(
+      'visual_plan_source_unaccounted',
+      'The visual teaching plan does not preserve required evidence and outputs in storyboard source order.',
+    ));
   }
 
   const sourceOrderById = new Map(dispositions.map((item) => [item.sourceId, item.sourceOrder]));

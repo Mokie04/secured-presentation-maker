@@ -274,6 +274,9 @@ At least 40% of plan scenes must use explanatory visual grammar: relationship-di
 Parse each assessment question and each choice into separate structured fields.
 Do not emit coordinates, PowerPoint operations, markdown, image text, new facts, new activities, or new requirements.
 Keep teacher facilitation in teacherNotes.
+Preserve every requiredEvidence and requiredOutputs item from learner-visible referenced storyboard screens in source order. Use the complete source requirement when it fits; for a long requirement, use one concise complete phrase copied exactly from that requirement. Do not omit, invent, reorder, or expose planning-only speaker-note requirements.
+Copy teacherNotes exactly from the referenced storyboard screens in storyboard order; do not invent or paraphrase teacher guidance.
+Attach every speaker-notes disposition to an adjacent source-ordered scene by including its storyboard screen and source IDs, while keeping that content out of learner-visible fields.
 For each scene, sourceStepIds and sourceObjectiveIds must exactly equal the ordered, de-duplicated union of those IDs from its referenced storyboardScreenIds; never attach a unit objective unless a referenced storyboard screen owns that objective.
 Keep storyboardScreenIds in storyboard source order, and keep scenes in the source order of their referenced storyboard screens.
 Copy every supplied disposition entry to sourceAccounting exactly once and in supplied order; preserve sourceKind, sourceId, unitId, sourceOrder, sourceLabel, disposition, and reason exactly, and only assign sceneIds.
@@ -501,6 +504,10 @@ const canonicalizeProviderProvenance = (
 ): VisualTeachingPlan => {
   const screenById = new Map(input.storyboard.screens.map((screen) => [screen.id, screen]));
   const screenOrderById = new Map(input.storyboard.screens.map((screen, index) => [screen.id, index]));
+  const dispositionById = new Map(input.dispositions.map((item) => [item.sourceId, item]));
+  const fieldById = new Map(input.manifest.units.flatMap((unit) => (
+    Object.values(unit.fields).map((field) => [field.id, field] as const)
+  )));
   const scenes = plan.scenes
     .map((scene, originalIndex) => {
       const hasUniqueScreenIds = scene.storyboardScreenIds.length > 0
@@ -518,13 +525,37 @@ const canonicalizeProviderProvenance = (
       ));
       const trustedScreens = orderedScreenIds.map((screenId) => screenById.get(screenId)!) as TeachingStoryboard['screens'];
       const unitIds = new Set(trustedScreens.map((screen) => screen.unitId));
+      const trustedUnitId = unitIds.size === 1 ? trustedScreens[0].unitId : scene.unitId;
+      const authorizedAttachedFieldIds = uniqueInOrder(scene.sourceFieldIds)
+        .filter((sourceFieldId) => {
+          const disposition = dispositionById.get(sourceFieldId);
+          return fieldById.has(sourceFieldId)
+            && disposition?.sourceKind === 'field'
+            && disposition.unitId === trustedUnitId
+            && (disposition.disposition === 'learner-visible' || disposition.disposition === 'speaker-notes');
+        })
+        .sort((left, right) => (
+          dispositionById.get(left)!.sourceOrder - dispositionById.get(right)!.sourceOrder
+        ));
+      const sourceFieldIds = uniqueInOrder([
+        ...trustedScreens.flatMap((screen) => screen.sourceFieldIds),
+        ...authorizedAttachedFieldIds,
+      ]);
+      const speakerNoteFields = sourceFieldIds
+        .filter((sourceFieldId) => dispositionById.get(sourceFieldId)?.disposition === 'speaker-notes')
+        .map((sourceFieldId) => fieldById.get(sourceFieldId)!)
+        .filter(Boolean);
       const canonicalScene = {
         ...scene,
         storyboardScreenIds: orderedScreenIds,
-        ...(unitIds.size === 1 ? { unitId: trustedScreens[0].unitId } : {}),
+        ...(unitIds.size === 1 ? { unitId: trustedUnitId } : {}),
         sourceStepIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceStepIds)),
         sourceObjectiveIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceObjectiveIds)),
-        sourceFieldIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceFieldIds)),
+        sourceFieldIds,
+        teacherNotes: [
+          ...trustedScreens.map((screen) => screen.teacherNotes),
+          ...speakerNoteFields.map((field) => `Source field (${field.label}): ${field.value}`),
+        ].filter(Boolean).join('\n'),
       };
       return {
         scene: {

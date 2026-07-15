@@ -444,3 +444,14 @@ test('App wires quota authorization inside both composer options and skips a sec
   assert.equal((appSource.match(/authorizationFailureMessage:\s*t\.presentation\.errorGenerationLimit/g) ?? []).length, 2);
   assert.equal((appSource.match(/visualComposerGenerationReserved\s*\|\|\s*adminGenerationLimitBypassed\s*\|\|\s*tryIncrementCount\('generations'\)/g) ?? []).length, 2);
 });
+
+test('App preserves the Gate 0 through Gate 6 weekly blueprint path when the composer is disabled', () => {
+  const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+
+  assert.match(
+    appSource,
+    /const useSourcePrimaryWeeklyBlueprint\s*=\s*runSourcePrimaryScenePreflight\s*&&\s*shouldRunVisualTeachingComposer\(/,
+  );
+  assert.equal((appSource.match(/useSourcePrimaryWeeklyBlueprint\s*\?\s*\[SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION\]/g) ?? []).length, 1);
+  assert.equal((appSource.match(/if \(useSourcePrimaryWeeklyBlueprint\)/g) ?? []).length, 1);
+});

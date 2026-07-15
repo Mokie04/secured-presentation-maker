@@ -867,7 +867,7 @@ Run the same sanitized science and humanities composition payloads through each 
 Upload:
 
 ```text
-/Users/johnnavarro/Downloads/Word Docs/2026July/Week 4 Grade 9 Science - Infer relationships among current, voltage, and resistance in series and parallel circuits (9).docx
+<private-local-lesson-plan.docx>
 ```
 
 Choose Weekly, generate Session 1, inspect the in-app preview, and export PPTX. Record only counts and diagnostic codes outside Git:
@@ -890,7 +890,7 @@ Keep outputs under `/tmp`. Use `unzip -l` for slide/media counts, LibreOffice he
 Render this private NotebookLM reference outside Git and compare thumbnails for hierarchy, visual rhythm, relationship-specific composition, and teaching clarity:
 
 ```text
-/Users/johnnavarro/Downloads/PPT/2026July/The_Three_Domains_of_Life.pptx
+<private-local-reference-deck.pptx>
 ```
 
 - [ ] **Step 7: Obtain explicit user artifact approval**

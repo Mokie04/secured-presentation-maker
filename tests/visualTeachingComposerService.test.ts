@@ -506,7 +506,9 @@ test('canonicalizes schema-valid provider provenance from the trusted storyboard
     assert.deepEqual(scene.sourceObjectiveIds, screens.flatMap((screen) => screen?.sourceObjectiveIds ?? []));
     assert.deepEqual(scene.sourceFieldIds, screens.flatMap((screen) => screen?.sourceFieldIds ?? []));
     assert.equal(scene.learnerTitle, modelScene.learnerTitle);
-    assert.equal(scene.teacherNotes, modelScene.teacherNotes);
+    assert.equal(scene.teacherNotes, screens.map((screen) => screen?.teacherNotes).filter(Boolean).join('\n'));
+    assert.deepEqual(scene.requiredEvidence, modelScene.requiredEvidence);
+    assert.deepEqual(scene.requiredOutputs, modelScene.requiredOutputs);
   }
   assert.deepEqual(result.plan.scenes.find((scene) => scene.id === modelScenes.at(-1)?.id)?.assetBrief, modelAssetBrief);
 
@@ -523,6 +525,66 @@ test('canonicalizes schema-valid provider provenance from the trusted storyboard
       .map((scene) => scene.id),
   }));
   assert.deepEqual(result.plan.sourceAccounting, expectedAccounting);
+});
+
+test('retains an authorized speaker-note source field during provider provenance reconciliation', async () => {
+  const fixture = visualComposerFixture();
+  const ownerScene = fixture.providerPlan.scenes.at(-1);
+  assert.ok(ownerScene);
+  const speakerNoteField = {
+    id: 'field-provider-speaker-note',
+    label: 'Learner Context',
+    value: 'Planning observation for teacher context only.',
+    state: 'present' as const,
+    sourceOrder: 99,
+    sourceLocation: { blockId: 'field-provider-speaker-note' },
+  };
+  const input = {
+    ...fixture.input,
+    manifest: {
+      ...fixture.input.manifest,
+      units: fixture.input.manifest.units.map((unit) => unit.id === ownerScene.unitId
+        ? { ...unit, fields: { ...unit.fields, providerSpeakerNote: speakerNoteField } }
+        : unit),
+    },
+    dispositions: [
+      ...fixture.input.dispositions,
+      {
+        sourceKind: 'field' as const,
+        sourceId: speakerNoteField.id,
+        unitId: ownerScene.unitId,
+        sourceOrder: speakerNoteField.sourceOrder,
+        sourceLabel: speakerNoteField.label,
+        disposition: 'speaker-notes' as const,
+        reason: 'planning-context-notes' as const,
+      },
+    ],
+  };
+  const providerPlan = {
+    ...fixture.providerPlan,
+    scenes: fixture.providerPlan.scenes.map((scene) => scene.id === ownerScene.id
+      ? {
+          ...scene,
+          sourceFieldIds: [...scene.sourceFieldIds, speakerNoteField.id],
+          teacherNotes: 'Provider-authored note must be replaced.',
+        }
+      : scene),
+  };
+  let callCount = 0;
+
+  const result = await composeVisualTeachingPlanWithProvider(input, async () => {
+    callCount += 1;
+    return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(callCount, 1);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const reconciledScene = result.plan.scenes.find((scene) => scene.id === ownerScene.id);
+  assert.ok(reconciledScene);
+  assert.equal(reconciledScene.sourceFieldIds.includes(speakerNoteField.id), true);
+  assert.equal(reconciledScene.teacherNotes.includes(speakerNoteField.value), true);
+  assert.equal(JSON.stringify(reconciledScene.visibleContent).includes(speakerNoteField.value), false);
 });
 
 test('restores trusted storyboard order within a merged provider scene', async () => {
