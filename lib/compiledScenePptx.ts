@@ -1,9 +1,11 @@
 import type { CompiledSlideScene, SceneElement, SceneTextElement } from './compiledSlideScene.ts';
 
+export type PptxTableCell = { text: string; options?: Record<string, unknown> };
+
 export type PptxSceneOperation =
   | { kind: 'addText'; elementId: string; text: string; options: Record<string, unknown> }
   | { kind: 'addShape'; elementId: string; shape: string; options: Record<string, unknown> }
-  | { kind: 'addTable'; elementId: string; rows: string[][]; options: Record<string, unknown> }
+  | { kind: 'addTable'; elementId: string; rows: PptxTableCell[][]; options: Record<string, unknown> }
   | { kind: 'addImage'; elementId: string; data: string; options: Record<string, unknown> }
   | { kind: 'addNotes'; text: string };
 
@@ -57,10 +59,18 @@ const compileSceneElementToPptxOperation = (element: SceneElement): PptxSceneOpe
   }
 
   if (element.kind === 'table') {
+    const headerRow: PptxTableCell[] = element.headers.map((text) => ({
+      text,
+      options: { fill: { color: element.headerFill }, color: 'FFFFFF', bold: true },
+    }));
+    const bodyRows: PptxTableCell[][] = element.rows.map((row) => row.map((text) => ({
+      text,
+      options: { fill: { color: element.cellFill }, color: element.textColor },
+    })));
     return [{
       kind: 'addTable',
       elementId: element.id,
-      rows: [element.headers, ...element.rows],
+      rows: [headerRow, ...bodyRows],
       options: {
         ...frameToPptxOptions(element.frame),
         fontFace: 'Poppins',
@@ -83,6 +93,18 @@ const compileSceneElementToPptxOperation = (element: SceneElement): PptxSceneOpe
         fill: { color: element.fill },
         line: { color: element.stroke || element.fill, width: 1 },
         radius: element.radius,
+        ...(element.elevated
+          ? {
+            shadow: {
+              type: 'outer',
+              color: '0F172A',
+              opacity: 0.22,
+              blur: 6,
+              offset: 3,
+              angle: 90,
+            },
+          }
+          : {}),
       },
     }];
   }
@@ -128,7 +150,7 @@ export const compilePptxSceneOperations = (scene: CompiledSlideScene): PptxScene
 export const getPptxSceneOperationText = (operations: readonly PptxSceneOperation[]): string[] => (
   operations.flatMap((operation) => {
     if (operation.kind === 'addText') return [operation.text];
-    if (operation.kind === 'addTable') return operation.rows.map((row) => row.join(' '));
+    if (operation.kind === 'addTable') return operation.rows.map((row) => row.map((cell) => cell.text).join(' '));
     return [];
   })
 );

@@ -65,6 +65,7 @@ const renderShapeElement = (element: SceneShapeElement) => (
           ? '999px'
           : `${element.radius ?? 0}px`,
       transform: element.shape === 'diamond' ? 'rotate(45deg) scale(0.7)' : undefined,
+      boxShadow: element.elevated ? '0 3px 6px rgba(15, 23, 42, 0.22)' : undefined,
     }}
   />
 );

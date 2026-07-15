@@ -10,6 +10,7 @@ import {
   type SceneConnectorElement,
   type SceneShapeElement,
 } from '../lib/compiledSlideScene.ts';
+import { compilePptxSceneOperations } from '../lib/compiledScenePptx.ts';
 import { SCENE_ASSET_REQUEST_VERSION, type SceneAssetRequest } from '../lib/sceneAssetRequests.ts';
 import { SCENE_ASSET_RESOLUTION_VERSION, type SceneResolvedAsset } from '../lib/sceneAssetResolver.ts';
 import { buildSemanticSlideSpecs, type SemanticSlideSpec } from '../lib/semanticSlideSpec.ts';
@@ -755,6 +756,199 @@ test('applies the owning deck visual system to native visual teaching elements',
   assert.equal(sourceNode.stroke, visualSystem.palette.accentCool);
   assert.equal(title.fontSize, visualSystem.typography.titleSize);
   assert.equal(title.runs[0]?.color, visualSystem.palette.ink);
+});
+
+test('adds deterministic accent deck chrome to native visual layouts with a visual system', () => {
+  const fixture = validVisualPlanFixture();
+  const specs = [relationshipDiagramSemanticFixture(), questionChoicesSemanticFixture()];
+  for (const spec of specs) {
+    const visualSystem = fixture.endToEndInput.visualSystems.systemsByUnitId[spec.unitId];
+    assert.ok(visualSystem, `missing visual system for ${spec.layoutId}`);
+    const result = compileSemanticSlideSpecsToScenes([spec], {
+      title: 'Deck Chrome Deck',
+      visualSystemsByUnitId: { [spec.unitId]: visualSystem },
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    const scene = result.presentation.scenes[0];
+    const rail = scene.elements.find((element) => element.kind === 'shape' && element.id.endsWith('-rail-chrome'));
+    const eyebrow = scene.elements.find((element) => element.kind === 'shape' && element.id.endsWith('-eyebrow-chrome'));
+    assert.ok(rail?.kind === 'shape', `${spec.layoutId} is missing the accent side rail`);
+    assert.ok(eyebrow?.kind === 'shape', `${spec.layoutId} is missing the teaching-move eyebrow`);
+    assert.equal(rail.fill, visualSystem.palette.accentCool);
+    assert.equal(eyebrow.fill, visualSystem.palette.accentWarm);
+    // Chrome stays in the left/top margins so it never covers content that starts at x>=72 / y>=54.
+    assert.equal(rail.frame.x + rail.frame.w <= 72, true);
+    assert.equal(eyebrow.frame.y + eyebrow.frame.h <= 54, true);
+    // Decorative shapes only: no new visible text, no new validation diagnostics.
+    assert.deepEqual(validateCompiledSlideScene(scene), []);
+  }
+});
+
+test('elevates native visual card surfaces with a soft shadow while keeping background chrome flat', () => {
+  const spec = questionChoicesSemanticFixture();
+  const fixture = validVisualPlanFixture();
+  const visualSystem = fixture.endToEndInput.visualSystems.systemsByUnitId[spec.unitId];
+  assert.ok(visualSystem);
+  const result = compileSemanticSlideSpecsToScenes([spec], {
+    title: 'Elevation Deck',
+    visualSystemsByUnitId: { [spec.unitId]: visualSystem },
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const choiceCard = scene.elements.find((element) => element.kind === 'shape' && element.id.includes('-choice-card-'));
+  const bg = scene.elements.find((element) => element.kind === 'shape' && element.id.endsWith('-bg'));
+  const rail = scene.elements.find((element) => element.kind === 'shape' && element.id.endsWith('-rail-chrome'));
+  assert.ok(choiceCard?.kind === 'shape', 'expected a native choice card surface');
+  assert.equal(choiceCard.elevated, true);
+  assert.notEqual(bg?.kind === 'shape' && bg.elevated === true, true);
+  assert.notEqual(rail?.kind === 'shape' && rail.elevated === true, true);
+  // Elevation exports as a native PPTX shape shadow (no raster, still editable).
+  const cardOperation = compilePptxSceneOperations(scene).find(
+    (operation) => operation.kind === 'addShape' && operation.elementId === choiceCard.id,
+  );
+  assert.ok(cardOperation && cardOperation.kind === 'addShape');
+  assert.equal(Boolean((cardOperation.options as { shadow?: unknown }).shadow), true);
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+});
+
+test('sizes the focal statement in visual layouts above supporting body text', () => {
+  const { spec } = visualThesisAssetFixture();
+  const fixture = validVisualPlanFixture();
+  const visualSystem = fixture.endToEndInput.visualSystems.systemsByUnitId[spec.unitId];
+  assert.ok(visualSystem);
+  const result = compileSemanticSlideSpecsToScenes([{ ...spec, assetRequests: [] }], {
+    title: 'Focal Deck',
+    visualSystemsByUnitId: { [spec.unitId]: visualSystem },
+  });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const statement = scene.elements.find((element) => element.kind === 'text' && element.id.endsWith('-thesis-statement'));
+  assert.ok(statement?.kind === 'text', 'expected a focal thesis statement');
+  assert.equal(statement.role, 'prompt');
+  // The focal prompt must clearly outrank supporting body text in the hierarchy.
+  assert.equal(statement.fontSize > visualSystem.typography.bodySize, true);
+  assert.equal(statement.fontSize >= Math.round(visualSystem.typography.bodySize * 1.2), true);
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+});
+
+test('themes and elevates process step cards under a visual system while preserving the legacy fallback', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const processSpec: SemanticSlideSpec = {
+    ...base,
+    id: 'semslide-process-theme',
+    intent: 'guided-example',
+    layoutId: 'guided-example-steps',
+    slots: {
+      title: { kind: 'text', text: 'Process' },
+      body: { kind: 'list', items: ['First move', 'Second move', 'Third move'] },
+    },
+  };
+  const fixture = validVisualPlanFixture();
+  const visualSystem = fixture.endToEndInput.visualSystems.systemsByUnitId[processSpec.unitId];
+  assert.ok(visualSystem);
+
+  const themed = compileSemanticSlideSpecsToScenes([processSpec], {
+    title: 'Process Deck',
+    visualSystemsByUnitId: { [processSpec.unitId]: visualSystem },
+  });
+  assert.equal(themed.ok, true);
+  if (!themed.ok) return;
+  const themedScene = themed.presentation.scenes[0];
+  const themedCard = themedScene.elements.find((element) => element.kind === 'shape' && element.id.includes('-step-card-'));
+  assert.ok(themedCard?.kind === 'shape', 'expected a themed process step card');
+  assert.equal(themedCard.fill, visualSystem.palette.surface);
+  assert.equal(themedCard.stroke, visualSystem.palette.accentCool);
+  assert.equal(themedCard.elevated, true);
+  assert.deepEqual(validateCompiledSlideScene(themedScene), []);
+
+  const legacy = compileSemanticSlideSpecsToScenes([processSpec], { title: 'Process Deck' });
+  assert.equal(legacy.ok, true);
+  if (!legacy.ok) return;
+  const legacyCard = legacy.presentation.scenes[0].elements.find((element) => element.kind === 'shape' && element.id.includes('-step-card-'));
+  assert.ok(legacyCard?.kind === 'shape');
+  assert.equal(legacyCard.fill, 'FFF7ED');
+  assert.notEqual(legacyCard.elevated === true, true);
+});
+
+const chromeIdSuffixes = ['-rail-chrome', '-eyebrow-chrome'] as const;
+const sceneHasChrome = (scene: { elements: readonly { id: string }[] }): boolean => (
+  chromeIdSuffixes.every((suffix) => scene.elements.some((element) => element.id.endsWith(suffix)))
+);
+
+test('applies deck chrome consistently across composer scene layouts with a visual system', () => {
+  const base = relationshipDiagramSemanticFixture();
+  const fixture = validVisualPlanFixture();
+  const visualSystem = fixture.endToEndInput.visualSystems.systemsByUnitId[base.unitId];
+  assert.ok(visualSystem);
+
+  const layoutSpecs: SemanticSlideSpec[] = [
+    {
+      ...base,
+      id: 'semslide-chrome-guided',
+      intent: 'guided-example',
+      layoutId: 'guided-example-steps',
+      slots: {
+        title: { kind: 'text', text: 'Guided Process' },
+        body: { kind: 'list', items: ['First move', 'Second move', 'Third move'] },
+      },
+    },
+    {
+      ...base,
+      id: 'semslide-chrome-process',
+      intent: 'guided-example',
+      layoutId: 'process-flow-horizontal',
+      slots: {
+        title: { kind: 'text', text: 'Process Flow' },
+        body: { kind: 'list', items: ['Stage one', 'Stage two', 'Stage three'] },
+      },
+    },
+    {
+      ...base,
+      id: 'semslide-chrome-prompt',
+      intent: 'discussion-prompt',
+      layoutId: 'prompt-card',
+      slots: {
+        title: { kind: 'text', text: 'Prompt' },
+        body: { kind: 'text', text: 'Explain the source-backed relationship.' },
+      },
+    },
+  ];
+
+  for (const spec of layoutSpecs) {
+    const withSystem = compileSemanticSlideSpecsToScenes([spec], {
+      title: 'Chrome Coverage Deck',
+      visualSystemsByUnitId: { [spec.unitId]: visualSystem },
+    });
+    assert.equal(withSystem.ok, true);
+    if (!withSystem.ok) return;
+    const scene = withSystem.presentation.scenes[0];
+    assert.equal(sceneHasChrome(scene), true, `${spec.layoutId} should receive deck chrome with a visual system`);
+    assert.deepEqual(validateCompiledSlideScene(scene), []);
+
+    const withoutSystem = compileSemanticSlideSpecsToScenes([spec], { title: 'Legacy Deck' });
+    assert.equal(withoutSystem.ok, true);
+    if (!withoutSystem.ok) return;
+    assert.equal(
+      sceneHasChrome(withoutSystem.presentation.scenes[0]),
+      false,
+      `${spec.layoutId} must stay chrome-free without a visual system`,
+    );
+  }
+});
+
+test('omits deck chrome entirely when no visual system is supplied', () => {
+  const noSystem = compileSemanticSlideSpecsToScenes([relationshipDiagramSemanticFixture()], {
+    title: 'No System Deck',
+  });
+  assert.equal(noSystem.ok, true);
+  if (!noSystem.ok) return;
+  assert.equal(
+    noSystem.presentation.scenes[0].elements.some((element) => element.id.endsWith('-chrome')),
+    false,
+  );
 });
 
 test('preserves pre-Task-4 prompt styling for legacy layouts with a visual system', () => {

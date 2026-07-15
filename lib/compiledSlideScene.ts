@@ -56,6 +56,7 @@ export type SceneShapeElement = SceneElementBase & {
   fill: string;
   stroke?: string;
   radius?: number;
+  elevated?: boolean;
 };
 
 export type SceneTableElement = SceneElementBase & {
@@ -1439,13 +1440,14 @@ const applyVisualSystemToElements = (
           : element.stroke === '15803D'
             ? visualSystem.palette.success
             : visualSystem.palette.accentWarm;
-      return { ...element, fill: visualSystem.palette.surface, stroke };
+      return { ...element, fill: visualSystem.palette.surface, stroke, elevated: true };
     }
     if (visualLayout && element.kind === 'shape' && element.id.endsWith('-prompt-card')) {
       return {
         ...element,
         fill: visualSystem.palette.surfaceMuted,
         stroke: visualSystem.palette.accentCool,
+        elevated: true,
       };
     }
     if (visualLayout && element.kind === 'shape' && element.id.includes('-choice-')) {
@@ -1455,6 +1457,7 @@ const applyVisualSystemToElements = (
         stroke: element.id.endsWith('-1') || element.id.endsWith('-3')
           ? visualSystem.palette.accentCool
           : visualSystem.palette.accentWarm,
+        elevated: true,
       };
     }
     if (visualLayout && element.kind === 'shape' && element.id.includes('-panel-')) {
@@ -1468,6 +1471,7 @@ const applyVisualSystemToElements = (
         ...element,
         fill: visualSystem.palette.surface,
         stroke: colors[(index - 1) % colors.length],
+        elevated: true,
       };
     }
     if (
@@ -1481,6 +1485,20 @@ const applyVisualSystemToElements = (
         stroke: element.id.endsWith('-title-band')
           ? visualSystem.palette.surfaceMuted
           : visualSystem.palette.accentCool,
+        elevated: element.id.endsWith('-thesis-card'),
+      };
+    }
+    if (
+      element.kind === 'shape'
+      && !element.id.endsWith('-prompt-card')
+      && /-(?:step|target|task|criteria|requirement)-card(?:-\d+)?$/.test(element.id)
+    ) {
+      return {
+        ...element,
+        fill: visualSystem.palette.surface,
+        stroke: visualSystem.palette.accentCool,
+        radius: visualSystem.shapeLanguage.cornerRadius,
+        elevated: true,
       };
     }
     if (element.kind === 'shape' && element.id.endsWith('-bg')) {
@@ -1509,11 +1527,14 @@ const applyVisualSystemToElements = (
           })),
         };
       }
+      const focalSize = Math.round(visualSystem.typography.bodySize * 1.25);
       const roleSize = element.role === 'title'
         ? visualSystem.typography.titleSize
-        : element.role === 'label' || element.role === 'note'
-          ? visualSystem.typography.labelSize
-          : visualSystem.typography.bodySize;
+        : element.role === 'prompt'
+          ? focalSize
+          : element.role === 'label' || element.role === 'note'
+            ? visualSystem.typography.labelSize
+            : visualSystem.typography.bodySize;
       const fontSize = Math.max(roleSize, visualSystem.typography.minReadableSize);
       return {
         ...element,
@@ -1596,7 +1617,9 @@ const assetFrameCandidatesForSpec = (spec: SemanticSlideSpec): readonly SceneFra
 const occupiesAssetFrame = (element: SceneElement, visualLayout: boolean): boolean => {
   if (!visualLayout) return element.kind === 'text' || element.kind === 'table';
   if (element.kind === 'shape') {
-    return !element.id.endsWith('-bg') && !element.id.endsWith('-title-band');
+    return !element.id.endsWith('-bg')
+      && !element.id.endsWith('-title-band')
+      && !element.id.endsWith('-chrome');
   }
   return element.kind !== 'group';
 };
@@ -1628,6 +1651,59 @@ const addResolvedAssetElements = (
   return [...elements, ...imageElements];
 };
 
+const DECK_CHROME_FRAMES = {
+  rail: { x: 40, y: 54, w: 10, h: 612 } as SceneFrame,
+  eyebrow: { x: 72, y: 40, w: 132, h: 6 } as SceneFrame,
+};
+
+const buildDeckChromeElement = (
+  sceneId: string,
+  part: 'rail' | 'eyebrow',
+  visualSystem: DeckVisualSystem,
+  readingOrder: number,
+): SceneShapeElement => {
+  const color = part === 'rail' ? visualSystem.palette.accentCool : visualSystem.palette.accentWarm;
+  return makeShape(`${sceneId}-el-${part}-chrome`, readingOrder, DECK_CHROME_FRAMES[part], color, color, 'rect', 0);
+};
+
+// Chrome sits in the top/left margins, so it should never overlap slide content.
+// A shape only counts as content collision when it is not decorative background
+// (`-bg`/`-title-band`) or existing chrome. Background fills legitimately span the
+// margins and are drawn behind the accent chrome.
+const isChromeCollisionElement = (element: SceneElement): boolean => {
+  if (element.kind === 'group') return false;
+  if (element.kind === 'shape') {
+    return !element.id.endsWith('-bg')
+      && !element.id.endsWith('-title-band')
+      && !element.id.endsWith('-chrome');
+  }
+  return true;
+};
+
+// Apply deck chrome consistently to every composer-generated scene layout when a
+// visual system is present. Each chrome part is added only when it does not
+// collide with real content (a proven collision reason). Without a visual system
+// the scene is returned unchanged so legacy output is preserved byte-for-byte.
+const withDeckChrome = (
+  elements: readonly SceneElement[],
+  _spec: SemanticSlideSpec,
+  sceneId: string,
+  visualSystem?: DeckVisualSystem,
+): SceneElement[] => {
+  if (!visualSystem) return [...elements];
+  const contentFrames = elements
+    .filter(isChromeCollisionElement)
+    .map((element) => element.frame);
+  const maxReadingOrder = elements.reduce((max, element) => Math.max(max, element.readingOrder), 0);
+  const chrome: SceneElement[] = [];
+  (['rail', 'eyebrow'] as const).forEach((part) => {
+    const collides = contentFrames.some((frame) => framesOverlap(DECK_CHROME_FRAMES[part], frame));
+    if (collides) return;
+    chrome.push(buildDeckChromeElement(sceneId, part, visualSystem, maxReadingOrder + 1 + chrome.length));
+  });
+  return [...elements, ...chrome];
+};
+
 const buildSceneElements = (
   spec: SemanticSlideSpec,
   sceneId: string,
@@ -1635,10 +1711,15 @@ const buildSceneElements = (
   assets: readonly SceneResolvedAsset[] = [],
 ): SceneElement[] => (
   addResolvedAssetElements(
-    applyVisualSystemToElements(
-      buildBaseSceneElements(spec, sceneId),
+    withDeckChrome(
+      applyVisualSystemToElements(
+        buildBaseSceneElements(spec, sceneId),
+        visualSystem,
+        VISUAL_LAYOUT_IDS.has(spec.layoutId),
+      ),
+      spec,
+      sceneId,
       visualSystem,
-      VISUAL_LAYOUT_IDS.has(spec.layoutId),
     ),
     spec,
     sceneId,

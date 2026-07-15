@@ -9,7 +9,7 @@ import {
 } from '../lib/compiledScenePptx.ts';
 import { SCENE_ASSET_REQUEST_VERSION, type SceneAssetRequest } from '../lib/sceneAssetRequests.ts';
 import { SCENE_ASSET_RESOLUTION_VERSION, type SceneResolvedAsset } from '../lib/sceneAssetResolver.ts';
-import { buildSemanticSlideSpecs } from '../lib/semanticSlideSpec.ts';
+import { buildSemanticSlideSpecs, type SemanticSlideSpec } from '../lib/semanticSlideSpec.ts';
 import { EVIDENCE_OUTPUT_STORYBOARD } from './fixtures/semanticSlideFixtures.ts';
 import {
   relationshipDiagramSemanticFixture,
@@ -195,6 +195,66 @@ test('exports relationship nodes and connectors as matching native PPTX shapes',
     getPptxSceneOperationText(operations).filter(Boolean),
     previewDescriptors.flatMap((descriptor) => descriptor.text).filter(Boolean),
   );
+});
+
+const tableSceneFixture = (visualSystemPalette?: { headerFill: string; cellFill: string; textColor: string }) => {
+  const base = relationshipDiagramSemanticFixture();
+  const tableSpec: SemanticSlideSpec = {
+    ...base,
+    id: 'semslide-table-parity',
+    intent: 'evidence-capture',
+    layoutId: 'evidence-capture-board',
+    slots: {
+      title: { kind: 'text', text: 'Evidence Board' },
+      requirements: { kind: 'list', items: ['Evidence A statement', 'Evidence B statement'] },
+    },
+  };
+  const scenes = compileSemanticSlideSpecsToScenes([tableSpec], { title: 'Table Deck' });
+  assert.equal(scenes.ok, true);
+  if (!scenes.ok) throw new Error('table scene compile failed');
+  const scene = scenes.presentation.scenes[0];
+  const table = scene.elements.find((element) => element.kind === 'table');
+  assert.ok(table && table.kind === 'table', 'expected a native table element');
+  void visualSystemPalette;
+  return { scene, table };
+};
+
+test('represents themed table header and body cell styling in native PPTX table operations', () => {
+  const { scene, table } = tableSceneFixture();
+  const operations = compilePptxSceneOperations(scene);
+  const tableOperation = operations.find(
+    (operation): operation is Extract<PptxSceneOperation, { kind: 'addTable' }> => (
+      operation.kind === 'addTable' && operation.elementId === table.id
+    ),
+  );
+  assert.ok(tableOperation, 'expected a native addTable operation for the table element');
+
+  const rows = tableOperation.rows as Array<Array<{ text: string; options?: Record<string, unknown> }>>;
+  assert.equal(rows.length, table.rows.length + 1);
+
+  // Header row cells carry the header fill with bold, high-contrast light text.
+  const headerCells = rows[0];
+  assert.equal(headerCells.length, table.headers.length);
+  for (const cell of headerCells) {
+    const options = cell.options ?? {};
+    assert.deepEqual(options.fill, { color: table.headerFill });
+    assert.equal(options.bold, true);
+    assert.equal(options.color, 'FFFFFF');
+  }
+
+  // Body row cells preserve the body cell fill and body text color.
+  for (const bodyRow of rows.slice(1)) {
+    for (const cell of bodyRow) {
+      const options = cell.options ?? {};
+      assert.deepEqual(options.fill, { color: table.cellFill });
+      assert.equal(options.color, table.textColor);
+      assert.notEqual(options.bold, true);
+    }
+  }
+
+  // Visible-text parity must survive the per-cell styling change.
+  const expectedText = [table.headers.join(' '), ...table.rows.map((row) => row.join(' '))].filter(Boolean);
+  assert.deepEqual(getPptxSceneOperationText([tableOperation]).filter(Boolean), expectedText);
 });
 
 test('preserves a routed relationship arrow on only the final native PPTX segment', () => {

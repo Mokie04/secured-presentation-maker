@@ -107,6 +107,117 @@ const DEFAULT_PALETTE: VisualPalette = {
   danger: 'B91C1C',
 };
 
+export type DeckTheme = {
+  id: string;
+  palette: VisualPalette;
+};
+
+// Deterministic, accessible per-deck themes. Every palette keeps near-black ink
+// on light surfaces and dark accents that carry white text at >= 4.5:1, so the
+// contrast contract holds for any selected theme. Themes vary the accent hues
+// and surface tints to give each deck its own identity without any model call.
+export const DECK_THEMES: readonly DeckTheme[] = [
+  {
+    id: 'theme-teal-rust',
+    palette: DEFAULT_PALETTE,
+  },
+  {
+    id: 'theme-indigo-amber',
+    palette: {
+      background: 'FFFFFF',
+      surface: 'F5F5FF',
+      surfaceMuted: 'E0E2F5',
+      ink: '111827',
+      mutedInk: '475569',
+      accentCool: '4338CA',
+      accentWarm: 'B45309',
+      success: '15803D',
+      warning: 'A16207',
+      danger: 'B91C1C',
+    },
+  },
+  {
+    id: 'theme-blue-magenta',
+    palette: {
+      background: 'FFFFFF',
+      surface: 'F3F8FF',
+      surfaceMuted: 'DCE7F5',
+      ink: '111827',
+      mutedInk: '44556B',
+      accentCool: '1D4ED8',
+      accentWarm: 'BE185D',
+      success: '047857',
+      warning: 'A16207',
+      danger: 'B91C1C',
+    },
+  },
+  {
+    id: 'theme-emerald-purple',
+    palette: {
+      background: 'FFFFFF',
+      surface: 'F2FBF6',
+      surfaceMuted: 'D9EEE2',
+      ink: '111827',
+      mutedInk: '3F5560',
+      accentCool: '047857',
+      accentWarm: '7E22CE',
+      success: '15803D',
+      warning: 'A16207',
+      danger: 'B91C1C',
+    },
+  },
+  {
+    id: 'theme-cyan-crimson',
+    palette: {
+      background: 'FFFFFF',
+      surface: 'F2FAFC',
+      surfaceMuted: 'D6E9EF',
+      ink: '111827',
+      mutedInk: '405663',
+      accentCool: '0E7490',
+      accentWarm: 'B91C1C',
+      success: '15803D',
+      warning: 'A16207',
+      danger: 'B91C1C',
+    },
+  },
+];
+
+export const paletteMeetsContrast = (palette: VisualPalette): boolean => (
+  contrastPairsForPalette(palette).every((pair) => pair.pass)
+);
+
+export const deckThemeKeyForSpecs = (specs: readonly SemanticSlideSpec[]): string => {
+  const provenance = unique([
+    ...specs.map((spec) => spec.unitId),
+    ...specs.flatMap((spec) => spec.sourceObjectiveIds),
+    ...specs.flatMap((spec) => spec.sourceStepIds),
+    ...specs.map((spec) => spec.storyboardScreenId),
+  ]).sort();
+  return provenance.join('|');
+};
+
+// Canonical deck theme key. Generated structural ids (unit-001, obj-001,
+// screen-001) collide across unrelated lessons, so the theme is anchored to the
+// storyboard's source provenance (sourceHash + selected source units) first, with
+// the structural spec key as a secondary discriminator. Two structurally
+// identical decks built from different source documents therefore theme apart.
+export const deckThemeKeyForStoryboard = (
+  storyboard: TeachingStoryboard,
+  specs: readonly SemanticSlideSpec[],
+): string => {
+  const selectedUnitIds = unique(storyboard.provenance.selectedUnitIds).sort();
+  return [
+    `source:${storyboard.provenance.sourceHash}`,
+    `units:${selectedUnitIds.join(',')}`,
+    `structure:${deckThemeKeyForSpecs(specs)}`,
+  ].join('||');
+};
+
+export const selectDeckTheme = (deckKey: string): DeckTheme => (
+  DECK_THEMES[stableHash(deckKey) % DECK_THEMES.length]
+);
+
 const SEMANTIC_COLOR_SLOTS: readonly (keyof VisualPalette)[] = [
   'accentCool',
   'accentWarm',
@@ -220,6 +331,7 @@ const containsPrivateText = (value: string): boolean => {
 const buildDeckVisualSystemForUnit = (
   unitSpecs: readonly SemanticSlideSpec[],
   unitId: string,
+  palette: VisualPalette = DEFAULT_PALETTE,
 ): DeckVisualSystem => {
   const semanticColors: Record<string, SemanticColorAssignment> = {};
 
@@ -227,7 +339,7 @@ const buildDeckVisualSystemForUnit = (
     for (const conceptId of conceptIdsForSpec(spec)) {
       const existing = semanticColors[conceptId] ?? {
         conceptId,
-        color: colorForConcept(conceptId, DEFAULT_PALETTE),
+        color: colorForConcept(conceptId, palette),
         sourceStepIds: [],
         sourceObjectiveIds: [],
         storyboardScreenIds: [],
@@ -252,16 +364,16 @@ const buildDeckVisualSystemForUnit = (
       sourceStepIds: unique(unitSpecs.flatMap((spec) => spec.sourceStepIds)),
       sourceObjectiveIds: unique(unitSpecs.flatMap((spec) => spec.sourceObjectiveIds)),
     },
-    palette: { ...DEFAULT_PALETTE },
+    palette: { ...palette },
     semanticColors,
     typography: {
       headingFont: 'Poppins',
       bodyFont: 'Poppins',
       labelFont: 'Poppins',
-      titleSize: 34,
+      titleSize: 40,
       bodySize: 24,
-      labelSize: 18,
-      minReadableSize: 18,
+      labelSize: 16,
+      minReadableSize: 16,
     },
     shapeLanguage: {
       cornerRadius: 24,
@@ -275,7 +387,7 @@ const buildDeckVisualSystemForUnit = (
     illustrationStyle: 'text-free-instructional',
     accessibility: {
       minContrastRatio: 4.5,
-      contrastPairs: contrastPairsForPalette(DEFAULT_PALETTE),
+      contrastPairs: contrastPairsForPalette(palette),
     },
     diagnostics: [],
   };
@@ -348,7 +460,7 @@ export const validateDeckVisualSystem = (system: DeckVisualSystem): VisualSystem
 };
 
 export const buildDeckVisualSystems = (
-  _storyboard: TeachingStoryboard,
+  storyboard: TeachingStoryboard,
   specs: readonly SemanticSlideSpec[],
 ): DeckVisualSystemResult => {
   const unitIds = unique(specs.map((spec) => spec.unitId));
@@ -359,9 +471,10 @@ export const buildDeckVisualSystems = (
     };
   }
 
+  const theme = selectDeckTheme(deckThemeKeyForStoryboard(storyboard, specs));
   const systemsByUnitId = Object.fromEntries(unitIds.map((unitId) => {
     const unitSpecs = specs.filter((spec) => spec.unitId === unitId);
-    return [unitId, buildDeckVisualSystemForUnit(unitSpecs, unitId)];
+    return [unitId, buildDeckVisualSystemForUnit(unitSpecs, unitId, theme.palette)];
   }));
   const diagnostics = Object.values(systemsByUnitId).flatMap((system) => validateDeckVisualSystem(system));
 
