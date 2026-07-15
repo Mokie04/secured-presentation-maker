@@ -430,6 +430,40 @@ test('rejects table cells that exceed their PPTX row frame even when total table
   assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'scene_text_overflow'), true);
 });
 
+test('renders dense evidence requirements without a narrow overflowing table', () => {
+  const spec = {
+    ...specsFrom()[0],
+    id: 'dense-evidence-spec',
+    intent: 'evidence-capture' as const,
+    layoutId: 'evidence-capture-board' as const,
+    slots: {
+      title: { kind: 'text' as const, text: 'Use Readings as Evidence' },
+      body: {
+        kind: 'list' as const,
+        items: ['Compare the recorded circuit readings before writing the claim.'],
+      },
+      requirements: {
+        kind: 'list' as const,
+        items: [
+          'Record the ammeter and voltmeter readings that support the relationship claim.',
+          'Submit a labeled circuit diagram with the measured reading used as evidence.',
+        ],
+      },
+    },
+  };
+
+  const result = compileSemanticSlideSpecsToScenes([spec], { title: 'Dense Evidence Deck' });
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  assert.deepEqual(validateCompiledSlideScene(scene), []);
+  const visibleText = getSceneVisibleText(scene).join(' ');
+  assert.match(visibleText, /ammeter and voltmeter readings/i);
+  assert.match(visibleText, /labeled circuit diagram/i);
+  assert.equal(scene.elements.some((element) => element.kind === 'table'), false);
+});
+
 test('does not emit image or full-slide raster elements in Gate 3', () => {
   const specsResult = buildSemanticSlideSpecs(FIVE_SESSION_STORYBOARD);
   assert.equal(specsResult.ok, true);

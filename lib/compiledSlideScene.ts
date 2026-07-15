@@ -377,6 +377,12 @@ const requirementRows = (spec: SemanticSlideSpec): string[][] => {
   return requirements.map((item, index) => [`${index + 1}`, item]);
 };
 
+const NARROW_REQUIREMENT_TABLE_CHAR_BUDGET = 56;
+
+const needsWideRequirementFrame = (requirements: readonly string[]): boolean => (
+  requirements.some((item) => clampText(item).length > NARROW_REQUIREMENT_TABLE_CHAR_BUDGET)
+);
+
 const makeShape = (
   id: string,
   readingOrder: number,
@@ -1284,6 +1290,25 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
   }
 
   if (spec.layoutId === 'evidence-capture-board' || spec.layoutId === 'exit-ticket-card') {
+    if (bodyItems.length > 0 && requirements.length > 0 && needsWideRequirementFrame(requirements)) {
+      return [
+        makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
+        makeText(`${baseId}-title`, 1, { x: 82, y: 72, w: 1116, h: 70 }, title, 'title', 34, { bold: true }),
+        makeText(`${baseId}-prompt`, 2, { x: 88, y: 160, w: 1066, h: 112 }, bodyText, 'prompt', 24),
+        makeShape(`${baseId}-requirement-card`, 3, { x: 86, y: 314, w: 1108, h: successText ? 206 : 278 }, 'F0FDFA', '99F6E4'),
+        makeText(
+          `${baseId}-requirements`,
+          4,
+          { x: 126, y: 344, w: 1028, h: successText ? 142 : 210 },
+          asBulletText(requirements),
+          'body',
+          20,
+        ),
+        ...(successText
+          ? [makeText(`${baseId}-criteria`, 5, { x: 96, y: 574, w: 1088, h: 66 }, successText, 'note', 18)]
+          : []),
+      ];
+    }
     if (bodyItems.length === 0 && successItems.length === 0) {
       const elements: SceneElement[] = [
         makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
