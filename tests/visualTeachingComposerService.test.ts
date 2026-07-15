@@ -164,6 +164,52 @@ const planWithoutRelationshipScene = (fixture: ReturnType<typeof visualComposerF
   scenes: fixture.providerPlan.scenes.filter((scene) => scene.visualGrammar !== 'relationship-diagram'),
 });
 
+const planWithoutSpeakerNoteOwnership = (
+  fixture: ReturnType<typeof visualComposerFixture>,
+  providerPlan = fixture.providerPlan,
+) => {
+  const speakerNoteSourceIds = new Set(fixture.input.dispositions
+    .filter((decision) => decision.disposition === 'speaker-notes')
+    .map((decision) => decision.sourceId));
+  const speakerNoteScreenIds = new Set(fixture.input.storyboard.screens
+    .filter((screen) => (
+      [...screen.sourceStepIds, ...screen.sourceFieldIds]
+        .some((sourceId) => speakerNoteSourceIds.has(sourceId))
+    ))
+    .map((screen) => screen.id));
+
+  return {
+    ...providerPlan,
+    scenes: providerPlan.scenes.map((scene) => ({
+      ...scene,
+      sourceStepIds: scene.sourceStepIds.filter((sourceId) => !speakerNoteSourceIds.has(sourceId)),
+      sourceFieldIds: scene.sourceFieldIds.filter((sourceId) => !speakerNoteSourceIds.has(sourceId)),
+      storyboardScreenIds: scene.storyboardScreenIds.filter((screenId) => !speakerNoteScreenIds.has(screenId)),
+    })),
+    sourceAccounting: providerPlan.sourceAccounting.map((entry) => (
+      speakerNoteSourceIds.has(entry.sourceId) ? { ...entry, sceneIds: [] } : entry
+    )),
+  };
+};
+
+const planWithoutObjectiveScreenOwnership = (fixture: ReturnType<typeof visualComposerFixture>) => {
+  const objectiveScreenIds = new Set(fixture.input.storyboard.screens
+    .filter((screen) => screen.sourceObjectiveIds.length > 0)
+    .map((screen) => screen.id));
+  const objectiveIds = fixture.input.storyboard.objectives.map((objective) => objective.sourceObjectiveId);
+  const scenes = fixture.providerPlan.scenes
+    .map((scene) => ({
+      ...scene,
+      storyboardScreenIds: scene.storyboardScreenIds.filter((screenId) => !objectiveScreenIds.has(screenId)),
+    }))
+    .filter((scene) => scene.storyboardScreenIds.length > 0);
+
+  return {
+    ...fixture.providerPlan,
+    scenes: scenes.map((scene, index) => index === 0 ? { ...scene, sourceObjectiveIds: objectiveIds } : scene),
+  };
+};
+
 const planWithMinimalSceneCount = (
   fixture: ReturnType<typeof visualComposerFixture>,
   minimalSceneCount: number,
@@ -246,6 +292,196 @@ test('fills only missing required visual-content collections before strict valid
   assert.deepEqual(normalizedScene.visibleContent.points, []);
   assert.deepEqual(normalizedScene.visibleContent.cards, []);
   assert.deepEqual(normalizedScene.visibleContent.steps, []);
+});
+
+test('deterministically attaches omitted speaker-note provenance to adjacent scenes', async () => {
+  const fixture = visualComposerFixture();
+  const providerPlan = planWithoutSpeakerNoteOwnership(fixture);
+  let calls = 0;
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    calls += 1;
+    return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+
+  for (const decision of fixture.input.dispositions.filter((item) => item.disposition === 'speaker-notes')) {
+    const owners = result.plan.scenes.filter((scene) => (
+      scene.sourceStepIds.includes(decision.sourceId) || scene.sourceFieldIds.includes(decision.sourceId)
+    ));
+    assert.equal(owners.length, 1);
+    assert.deepEqual(
+      result.plan.sourceAccounting.find((entry) => entry.sourceId === decision.sourceId)?.sceneIds,
+      [owners[0].id],
+    );
+  }
+});
+
+test('deterministically attaches an omitted objective screen to a declared objective scene', async () => {
+  const fixture = visualComposerFixture();
+  const providerPlan = planWithoutObjectiveScreenOwnership(fixture);
+  let calls = 0;
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    calls += 1;
+    return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.plan.sourceObjectiveIds, fixture.input.storyboard.objectives.map((item) => item.sourceObjectiveId));
+  for (const objective of fixture.input.storyboard.objectives) {
+    assert.equal(result.plan.scenes.filter((scene) => scene.sourceObjectiveIds.includes(objective.sourceObjectiveId)).length, 1);
+  }
+});
+
+test('preserves source order when objective and speaker-note screens both require rebinding', async () => {
+  const fixture = visualComposerFixture();
+  const providerPlan = planWithoutSpeakerNoteOwnership(
+    fixture,
+    planWithoutObjectiveScreenOwnership(fixture),
+  );
+  let calls = 0;
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    calls += 1;
+    return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.ok, true);
+});
+
+test('restores source-owned evidence and outputs from referenced storyboard screens', async () => {
+  const fixture = visualComposerFixture();
+  const providerPlan = {
+    ...fixture.providerPlan,
+    scenes: fixture.providerPlan.scenes.map((scene) => ({
+      ...scene,
+      requiredEvidence: scene.requiredEvidence.length > 0 ? ['Provider paraphrased evidence'] : [],
+      requiredOutputs: scene.requiredOutputs.length > 0 ? ['Provider paraphrased output'] : [],
+    })),
+  };
+  let calls = 0;
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => {
+    calls += 1;
+    return { value: providerPlan, provider: 'fixture', model: 'fixture-model' };
+  });
+
+  assert.equal(calls, 1);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.plan.scenes.some((scene) => scene.requiredEvidence.includes('Provider paraphrased evidence')), false);
+  assert.equal(result.plan.scenes.some((scene) => scene.requiredOutputs.includes('Provider paraphrased output')), false);
+});
+
+test('splits over-capacity process cards and structured questions into bounded visual scenes', async () => {
+  const fixture = visualComposerFixture();
+  const processScene = fixture.providerPlan.scenes.find((scene) => scene.visualGrammar === 'activity-board');
+  const questionScene = fixture.providerPlan.scenes.find((scene) => scene.visualGrammar === 'question-choices');
+  assert.ok(processScene);
+  assert.ok(questionScene?.visibleContent.question);
+  const processCards = Array.from({ length: 5 }, (_, index) => ({
+    id: `phase-${index + 1}`,
+    title: `Phase ${index + 1}`,
+    body: `Complete source-backed action ${index + 1} and record the supplied observation.`,
+  }));
+  const questionChoices = [
+    { id: 'q1a', text: '1. Which recorded pattern is supported? A. Pattern alpha' },
+    { id: 'q1b', text: 'B. Pattern beta' },
+    { id: 'q1c', text: 'C. Pattern gamma' },
+    { id: 'q1d', text: 'D. Pattern delta' },
+    { id: 'q2a', text: '2. Which observation is the strongest evidence? A. Observation alpha' },
+    { id: 'q2b', text: 'B. Observation beta' },
+    { id: 'q2c', text: 'C. Observation gamma' },
+    { id: 'q2d', text: 'D. Observation delta' },
+  ];
+  const providerPlan = {
+    ...fixture.providerPlan,
+    scenes: fixture.providerPlan.scenes.map((scene) => {
+      if (scene.id === processScene.id) {
+        return {
+          ...scene,
+          teachingMove: 'explain' as const,
+          visualGrammar: 'process-flow' as const,
+          visibleContent: { points: [], cards: processCards, steps: [] },
+        };
+      }
+      if (scene.id === questionScene.id) {
+        return {
+          ...scene,
+          visibleContent: {
+            ...scene.visibleContent,
+            question: {
+              prompt: 'Choose the best answer for each question.',
+              choices: questionChoices,
+              answerId: 'q1a',
+            },
+          },
+        };
+      }
+      return scene;
+    }),
+  };
+
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => ({
+    value: providerPlan,
+    provider: 'fixture',
+    model: 'fixture-model',
+  }));
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const processScenes = result.plan.scenes.filter((scene) => scene.id.startsWith(processScene.id));
+  const questionScenes = result.plan.scenes.filter((scene) => scene.id.startsWith(questionScene.id));
+  assert.equal(processScenes.length, 2);
+  assert.equal(processScenes.every((scene) => scene.visibleContent.cards.length <= 3), true);
+  assert.equal(questionScenes.length, 2);
+  assert.equal(questionScenes.every((scene) => (scene.visibleContent.question?.choices.length ?? 0) <= 4), true);
+  assert.deepEqual(
+    questionScenes.map((scene) => scene.visibleContent.question?.prompt),
+    ['Which recorded pattern is supported?', 'Which observation is the strongest evidence?'],
+  );
+  assert.deepEqual(
+    questionScenes.map((scene) => scene.learnerTitle),
+    ['Question 1: Which recorded pattern is supported', 'Question 2: Which observation is the strongest evidence'],
+  );
+});
+
+test('compacts long source-owned requirements to exact bounded source phrases', async () => {
+  const fixture = visualComposerFixture();
+  const targetScene = fixture.providerPlan.scenes.find((scene) => scene.requiredEvidence.length > 0);
+  assert.ok(targetScene);
+  const targetScreenId = targetScene.storyboardScreenIds[0];
+  const longRequirement = [
+    'Learners inspect the supplied record and compare the two observations before responding.',
+    'Record one evidence-based claim supported by the measured result.',
+    'The teacher reviews the response and files the administrative summary after class.',
+  ].join(' ');
+  const input = {
+    ...fixture.input,
+    storyboard: {
+      ...fixture.input.storyboard,
+      screens: fixture.input.storyboard.screens.map((screen) => screen.id === targetScreenId
+        ? { ...screen, requiredEvidence: [longRequirement], requiredOutputs: [longRequirement] }
+        : screen),
+    },
+  };
+
+  const result = await composeVisualTeachingPlanWithProvider(input, async () => ({
+    value: fixture.providerPlan,
+    provider: 'fixture',
+    model: 'fixture-model',
+  }));
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const compacted = result.plan.scenes.find((scene) => scene.id === targetScene.id)?.requiredEvidence[0];
+  assert.ok(compacted);
+  assert.equal(compacted.length <= 160, true);
+  assert.equal(longRequirement.toLowerCase().includes(compacted.toLowerCase()), true);
+  assert.doesNotMatch(compacted, /the teacher/i);
 });
 
 test('uses version-isolated prompts and recursively strict object schemas', async () => {

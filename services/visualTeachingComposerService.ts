@@ -456,6 +456,120 @@ const uniqueInOrder = (values: readonly string[]): string[] => {
   });
 };
 
+const REQUIREMENT_DISPLAY_MAX_CHARS = 150;
+const TEACHER_ONLY_REQUIREMENT = /\b(?:the\s+)?(?:teacher|instructor|facilitator)\b/i;
+
+const compactSourceRequirement = (value: string, purpose: 'evidence' | 'output'): string => {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= REQUIREMENT_DISPLAY_MAX_CHARS && !TEACHER_ONLY_REQUIREMENT.test(normalized)) {
+    return normalized;
+  }
+
+  const fragments = normalized
+    .split(/(?<=[.!?])(?:\s+|(?=[A-Z0-9]))|[;\n]+/)
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length >= 12 && !TEACHER_ONLY_REQUIREMENT.test(fragment));
+  const purposePattern = purpose === 'evidence'
+    ? /\b(?:evidence|observ(?:e|ation)|record|reading|measure|support|compare|explain|answer|choose)\b/i
+    : /\b(?:output|submit|record|create|complete|write|draw|list|answer|choose|build)\b/i;
+  const bounded = fragments.filter((fragment) => fragment.length <= REQUIREMENT_DISPLAY_MAX_CHARS);
+  const selected = bounded.find((fragment) => purposePattern.test(fragment)) ?? bounded[0];
+  if (selected) return selected;
+
+  const fallback = fragments.find((fragment) => purposePattern.test(fragment)) ?? fragments[0] ?? normalized;
+  const clauses = fallback
+    .split(/[:,]+/)
+    .map((fragment) => fragment.trim())
+    .filter((fragment) => fragment.length >= 12 && fragment.length <= REQUIREMENT_DISPLAY_MAX_CHARS);
+  return clauses.find((fragment) => purposePattern.test(fragment)) ?? clauses[0] ?? fallback;
+};
+
+const chunkValues = <T>(values: readonly T[], size: number): T[][] => (
+  Array.from({ length: Math.ceil(values.length / size) }, (_, index) => (
+    values.slice(index * size, (index + 1) * size)
+  ))
+);
+
+const QUESTION_LEAD = /^\s*(?:\d+[.)]\s*)?(.+?\?)\s*A[.)]\s*(.+)$/i;
+const CHOICE_LEAD = /^\s*[A-H][.)]\s*/i;
+
+const conciseQuestionTitle = (prompt: string, index: number): string => {
+  const normalized = prompt.replace(/\s+/g, ' ').trim().replace(/[?.!]$/, '');
+  const prefix = normalized.slice(0, 46);
+  const lastBoundary = prefix.lastIndexOf(' ');
+  const summary = (normalized.length <= 46 || lastBoundary < 16 ? prefix : prefix.slice(0, lastBoundary)).trim();
+  return `Question ${index + 1}: ${summary}`;
+};
+
+const splitQuestionChoices = (
+  question: NonNullable<VisualTeachingPlan['scenes'][number]['visibleContent']['question']>,
+): Array<NonNullable<VisualTeachingPlan['scenes'][number]['visibleContent']['question']>> => {
+  const grouped: typeof question.choices[] = [];
+  let current: typeof question.choices = [];
+  for (const choice of question.choices) {
+    if (QUESTION_LEAD.test(choice.text) && current.length > 0) {
+      grouped.push(current);
+      current = [];
+    }
+    current.push(choice);
+  }
+  if (current.length > 0) grouped.push(current);
+
+  const chunks = grouped.flatMap((group) => chunkValues(group, 4));
+  return chunks.map((choices, index) => {
+    const firstMatch = choices[0]?.text.match(QUESTION_LEAD);
+    const prompt = firstMatch?.[1]?.trim() || question.prompt;
+    const normalizedChoices = choices.map((choice, choiceIndex) => ({
+      ...choice,
+      text: choiceIndex === 0 && firstMatch
+        ? firstMatch[2].trim()
+        : choice.text.replace(CHOICE_LEAD, '').trim(),
+    }));
+    return {
+      prompt: chunks.length > 1 && !firstMatch ? `${prompt} (${index + 1})` : prompt,
+      choices: normalizedChoices,
+      ...(question.answerId && normalizedChoices.some((choice) => choice.id === question.answerId)
+        ? { answerId: question.answerId }
+        : {}),
+    };
+  });
+};
+
+const expandBoundedVisualScenes = (
+  scene: VisualTeachingPlan['scenes'][number],
+  learnerVisibleScreenIds: ReadonlySet<string>,
+): VisualTeachingPlan['scenes'] => {
+  if (scene.visualGrammar === 'process-flow' && scene.visibleContent.cards.length > 3) {
+    return chunkValues(scene.visibleContent.cards, 3).map((cards, index) => ({
+      ...scene,
+      id: index === 0 ? scene.id : `${scene.id}-part-${index + 1}`,
+      learnerTitle: index === 0 ? scene.learnerTitle : `${scene.learnerTitle} (continued)`,
+      storyboardScreenIds: index === 0
+        ? scene.storyboardScreenIds
+        : scene.storyboardScreenIds.filter((screenId) => learnerVisibleScreenIds.has(screenId)),
+      visibleContent: { ...scene.visibleContent, cards },
+    }));
+  }
+
+  const question = scene.visibleContent.question;
+  if (scene.visualGrammar === 'question-choices' && question && question.choices.length > 4) {
+    const questions = splitQuestionChoices(question);
+    return questions.map((boundedQuestion, index) => {
+      return {
+        ...scene,
+        id: index === 0 ? scene.id : `${scene.id}-part-${index + 1}`,
+        learnerTitle: conciseQuestionTitle(boundedQuestion.prompt, index),
+        storyboardScreenIds: index === 0
+          ? scene.storyboardScreenIds
+          : scene.storyboardScreenIds.filter((screenId) => learnerVisibleScreenIds.has(screenId)),
+        visibleContent: { ...scene.visibleContent, question: boundedQuestion },
+      };
+    });
+  }
+
+  return [scene];
+};
+
 const sceneReferencesDisposition = (
   scene: VisualTeachingPlan['scenes'][number],
   disposition: SourceDispositionDecision,
@@ -505,11 +619,21 @@ const canonicalizeProviderProvenance = (
   const screenById = new Map(input.storyboard.screens.map((screen) => [screen.id, screen]));
   const screenOrderById = new Map(input.storyboard.screens.map((screen, index) => [screen.id, index]));
   const dispositionById = new Map(input.dispositions.map((item) => [item.sourceId, item]));
+  const learnerVisibleSourceIds = new Set(input.dispositions
+    .filter((item) => item.disposition === 'learner-visible')
+    .map((item) => item.sourceId));
+  const learnerVisibleScreenIds = new Set(input.storyboard.screens
+    .filter((screen) => (
+      [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
+        .some((sourceId) => learnerVisibleSourceIds.has(sourceId))
+    ))
+    .map((screen) => screen.id));
   const fieldById = new Map(input.manifest.units.flatMap((unit) => (
     Object.values(unit.fields).map((field) => [field.id, field] as const)
   )));
-  const scenes = plan.scenes
-    .map((scene, originalIndex) => {
+  const canonicalizeScene = (
+    scene: VisualTeachingPlan['scenes'][number],
+  ): { scene: VisualTeachingPlan['scenes'][number]; earliestScreenOrder: number } => {
       const hasUniqueScreenIds = scene.storyboardScreenIds.length > 0
         && new Set(scene.storyboardScreenIds).size === scene.storyboardScreenIds.length;
       const referencedScreens = hasUniqueScreenIds
@@ -517,7 +641,7 @@ const canonicalizeProviderProvenance = (
         : [];
       const hasValidScreenIds = referencedScreens.length > 0 && referencedScreens.every(Boolean);
       if (!hasValidScreenIds) {
-        return { scene, originalIndex, earliestScreenOrder: Number.POSITIVE_INFINITY };
+        return { scene, earliestScreenOrder: Number.POSITIVE_INFINITY };
       }
 
       const orderedScreenIds = [...scene.storyboardScreenIds].sort((left, right) => (
@@ -545,6 +669,10 @@ const canonicalizeProviderProvenance = (
         .filter((sourceFieldId) => dispositionById.get(sourceFieldId)?.disposition === 'speaker-notes')
         .map((sourceFieldId) => fieldById.get(sourceFieldId)!)
         .filter(Boolean);
+      const learnerVisibleScreens = trustedScreens.filter((screen) => (
+        [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
+          .some((sourceId) => dispositionById.get(sourceId)?.disposition === 'learner-visible')
+      ));
       const canonicalScene = {
         ...scene,
         storyboardScreenIds: orderedScreenIds,
@@ -556,22 +684,123 @@ const canonicalizeProviderProvenance = (
           ...trustedScreens.map((screen) => screen.teacherNotes),
           ...speakerNoteFields.map((field) => `Source field (${field.label}): ${field.value}`),
         ].filter(Boolean).join('\n'),
+        requiredEvidence: uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence))
+          .map((requirement) => compactSourceRequirement(requirement, 'evidence')),
+        requiredOutputs: uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs))
+          .map((requirement) => compactSourceRequirement(requirement, 'output')),
       };
       return {
         scene: {
           ...canonicalScene,
           visualGrammar: canonicalizeMinimalVisualGrammar(canonicalScene),
         },
-        originalIndex,
         earliestScreenOrder: screenOrderById.get(orderedScreenIds[0])!,
       };
-    })
+  };
+  let scenes = plan.scenes
+    .map((scene, originalIndex) => ({ ...canonicalizeScene(scene), originalIndex }))
     .sort((left, right) => (
       left.earliestScreenOrder === right.earliestScreenOrder
         ? left.originalIndex - right.originalIndex
         : left.earliestScreenOrder - right.earliestScreenOrder
     ))
     .map(({ scene }) => scene);
+
+  for (const disposition of input.dispositions.filter((item) => (
+    item.sourceKind === 'objective' && item.disposition === 'learner-visible'
+  ))) {
+    if (scenes.some((scene) => sceneReferencesDisposition(scene, disposition))) continue;
+
+    const objectiveScreen = input.storyboard.screens.find((screen) => (
+      screen.unitId === disposition.unitId && screen.sourceObjectiveIds.includes(disposition.sourceId)
+    ));
+    if (!objectiveScreen) continue;
+
+    const declaredOwnerIds = new Set(plan.scenes
+      .filter((scene) => scene.sourceObjectiveIds.includes(disposition.sourceId))
+      .map((scene) => scene.id));
+    const objectiveOrder = screenOrderById.get(objectiveScreen.id)!;
+    const candidates = scenes
+      .map((scene, index) => ({
+        index,
+        scene,
+        orders: scene.storyboardScreenIds
+          .map((screenId) => screenOrderById.get(screenId))
+          .filter((order): order is number => order !== undefined),
+      }))
+      .filter(({ scene, orders }) => scene.unitId === disposition.unitId && orders.length > 0);
+    const preferred = declaredOwnerIds.size > 0
+      ? candidates.filter(({ scene }) => declaredOwnerIds.has(scene.id))
+      : candidates;
+    const findOwner = (options: typeof candidates) => (
+      options
+        .filter(({ orders }) => Math.min(...orders) > objectiveOrder)
+        .sort((left, right) => Math.min(...left.orders) - Math.min(...right.orders))[0]
+      ?? options
+        .filter(({ orders }) => Math.max(...orders) < objectiveOrder)
+        .sort((left, right) => Math.max(...right.orders) - Math.max(...left.orders))[0]
+    );
+    const owner = findOwner(preferred) ?? findOwner(candidates);
+    if (!owner) continue;
+
+    scenes[owner.index] = canonicalizeScene({
+      ...owner.scene,
+      storyboardScreenIds: uniqueInOrder([...owner.scene.storyboardScreenIds, objectiveScreen.id]),
+    }).scene;
+  }
+
+  for (const disposition of input.dispositions.filter((item) => item.disposition === 'speaker-notes')) {
+    if (scenes.some((scene) => sceneReferencesDisposition(scene, disposition))) continue;
+
+    const noteScreen = input.storyboard.screens.find((screen) => (
+      screen.unitId === disposition.unitId
+      && (disposition.sourceKind === 'field'
+        ? screen.sourceFieldIds.includes(disposition.sourceId)
+        : screen.sourceStepIds.includes(disposition.sourceId))
+    ));
+    if (!noteScreen) continue;
+
+    const noteOrder = screenOrderById.get(noteScreen.id)!;
+    const candidates = scenes
+      .map((scene, index) => ({
+        index,
+        scene,
+        orders: scene.storyboardScreenIds
+          .map((screenId) => screenOrderById.get(screenId))
+          .filter((order): order is number => order !== undefined),
+      }))
+      .filter(({ scene, orders }) => scene.unitId === disposition.unitId && orders.length > 0);
+    const next = candidates
+      .filter(({ orders }) => orders.some((order) => order > noteOrder))
+      .sort((left, right) => (
+        Math.min(...left.orders.filter((order) => order > noteOrder))
+        - Math.min(...right.orders.filter((order) => order > noteOrder))
+      ))[0];
+    const previous = candidates
+      .filter(({ orders }) => orders.some((order) => order < noteOrder))
+      .sort((left, right) => (
+        Math.max(...right.orders.filter((order) => order < noteOrder))
+        - Math.max(...left.orders.filter((order) => order < noteOrder))
+      ))[0];
+    const owner = next ?? previous;
+    if (!owner) continue;
+
+    scenes[owner.index] = canonicalizeScene({
+      ...owner.scene,
+      storyboardScreenIds: uniqueInOrder([...owner.scene.storyboardScreenIds, noteScreen.id]),
+    }).scene;
+  }
+
+  scenes = scenes
+    .map((scene, originalIndex) => ({ ...canonicalizeScene(scene), originalIndex }))
+    .sort((left, right) => (
+      left.earliestScreenOrder === right.earliestScreenOrder
+        ? left.originalIndex - right.originalIndex
+        : left.earliestScreenOrder - right.earliestScreenOrder
+    ))
+    .map(({ scene }) => scene)
+    .flatMap((scene) => expandBoundedVisualScenes(scene, learnerVisibleScreenIds))
+    .map((scene) => canonicalizeScene(scene).scene);
   const selectedUnitIds = input.storyboard.provenance.selectedUnitIds;
 
   return {

@@ -985,8 +985,8 @@ const buildQuestionChoiceElements = (
       11 + index * 2,
       { x: x + 30, y: y + 22, w: 476, h: 80 },
       label,
-      'body',
-      21,
+      'label',
+      18,
       { valign: 'middle' },
     ));
   });
@@ -1345,7 +1345,7 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
       const cardId = `${baseId}-step-card-${index + 1}`;
       elements.push(makeShape(cardId, 2 + index * 3, { x, y: 192, w: cardWidth, h: 300 }, 'FFF7ED', 'FDBA74'));
       elements.push(makeText(`${baseId}-step-label-${index + 1}`, 3 + index * 3, { x: x + 22, y: 218, w: cardWidth - 44, h: 44 }, `Step ${index + 1}`, 'label', 20, { bold: true, color: '9A3412' }));
-      elements.push(makeText(`${baseId}-step-text-${index + 1}`, 4 + index * 3, { x: x + 22, y: 280, w: cardWidth - 44, h: 172 }, step, 'body', 21));
+      elements.push(makeText(`${baseId}-step-text-${index + 1}`, 4 + index * 3, { x: x + 22, y: 280, w: cardWidth - 44, h: 172 }, step, 'label', 18));
       if (index > 0) {
         elements.push(makeConnector(`${baseId}-connector-${index}`, 20 + index, { x: x - 24, y: 328, w: 24, h: 4 }, `${baseId}-step-card-${index}`, cardId));
       }

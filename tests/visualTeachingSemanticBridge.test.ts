@@ -83,6 +83,69 @@ test('maps visual scenes to semantic specs with merged provenance and typed stru
   assert.equal(question?.slots.question?.kind, 'question');
 });
 
+test('maps process cards to separate bounded native process steps', () => {
+  const fixture = validVisualPlanFixture();
+  const target = fixture.plan.scenes.find((scene) => scene.visualGrammar === 'activity-board');
+  assert.ok(target);
+  const processScene = {
+    ...target,
+    teachingMove: 'explain' as const,
+    visualGrammar: 'process-flow' as const,
+    visibleContent: {
+      points: [],
+      cards: [
+        { id: 'phase-1', title: 'Observe', body: 'Inspect the supplied setup, record the first pattern, compare it with the reference observation, and note the measurement that supports the comparison.' },
+        { id: 'phase-2', title: 'Compare', body: 'Compare the two recorded observations, identify the strongest evidence, and explain how the measured result supports the source-backed relationship.' },
+        { id: 'phase-3', title: 'Explain', body: 'State the relationship supported by the record, cite the measured result, and describe how the evidence rules out the alternative pattern.' },
+      ],
+      steps: [],
+    },
+  };
+  const plan = {
+    ...fixture.plan,
+    scenes: fixture.plan.scenes.map((scene) => scene.id === target.id ? processScene : scene),
+  };
+  const result = buildFixtureSemanticSpecs(fixture, plan);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const spec = result.specs.find((candidate) => candidate.visualTeachingSceneId === processScene.id);
+  assert.equal(spec?.slots.body?.kind, 'list');
+  if (spec?.slots.body?.kind !== 'list') return;
+  assert.equal(spec.slots.body.items.length, 3);
+  assert.equal(compileSemanticSlideSpecsToScenes(result.specs, {
+    title: 'Process Fixture',
+    visualSystemsByUnitId: fixture.endToEndInput.visualSystems.systemsByUnitId,
+  }).ok, true);
+});
+
+test('keeps bounded question choices readable with visual-system typography', () => {
+  const fixture = validVisualPlanFixture();
+  const result = buildFixtureSemanticSpecs(fixture);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const question = result.specs.find((spec) => spec.layoutId === 'question-choices');
+  assert.ok(question?.slots.question?.kind === 'question');
+  const denseQuestion = {
+    ...question,
+    slots: {
+      ...question.slots,
+      question: {
+        ...question.slots.question,
+        choices: question.slots.question.choices.map((choice, index) => ({
+          ...choice,
+          text: `${choice.text} with a source-backed explanation that distinguishes recorded pattern ${index + 1}`,
+        })),
+      },
+    },
+  };
+
+  assert.equal(compileSemanticSlideSpecsToScenes([denseQuestion], {
+    title: 'Question Fixture',
+    visualSystemsByUnitId: fixture.endToEndInput.visualSystems.systemsByUnitId,
+  }).ok, true);
+});
+
 test('revalidates plan accounting before authorizing an omitted learner-visible screen', () => {
   const fixture = validVisualPlanFixture();
   const relationshipScene = fixture.plan.scenes.find((scene) => scene.sourceStepIds.includes(fixture.relationshipStepId));

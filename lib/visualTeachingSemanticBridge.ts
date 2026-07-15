@@ -83,6 +83,17 @@ const structuredSlotsForScene = (scene: VisualTeachingScene): Record<string, Sli
       steps: scene.visibleContent.steps.map((step) => ({ ...step })),
     };
   }
+  if (
+    (scene.visualGrammar === 'process-flow' || scene.visualGrammar === 'timeline' || scene.visualGrammar === 'worked-example')
+    && (scene.visibleContent.cards.length > 0 || scene.visibleContent.steps.length > 0)
+  ) {
+    slots.body = {
+      kind: 'list',
+      items: scene.visibleContent.steps.length > 0
+        ? scene.visibleContent.steps.map((step) => `${step.label}: ${step.body}`)
+        : scene.visibleContent.cards.map((card) => `${card.title}: ${card.body}`),
+    };
+  }
   if (scene.visibleContent.table) {
     slots.table = {
       kind: 'table',
@@ -113,9 +124,12 @@ const structuredSlotsForScene = (scene: VisualTeachingScene): Record<string, Sli
   if (scene.requiredOutputs.length > 0) {
     slots.outputs = { kind: 'list', items: [...scene.requiredOutputs] };
   }
+  const evidence = scene.requiredEvidence.map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const outputs = scene.requiredOutputs.map((item) => item.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const duplicateRequirements = new Set(evidence.filter((item) => outputs.includes(item)));
   const requirements = [
-    ...scene.requiredEvidence.map((item) => `Evidence: ${item}`),
-    ...scene.requiredOutputs.map((item) => `Output: ${item}`),
+    ...evidence.map((item) => duplicateRequirements.has(item) ? `Evidence / output: ${item}` : `Evidence: ${item}`),
+    ...outputs.filter((item) => !duplicateRequirements.has(item)).map((item) => `Output: ${item}`),
   ];
   if (requirements.length > 0) {
     slots.requirements = { kind: 'list', items: requirements };
