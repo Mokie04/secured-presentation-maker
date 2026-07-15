@@ -14,6 +14,22 @@ const frameToPptxOptions = (frame: SceneElement['frame']): Record<string, number
   h: frame.h / 128,
 });
 
+const connectorFrameToPptxOptions = (frame: SceneElement['frame']): Record<string, number> => (
+  frame.w >= frame.h
+    ? {
+      x: frame.x / 128,
+      y: (frame.y + frame.h / 2) / 128,
+      w: frame.w / 128,
+      h: 0,
+    }
+    : {
+      x: (frame.x + frame.w / 2) / 128,
+      y: frame.y / 128,
+      w: 0,
+      h: frame.h / 128,
+    }
+);
+
 const textRunsToText = (element: SceneTextElement): string => (
   element.runs.map((run) => run.text).join('')
 );
@@ -77,8 +93,13 @@ const compileSceneElementToPptxOperation = (element: SceneElement): PptxSceneOpe
       elementId: element.id,
       shape: 'line',
       options: {
-        ...frameToPptxOptions(element.frame),
-        line: { color: element.stroke, width: 1.5, beginArrowType: 'none', endArrowType: element.arrowEnd ? 'triangle' : 'none' },
+        ...connectorFrameToPptxOptions(element.frame),
+        line: {
+          color: element.stroke,
+          width: 1.5,
+          beginArrowType: element.arrowStart ? 'triangle' : 'none',
+          endArrowType: element.arrowEnd ? 'triangle' : 'none',
+        },
       },
     }];
   }

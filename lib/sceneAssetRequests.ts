@@ -94,6 +94,19 @@ const PRIVATE_TEXT_PATTERN =
 
 const TEXT_IN_IMAGE_PATTERN =
   /\b(?:with|include|show|inside|visible)\s+(?:text|labels?|captions?|letters?|numbers?)\b|\bcaption\s+text\b/i;
+const EXPLICIT_WRITING_PATTERN =
+  /\b(?:text|words?|phrases?|labels?|captions?|signage|screen[- ]writing|board[- ]writing|lettering|typography)\b|\b(?:show|display|write|include|feature|contain|place)\b.{0,48}\b(?:board|screen)\b/i;
+const EXPLICIT_SYMBOLIC_WRITING_PATTERN = /\b(?:equations?|formulas?|notation|code)\b/i;
+const SYMBOLIC_EXPRESSION_PATTERN =
+  /(?:^|[\s([])(?:[A-Z][A-Z0-9_]{0,3}|[a-z]\d*|\d+(?:\.\d+)?)(?:\s*(?:=|≠|≤|≥|≈|[+*/×÷±∓])\s*(?:[A-Z][A-Z0-9_]{0,3}|[a-z]\d*|\d+(?:\.\d+)?))+(?=$|[\s)\],.;:])/;
+const CONTROL_CHARACTER_PATTERN = /[\u0000-\u001f\u007f]/;
+const EMAIL_PATTERN = /\b[^\s@]+@[^\s@]+\.[^\s@]+\b/i;
+const PHONE_PATTERN = /(?:^|\D)\+?\d[\d\s().-]{7,}\d(?:\D|$)/;
+const IDENTIFIER_PATTERN =
+  /\b(?:student|learner|teacher|school|employee|user)\s*(?:id|number)\b|\b(?:id|identifier)\s*[:#=-]\s*[a-z0-9-]+/i;
+const NAME_MARKER_PATTERN = /\b(?:student|learner|teacher|person)\s+name\b|\bname\s*[:=]/i;
+const MAX_EXPLICIT_BRIEF_PURPOSE_LENGTH = 240;
+const MAX_EXPLICIT_BRIEF_SUBJECT_LENGTH = 120;
 
 const assetDiagnostic = (
   code: SceneAssetDiagnosticCode,
@@ -135,6 +148,100 @@ const styleForRole = (role: SceneAssetVisualRole): ProviderIndependentAssetBrief
   return 'illustration';
 };
 
+type SafeExplicitAssetBrief = {
+  purpose: string;
+  subject: string;
+  style: 'photo' | 'illustration';
+  mustNotContainText: true;
+};
+
+const validateExplicitAssetBrief = (
+  spec: SemanticSlideSpec,
+): { ok: true; brief: SafeExplicitAssetBrief } | { ok: false; diagnostics: SceneAssetDiagnostic[] } | null => {
+  if (spec.visualAssetBrief === undefined) return null;
+  const candidate = spec.visualAssetBrief as Partial<SafeExplicitAssetBrief> | null;
+  const rawPurpose = typeof candidate?.purpose === 'string' ? candidate.purpose : '';
+  const rawSubject = typeof candidate?.subject === 'string' ? candidate.subject : '';
+  const purpose = normalize(rawPurpose);
+  const subject = normalize(rawSubject);
+  const detail = { semanticSlideSpecId: spec.id };
+  const diagnostics: SceneAssetDiagnostic[] = [];
+
+  if (
+    candidate?.mustNotContainText !== true
+    || EXPLICIT_WRITING_PATTERN.test(purpose)
+    || EXPLICIT_WRITING_PATTERN.test(subject)
+    || EXPLICIT_SYMBOLIC_WRITING_PATTERN.test(purpose)
+    || EXPLICIT_SYMBOLIC_WRITING_PATTERN.test(subject)
+    || SYMBOLIC_EXPRESSION_PATTERN.test(purpose)
+    || SYMBOLIC_EXPRESSION_PATTERN.test(subject)
+  ) {
+    diagnostics.push(assetDiagnostic(
+      'scene_asset_request_text_in_image',
+      `Semantic slide ${spec.id} has an explicit asset brief that may request visible writing.`,
+      detail,
+    ));
+  }
+
+  const suspicious = (
+    !purpose
+    || !subject
+    || purpose.length > MAX_EXPLICIT_BRIEF_PURPOSE_LENGTH
+    || subject.length > MAX_EXPLICIT_BRIEF_SUBJECT_LENGTH
+    || CONTROL_CHARACTER_PATTERN.test(rawPurpose)
+    || CONTROL_CHARACTER_PATTERN.test(rawSubject)
+    || [purpose, subject].some((value) => (
+      PRIVATE_TEXT_PATTERN.test(value)
+      || EMAIL_PATTERN.test(value)
+      || PHONE_PATTERN.test(value)
+      || IDENTIFIER_PATTERN.test(value)
+      || NAME_MARKER_PATTERN.test(value)
+    ))
+  );
+  if (suspicious) {
+    diagnostics.push(assetDiagnostic(
+      'scene_asset_request_private_text_leak',
+      `Semantic slide ${spec.id} has an unbounded or suspicious explicit asset brief.`,
+      detail,
+    ));
+  }
+
+  if (candidate?.style !== 'photo' && candidate?.style !== 'illustration') {
+    diagnostics.push(assetDiagnostic(
+      'scene_asset_request_contract_invalid',
+      `Semantic slide ${spec.id} has an invalid explicit asset style.`,
+      detail,
+    ));
+  }
+
+  return diagnostics.length > 0
+    ? { ok: false, diagnostics }
+    : {
+        ok: true,
+        brief: {
+          purpose,
+          subject,
+          style: candidate.style!,
+          mustNotContainText: true,
+        },
+      };
+};
+
+const explicitAssetDecision = (
+  brief: SafeExplicitAssetBrief | undefined,
+): {
+  visualRole: SceneAssetVisualRole;
+  necessity: SceneAssetNecessity;
+  reason: SceneAssetDecisionReason;
+} | null => {
+  if (!brief) return null;
+  return {
+    visualRole: brief.style === 'photo' ? 'licensed-photo' : 'generated-illustration',
+    necessity: 'useful',
+    reason: 'source_requires_concept_model',
+  };
+};
+
 export const buildSceneAssetRequests = (
   _storyboard: TeachingStoryboard,
   specs: readonly SemanticSlideSpec[],
@@ -142,13 +249,29 @@ export const buildSceneAssetRequests = (
 ): SceneAssetRequestResult => {
   const requests: SceneAssetRequest[] = [];
   const requestedScreenIds = new Set<string>();
+  const explicitBriefsBySpecId = new Map<string, SafeExplicitAssetBrief>();
+  const explicitBriefDiagnostics: SceneAssetDiagnostic[] = [];
+  for (const spec of specs) {
+    const result = validateExplicitAssetBrief(spec);
+    if (!result) continue;
+    if (result.ok === false) explicitBriefDiagnostics.push(...result.diagnostics);
+    else explicitBriefsBySpecId.set(spec.id, result.brief);
+  }
+  if (explicitBriefDiagnostics.length > 0) {
+    return { ok: false, diagnostics: explicitBriefDiagnostics };
+  }
 
-  specs.forEach((spec, index) => {
-    if (requestedScreenIds.has(spec.storyboardScreenId)) return;
-    requestedScreenIds.add(spec.storyboardScreenId);
+  specs.forEach((firstSpecForScreen, index) => {
+    if (requestedScreenIds.has(firstSpecForScreen.storyboardScreenId)) return;
+    requestedScreenIds.add(firstSpecForScreen.storyboardScreenId);
+    const spec = specs.find((candidate) => (
+      candidate.storyboardScreenId === firstSpecForScreen.storyboardScreenId
+      && explicitBriefsBySpecId.has(candidate.id)
+    )) ?? firstSpecForScreen;
     const visualSystem = visualSystems.systemsByUnitId[spec.unitId];
     if (!visualSystem) return;
-    const decision = decideSceneAssetForSpec(spec);
+    const explicitBrief = explicitBriefsBySpecId.get(spec.id);
+    const decision = explicitAssetDecision(explicitBrief) ?? decideSceneAssetForSpec(spec);
     if (decision.necessity === 'forbidden') return;
     const conceptId = firstConceptIdForSpec(spec);
     const sanitizedSummary = sanitizedSummaryForSpec(spec);
@@ -166,7 +289,8 @@ export const buildSceneAssetRequests = (
       conceptAnchor: {
         conceptId,
       },
-      instructionalPurpose: 'Support the source-backed learning task while preserving editable native text.',
+      instructionalPurpose: explicitBrief?.purpose
+        ?? 'Support the source-backed learning task while preserving editable native text.',
       visualSystemVersion: visualSystem.contractVersion,
       altTextBasis: {
         sourceStepIds: [...spec.sourceStepIds],
@@ -174,10 +298,11 @@ export const buildSceneAssetRequests = (
         sanitizedSummary,
       },
       brief: {
-        subject: 'K-12',
+        subject: explicitBrief?.subject ?? 'K-12',
         gradeBand: 'secondary',
         conceptId,
-        sceneDescription: `Text-free ${decision.visualRole.replaceAll('-', ' ')} for ${sanitizedSummary.toLowerCase() || 'a source-backed learning task'}.`,
+        sceneDescription: explicitBrief?.purpose
+          ?? `Text-free ${decision.visualRole.replaceAll('-', ' ')} for ${sanitizedSummary.toLowerCase() || 'a source-backed learning task'}.`,
         composition: compositionForRole(decision.visualRole),
         style: styleForRole(decision.visualRole),
         mustNotContainText: true,

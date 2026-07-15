@@ -1,0 +1,245 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import { classifySourceContent } from '../lib/sourceContentDisposition.ts';
+import {
+  scienceFixture,
+  VISUAL_COMPOSER_HUMANITIES_DOCUMENT,
+} from './fixtures/visualTeachingComposerFixtures.ts';
+import { buildLessonSourceManifest } from '../lib/lessonSourceManifest.ts';
+import { buildTeachingStoryboard } from '../lib/teachingStoryboard.ts';
+
+test('classifies planning scaffolds without hiding learner-facing requirements', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const result = classifySourceContent(manifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceLabel.startsWith('References'))?.disposition, 'omit-administrative');
+  assert.equal(result.decisions.find((item) => item.sourceLabel === 'Learner Context')?.disposition, 'speaker-notes');
+  assert.equal(result.decisions.find((item) => item.sourceLabel === 'Relationship Model')?.disposition, 'learner-visible');
+  assert.equal(result.decisions.find((item) => item.sourceLabel === 'Check')?.disposition, 'learner-visible');
+  assert.equal(new Set(result.decisions.map((item) => item.sourceId)).size, result.decisions.length);
+});
+
+test('uses anchored administrative labels and preserves explicit learner reference actions', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const referencesStep = manifest.units[0].steps.find((step) => step.sourceLabel.startsWith('References'));
+  assert.ok(referencesStep);
+  const instructionalStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Relationship Model');
+  assert.ok(instructionalStep);
+
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      steps: manifest.units[0].steps.map((step) => (
+        step.id === referencesStep.id
+          ? { ...step, rawBlocks: ['Learners consult the source before comparing the recorded pattern.'] }
+          : step.id === instructionalStep.id
+            ? { ...step, sourceLabel: 'References in Activity' }
+            : step
+      )),
+    }],
+  };
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceId === referencesStep.id)?.disposition, 'learner-visible');
+  assert.equal(result.decisions.find((item) => item.sourceId === instructionalStep.id)?.disposition, 'learner-visible');
+});
+
+test('recognizes browser-flattened planning-label boundaries without hiding instructional mentions', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const planningStep = manifest.units[0].steps[0];
+  const instructionalStep = manifest.units[0].steps[1];
+  assert.ok(planningStep);
+  assert.ok(instructionalStep);
+
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      steps: manifest.units[0].steps.map((step) => (
+        step.id === planningStep.id
+          ? { ...step, sourceLabel: 'Ways Forward.Meaningful learning can also happen beyond the classroom.' }
+          : step.id === instructionalStep.id
+            ? { ...step, sourceLabel: 'Compare possible ways forward using the recorded evidence.' }
+            : step
+      )),
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceId === planningStep.id)?.disposition, 'speaker-notes');
+  assert.equal(result.decisions.find((item) => item.sourceId === instructionalStep.id)?.disposition, 'learner-visible');
+});
+
+test('recognizes browser-flattened planning labels separated by a space and uppercase helper text', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const planningStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Learner Context');
+  assert.ok(planningStep);
+
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      steps: manifest.units[0].steps.map((step) => (
+        step.id === planningStep.id
+          ? { ...step, sourceLabel: 'Learner Context Observations of learners.' }
+          : step
+      )),
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceId === planningStep.id)?.disposition, 'speaker-notes');
+});
+
+test('classifies assessment format scaffolds as speaker notes without hiding ordinary directions', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const checkStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Check');
+  const activityStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Prediction');
+  assert.ok(checkStep);
+  assert.ok(activityStep);
+
+  const assessmentTypeStep = {
+    ...checkStep,
+    id: 'step-assessment-type',
+    sourceOrder: checkStep.sourceOrder + 0.1,
+    sourceLabel: 'Type',
+    rawBlocks: ['Multiple Choice'],
+  };
+  const assessmentDirectionsStep = {
+    ...checkStep,
+    id: 'step-assessment-directions',
+    sourceOrder: checkStep.sourceOrder + 0.2,
+    sourceLabel: 'Directions',
+    rawBlocks: ['Choose the best answer.'],
+  };
+  const ordinaryDirectionsStep = {
+    ...activityStep,
+    id: 'step-ordinary-directions',
+    sourceOrder: activityStep.sourceOrder + 0.1,
+    sourceLabel: 'Directions',
+    rawBlocks: ['Work with a partner to compare the supplied observations.'],
+  };
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      steps: [
+        ...manifest.units[0].steps,
+        assessmentTypeStep,
+        assessmentDirectionsStep,
+        ordinaryDirectionsStep,
+      ],
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceId === assessmentTypeStep.id)?.disposition, 'speaker-notes');
+  assert.equal(result.decisions.find((item) => item.sourceId === assessmentDirectionsStep.id)?.disposition, 'speaker-notes');
+  assert.equal(result.decisions.find((item) => item.sourceId === ordinaryDirectionsStep.id)?.disposition, 'learner-visible');
+});
+
+test('classifies subject-neutral humanities steps as learner-visible', () => {
+  const manifestResult = buildLessonSourceManifest(VISUAL_COMPOSER_HUMANITIES_DOCUMENT);
+  assert.equal(manifestResult.ok, true);
+  if (!manifestResult.ok) return;
+  const storyboardResult = buildTeachingStoryboard(manifestResult.manifest);
+  assert.equal(storyboardResult.ok, true);
+  if (!storyboardResult.ok) return;
+
+  const result = classifySourceContent(manifestResult.manifest, storyboardResult.storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceLabel === 'Source Comparison')?.disposition, 'learner-visible');
+  assert.equal(result.decisions.find((item) => item.sourceLabel === 'Evidence Board')?.disposition, 'learner-visible');
+});
+
+test('blocks classification when the storyboard does not belong to the manifest', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const result = classifySourceContent(manifest, {
+    ...storyboard,
+    provenance: { ...storyboard.provenance, sourceHash: 'foreign-source-hash' },
+  });
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.equal(result.diagnostics.some((item) => item.code === 'visual_plan_contract_invalid'), true);
+});
+
+test('applies anchored planning rules to source fields', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      fields: {
+        administrative: {
+          id: 'field-administrative',
+          label: 'Administrative Notes',
+          value: 'Planning-only filing note.',
+          state: 'present' as const,
+          sourceOrder: 9,
+          sourceLocation: { blockId: 'field-administrative' },
+        },
+        learnerContext: {
+          id: 'field-learner-context',
+          label: 'Learner Context',
+          value: 'Planning observation about the class.',
+          state: 'present' as const,
+          sourceOrder: 10,
+          sourceLocation: { blockId: 'field-learner-context' },
+        },
+      },
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceId === 'field-administrative')?.disposition, 'omit-administrative');
+  assert.equal(result.decisions.find((item) => item.sourceId === 'field-learner-context')?.disposition, 'speaker-notes');
+});
+
+test('uses deterministic code-point ordering for equal source orders', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      fields: {
+        accent: {
+          id: 'field-ä',
+          label: 'Accent Field',
+          value: 'Accent value.',
+          state: 'present' as const,
+          sourceOrder: 9,
+          sourceLocation: { blockId: 'field-accent' },
+        },
+        ascii: {
+          id: 'field-z',
+          label: 'ASCII Field',
+          value: 'ASCII value.',
+          state: 'present' as const,
+          sourceOrder: 9,
+          sourceLocation: { blockId: 'field-ascii' },
+        },
+      },
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(
+    result.decisions.filter((item) => item.sourceOrder === 9).map((item) => item.sourceId),
+    ['field-z', 'field-ä'],
+  );
+});

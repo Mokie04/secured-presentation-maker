@@ -36,6 +36,24 @@ test('builds stable semantic slide specs from storyboard screens', () => {
     result.specs.map((spec) => spec.storyboardScreenId),
     EVIDENCE_OUTPUT_STORYBOARD.screens.map((screen) => screen.id),
   );
+  assert.deepEqual(
+    result.specs.map((spec) => spec.storyboardScreenIds),
+    EVIDENCE_OUTPUT_STORYBOARD.screens.map((screen) => [screen.id]),
+  );
+});
+
+test('legacy semantic builder behavior is unchanged apart from explicit screen provenance', () => {
+  const result = buildSemanticSlideSpecs(EVIDENCE_OUTPUT_STORYBOARD);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  for (const spec of result.specs) {
+    assert.deepEqual(spec.storyboardScreenIds, [spec.storyboardScreenId]);
+    assert.deepEqual(spec.sourceFieldIds, []);
+    assert.equal(spec.visualTeachingSceneId, undefined);
+    assert.equal(spec.visualGrammar, undefined);
+    assert.equal(spec.visualAssetBrief, undefined);
+  }
 });
 
 test('preserves source-step and source-objective mapping from storyboard screens', () => {
@@ -236,6 +254,50 @@ test('allows adjacent continuation specs only when source mappings match', () =>
   );
 
   assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'semantic_spec_storyboard_mapping_invalid'), false);
+});
+
+test('rejects multiple storyboard screens unless they are contiguous with exact merged provenance', () => {
+  const result = buildSemanticSlideSpecs(EVIDENCE_OUTPUT_STORYBOARD);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const merged = {
+    ...result.specs[0],
+    storyboardScreenIds: ['screen-001', 'screen-003'],
+    sourceStepIds: [
+      ...EVIDENCE_OUTPUT_STORYBOARD.screens[0].sourceStepIds,
+      ...EVIDENCE_OUTPUT_STORYBOARD.screens[2].sourceStepIds,
+    ],
+    sourceObjectiveIds: [
+      ...EVIDENCE_OUTPUT_STORYBOARD.screens[0].sourceObjectiveIds,
+      ...EVIDENCE_OUTPUT_STORYBOARD.screens[2].sourceObjectiveIds,
+    ],
+  };
+  const diagnostics = validateSemanticSlideSpecs([merged, ...result.specs.slice(1)], EVIDENCE_OUTPUT_STORYBOARD);
+
+  assert.equal(diagnostics.some((item) => item.code === 'semantic_spec_storyboard_mapping_invalid'), true);
+});
+
+test('rejects overlapping storyboard groups unless they are exact adjacent continuations', () => {
+  const result = buildSemanticSlideSpecs(EVIDENCE_OUTPUT_STORYBOARD);
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const merged = {
+    ...result.specs[0],
+    storyboardScreenIds: ['screen-001', 'screen-002'],
+    sourceStepIds: [
+      ...EVIDENCE_OUTPUT_STORYBOARD.screens[0].sourceStepIds,
+      ...EVIDENCE_OUTPUT_STORYBOARD.screens[1].sourceStepIds,
+    ],
+    sourceObjectiveIds: [
+      ...EVIDENCE_OUTPUT_STORYBOARD.screens[0].sourceObjectiveIds,
+      ...EVIDENCE_OUTPUT_STORYBOARD.screens[1].sourceObjectiveIds,
+    ],
+  };
+  const diagnostics = validateSemanticSlideSpecs([merged, result.specs[1], result.specs[2]], EVIDENCE_OUTPUT_STORYBOARD);
+
+  assert.equal(diagnostics.some((item) => item.code === 'semantic_spec_storyboard_mapping_invalid'), true);
 });
 
 test('rejects semantic specs with changed source-step ownership', () => {

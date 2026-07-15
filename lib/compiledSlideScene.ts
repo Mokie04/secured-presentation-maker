@@ -52,7 +52,7 @@ export type SceneTextElement = SceneElementBase & {
 
 export type SceneShapeElement = SceneElementBase & {
   kind: 'shape';
-  shape: 'rect' | 'roundRect' | 'line' | 'pill';
+  shape: 'rect' | 'roundRect' | 'line' | 'pill' | 'ellipse' | 'diamond';
   fill: string;
   stroke?: string;
   radius?: number;
@@ -73,6 +73,7 @@ export type SceneConnectorElement = SceneElementBase & {
   from: string;
   to: string;
   stroke: string;
+  arrowStart?: boolean;
   arrowEnd: boolean;
 };
 
@@ -292,6 +293,42 @@ export const SEMANTIC_LAYOUT_DEFINITIONS: readonly SemanticLayoutDefinition[] = 
     maxTextChars: 800,
     maxListItems: 8,
   },
+  {
+    id: 'visual-thesis',
+    semantic: true,
+    allowedIntents: ['title-context', 'learning-targets', 'wrap-up'],
+    requiredSlots: ['title'],
+    optionalSlots: ['body', 'diagram', 'requirements', 'successCriteria'],
+    maxTextChars: 420,
+    maxListItems: 4,
+  },
+  {
+    id: 'relationship-diagram',
+    semantic: true,
+    allowedIntents: ['guided-example', 'comparison-matrix', 'process-flow'],
+    requiredSlots: ['title', 'diagram'],
+    optionalSlots: ['body', 'requirements', 'successCriteria'],
+    maxTextChars: 620,
+    maxListItems: 6,
+  },
+  {
+    id: 'comparison-panels',
+    semantic: true,
+    allowedIntents: ['comparison-matrix', 'guided-example'],
+    requiredSlots: ['title', 'body'],
+    optionalSlots: ['successCriteria'],
+    maxTextChars: 760,
+    maxListItems: 6,
+  },
+  {
+    id: 'question-choices',
+    semantic: true,
+    allowedIntents: ['question', 'exit-ticket'],
+    requiredSlots: ['title', 'question'],
+    optionalSlots: ['successCriteria'],
+    maxTextChars: 620,
+    maxListItems: 5,
+  },
 ];
 
 const sceneDiagnostic = (
@@ -313,7 +350,12 @@ const slotText = (slot: SlideSlotValue | undefined): string => {
   if (slot.kind === 'list') return slot.items.map(clampText).filter(Boolean).join('\n');
   if (slot.kind === 'cards') return slot.cards.map((card) => [card.title, card.body].map(clampText).filter(Boolean).join(': ')).join('\n');
   if (slot.kind === 'table') return [slot.headers.join(' | '), ...slot.rows.map((row) => row.join(' | '))].map(clampText).filter(Boolean).join('\n');
-  return slot.steps.map((step) => [step.label, step.body].map(clampText).filter(Boolean).join(': ')).join('\n');
+  if (slot.kind === 'steps') return slot.steps.map((step) => [step.label, step.body].map(clampText).filter(Boolean).join(': ')).join('\n');
+  if (slot.kind === 'question') return [slot.prompt, ...slot.choices.map((choice) => choice.text)].map(clampText).filter(Boolean).join('\n');
+  return [
+    ...slot.nodes.flatMap((node) => [node.label, node.detail]),
+    ...slot.edges.map((edge) => edge.label),
+  ].filter((value): value is string => Boolean(value)).map(clampText).join('\n');
 };
 
 const listItems = (slot: SlideSlotValue | undefined): string[] => {
@@ -322,7 +364,12 @@ const listItems = (slot: SlideSlotValue | undefined): string[] => {
   if (slot.kind === 'list') return slot.items.map(clampText).filter(Boolean);
   if (slot.kind === 'cards') return slot.cards.map((card) => [card.title, card.body].map(clampText).filter(Boolean).join(': ')).filter(Boolean);
   if (slot.kind === 'table') return slot.rows.map((row) => row.map(clampText).filter(Boolean).join(' | ')).filter(Boolean);
-  return slot.steps.map((step) => [step.label, step.body].map(clampText).filter(Boolean).join(': ')).filter(Boolean);
+  if (slot.kind === 'steps') return slot.steps.map((step) => [step.label, step.body].map(clampText).filter(Boolean).join(': ')).filter(Boolean);
+  if (slot.kind === 'question') return [slot.prompt, ...slot.choices.map((choice) => choice.text)].map(clampText).filter(Boolean);
+  return [
+    ...slot.nodes.flatMap((node) => [node.label, node.detail]),
+    ...slot.edges.map((edge) => edge.label),
+  ].filter((value): value is string => Boolean(value)).map(clampText);
 };
 
 const requirementRows = (spec: SemanticSlideSpec): string[][] => {
@@ -330,22 +377,30 @@ const requirementRows = (spec: SemanticSlideSpec): string[][] => {
   return requirements.map((item, index) => [`${index + 1}`, item]);
 };
 
+const NARROW_REQUIREMENT_TABLE_CHAR_BUDGET = 56;
+
+const needsWideRequirementFrame = (requirements: readonly string[]): boolean => (
+  requirements.some((item) => clampText(item).length > NARROW_REQUIREMENT_TABLE_CHAR_BUDGET)
+);
+
 const makeShape = (
   id: string,
   readingOrder: number,
   frame: SceneFrame,
   fill: string,
   stroke = 'D4DDE8',
+  shape: SceneShapeElement['shape'] = 'roundRect',
+  radius = 24,
 ): SceneShapeElement => ({
   id,
   kind: 'shape',
   frame,
   editable: true,
   readingOrder,
-  shape: 'roundRect',
+  shape,
   fill,
   stroke,
-  radius: 24,
+  radius,
 });
 
 const makeText = (
@@ -400,6 +455,8 @@ const makeConnector = (
   frame: SceneFrame,
   from: string,
   to: string,
+  direction: 'forward' | 'both' | 'none' = 'forward',
+  reverse = false,
 ): SceneConnectorElement => ({
   id,
   kind: 'connector',
@@ -409,21 +466,849 @@ const makeConnector = (
   from,
   to,
   stroke: '64748B',
-  arrowEnd: true,
+  arrowStart: direction === 'both' || (direction === 'forward' && reverse),
+  arrowEnd: direction === 'both' || (direction === 'forward' && !reverse),
 });
+
+type ScenePoint = { x: number; y: number };
+
+const connectorFrameBetweenPoints = (start: ScenePoint, end: ScenePoint): SceneFrame => {
+  const horizontal = start.y === end.y;
+  return horizontal
+    ? { x: Math.min(start.x, end.x), y: start.y - 2, w: Math.max(4, Math.abs(end.x - start.x)), h: 4 }
+    : { x: start.x - 2, y: Math.min(start.y, end.y), w: 4, h: Math.max(4, Math.abs(end.y - start.y)) };
+};
+
+const makeConnectorSegment = (
+  id: string,
+  readingOrder: number,
+  start: ScenePoint,
+  end: ScenePoint,
+  from: string,
+  to: string,
+  arrowAtPathStart = false,
+  arrowAtPathEnd = false,
+): SceneConnectorElement => {
+  const horizontal = start.y === end.y;
+  const frameStartIsPathStart = horizontal ? start.x <= end.x : start.y <= end.y;
+  return {
+    id,
+    kind: 'connector',
+    frame: connectorFrameBetweenPoints(start, end),
+    editable: true,
+    readingOrder,
+    from,
+    to,
+    stroke: '64748B',
+    arrowStart: frameStartIsPathStart ? arrowAtPathStart : arrowAtPathEnd,
+    arrowEnd: frameStartIsPathStart ? arrowAtPathEnd : arrowAtPathStart,
+  };
+};
 
 const asBulletText = (items: string[]): string => items.map((item) => `- ${item}`).join('\n');
 
+const uniqueTextItems = (items: readonly string[]): string[] => Array.from(new Set(items.map(clampText).filter(Boolean)));
+
+const makeTitleBand = (
+  baseId: string,
+  title: string,
+): SceneElement[] => [
+  makeShape(`${baseId}-title-band`, 0, { x: 72, y: 54, w: 1136, h: 96 }, 'F8FAFC', 'E2E8F0'),
+  makeText(`${baseId}-title`, 1, { x: 104, y: 68, w: 1072, h: 68 }, title, 'title', 34, {
+    bold: true,
+    valign: 'middle',
+  }),
+];
+
+type DiagramSlot = Extract<SlideSlotValue, { kind: 'diagram' }>;
+type QuestionSlot = Extract<SlideSlotValue, { kind: 'question' }>;
+
+type OrthogonalEdgeRoute = {
+  edgeIndex: number;
+  points: ScenePoint[];
+  labelFrame?: SceneFrame;
+};
+
+const RELATIONSHIP_NODE_Y = 360;
+const RELATIONSHIP_NODE_SIZE = 120;
+const RELATIONSHIP_ROUTE_LANES = [282, 488, 306, 514, 330, 540, 354, 566] as const;
+
+const buildRelationshipNodeFrames = (diagram: DiagramSlot): Map<string, SceneFrame> => {
+  const nodeGap = 28;
+  const nodeSlotWidth = Math.floor((1136 - nodeGap * Math.max(0, diagram.nodes.length - 1)) / Math.max(1, diagram.nodes.length));
+  const visualNodeSize = Math.min(RELATIONSHIP_NODE_SIZE, nodeSlotWidth);
+  return new Map(diagram.nodes.map((node, index) => {
+    const slotX = 72 + index * (nodeSlotWidth + nodeGap);
+    return [node.id, {
+      x: slotX + Math.floor((nodeSlotWidth - visualNodeSize) / 2),
+      y: RELATIONSHIP_NODE_Y,
+      w: visualNodeSize,
+      h: visualNodeSize,
+    }];
+  }));
+};
+
+const paddedSceneFrame = (frame: SceneFrame, padding = 4): SceneFrame => ({
+  x: frame.x - padding,
+  y: frame.y - padding,
+  w: frame.w + padding * 2,
+  h: frame.h + padding * 2,
+});
+
+const routeSegmentFrames = (route: OrthogonalEdgeRoute): SceneFrame[] => (
+  route.points.slice(0, -1).map((point, index) => connectorFrameBetweenPoints(point, route.points[index + 1]))
+);
+
+const routesCollide = (left: OrthogonalEdgeRoute, right: OrthogonalEdgeRoute): boolean => {
+  const leftSegments = routeSegmentFrames(left);
+  const rightSegments = routeSegmentFrames(right);
+  if (leftSegments.some((segment) => rightSegments.some((other) => framesOverlap(segment, other)))) return true;
+  const leftLabel = left.labelFrame ? paddedSceneFrame(left.labelFrame) : undefined;
+  const rightLabel = right.labelFrame ? paddedSceneFrame(right.labelFrame) : undefined;
+  if (leftLabel && rightLabel && framesOverlap(leftLabel, rightLabel)) return true;
+  if (leftLabel && rightSegments.some((segment) => framesOverlap(leftLabel, segment))) return true;
+  if (rightLabel && leftSegments.some((segment) => framesOverlap(rightLabel, segment))) return true;
+  return false;
+};
+
+const frameIsOnCanvas = (frame: SceneFrame): boolean => (
+  frame.x >= 0 && frame.y >= 0 && frame.x + frame.w <= SCENE_WIDTH && frame.y + frame.h <= SCENE_HEIGHT
+);
+
+const buildRelationshipEndpointPorts = (
+  diagram: DiagramSlot,
+  nodeFrames: ReadonlyMap<string, SceneFrame>,
+): Map<string, number> => {
+  const ports = new Map<string, number>();
+  diagram.nodes.forEach((node) => {
+    const incidentEdgeIndexes = diagram.edges.flatMap((edge, edgeIndex) => (
+      edge.from === node.id || edge.to === node.id ? [edgeIndex] : []
+    ));
+    const frame = nodeFrames.get(node.id);
+    if (!frame) return;
+    incidentEdgeIndexes.forEach((edgeIndex, rank) => {
+      const offset = incidentEdgeIndexes.length <= 1
+        ? 0
+        : -frame.w / 3 + (rank * (frame.w * 2 / 3)) / (incidentEdgeIndexes.length - 1);
+      ports.set(`${edgeIndex}:${node.id}`, frame.x + frame.w / 2 + offset);
+    });
+  });
+  return ports;
+};
+
+const relationshipRouteCandidates = (
+  diagram: DiagramSlot,
+  edgeIndex: number,
+  nodeFrames: ReadonlyMap<string, SceneFrame>,
+  endpointPorts: ReadonlyMap<string, number>,
+): OrthogonalEdgeRoute[] => {
+  const edge = diagram.edges[edgeIndex];
+  const fromIndex = diagram.nodes.findIndex((node) => node.id === edge.from);
+  const toIndex = diagram.nodes.findIndex((node) => node.id === edge.to);
+  const fromFrame = nodeFrames.get(edge.from);
+  const toFrame = nodeFrames.get(edge.to);
+  if (!fromFrame || !toFrame) return [];
+  const label = clampText(edge.label ?? '');
+  if (Math.abs(fromIndex - toIndex) <= 1 && !label) {
+    const forwardOnCanvas = fromFrame.x <= toFrame.x;
+    return [{
+      edgeIndex,
+      points: [
+        { x: forwardOnCanvas ? fromFrame.x + fromFrame.w : fromFrame.x, y: fromFrame.y + fromFrame.h / 2 },
+        { x: forwardOnCanvas ? toFrame.x : toFrame.x + toFrame.w, y: toFrame.y + toFrame.h / 2 },
+      ],
+    }];
+  }
+
+  const fromPortX = endpointPorts.get(`${edgeIndex}:${edge.from}`) ?? fromFrame.x + fromFrame.w / 2;
+  const toPortX = endpointPorts.get(`${edgeIndex}:${edge.to}`) ?? toFrame.x + toFrame.w / 2;
+  const horizontalWidth = Math.abs(toPortX - fromPortX);
+  const labelWidth = Math.min(272, Math.max(96, horizontalWidth - 24));
+  const candidates: OrthogonalEdgeRoute[] = [];
+  RELATIONSHIP_ROUTE_LANES.forEach((laneY) => {
+    const routeAboveNodes = laneY < fromFrame.y;
+    const fromBoundaryY = routeAboveNodes ? fromFrame.y : fromFrame.y + fromFrame.h;
+    const toBoundaryY = routeAboveNodes ? toFrame.y : toFrame.y + toFrame.h;
+    const labelYs = label
+      ? routeAboveNodes
+        ? [laneY - 26, laneY + 4]
+        : [laneY + 4, laneY - 26]
+      : [undefined];
+    labelYs.forEach((labelY) => {
+      const route: OrthogonalEdgeRoute = {
+        edgeIndex,
+        points: [
+          { x: fromPortX, y: fromBoundaryY },
+          { x: fromPortX, y: laneY },
+          { x: toPortX, y: laneY },
+          { x: toPortX, y: toBoundaryY },
+        ],
+        labelFrame: labelY === undefined
+          ? undefined
+          : {
+              x: Math.round((fromPortX + toPortX - labelWidth) / 2),
+              y: labelY,
+              w: labelWidth,
+              h: 24,
+            },
+      };
+      const fromNodeId = diagram.edges[edgeIndex].from;
+      const toNodeId = diagram.edges[edgeIndex].to;
+      const nonEndNodeFrames = diagram.nodes.flatMap((node) => (
+        node.id === fromNodeId || node.id === toNodeId ? [] : [nodeFrames.get(node.id)]
+      )).filter((frame): frame is SceneFrame => Boolean(frame));
+      const segments = routeSegmentFrames(route);
+      const routeFits = segments.every(frameIsOnCanvas)
+        && !segments.some((segment) => nonEndNodeFrames.some((frame) => framesOverlap(segment, frame)))
+        && (!route.labelFrame || (
+          frameIsOnCanvas(route.labelFrame)
+          && !Array.from(nodeFrames.values()).some((frame) => framesOverlap(route.labelFrame!, frame))
+        ));
+      if (routeFits) candidates.push(route);
+    });
+  });
+  return candidates;
+};
+
+const buildRelationshipOrthogonalRoutes = (
+  diagram: DiagramSlot,
+  nodeFrames: ReadonlyMap<string, SceneFrame>,
+): Map<number, OrthogonalEdgeRoute> | null => {
+  const endpointPorts = buildRelationshipEndpointPorts(diagram, nodeFrames);
+  const candidatesByEdge = diagram.edges.map((_, edgeIndex) => (
+    relationshipRouteCandidates(diagram, edgeIndex, nodeFrames, endpointPorts)
+  ));
+  if (candidatesByEdge.some((candidates) => candidates.length === 0)) return null;
+  const edgeOrder = diagram.edges.map((_, edgeIndex) => edgeIndex).sort((left, right) => {
+    const leftEdge = diagram.edges[left];
+    const rightEdge = diagram.edges[right];
+    const leftSpan = Math.abs(diagram.nodes.findIndex((node) => node.id === leftEdge.from) - diagram.nodes.findIndex((node) => node.id === leftEdge.to));
+    const rightSpan = Math.abs(diagram.nodes.findIndex((node) => node.id === rightEdge.from) - diagram.nodes.findIndex((node) => node.id === rightEdge.to));
+    return rightSpan - leftSpan || left - right;
+  });
+  let searchStates = 0;
+  const search = (orderIndex: number, accepted: OrthogonalEdgeRoute[]): OrthogonalEdgeRoute[] | null => {
+    searchStates += 1;
+    if (searchStates > 50_000) return null;
+    if (orderIndex >= edgeOrder.length) return accepted;
+    const edgeIndex = edgeOrder[orderIndex];
+    for (const candidate of candidatesByEdge[edgeIndex]) {
+      if (accepted.some((route) => routesCollide(candidate, route))) continue;
+      const result = search(orderIndex + 1, [...accepted, candidate]);
+      if (result) return result;
+    }
+    return null;
+  };
+  const routes = search(0, []);
+  return routes ? new Map(routes.map((route) => [route.edgeIndex, route])) : null;
+};
+
+const relationshipNodeStyle = (
+  role: string,
+): Pick<SceneShapeElement, 'shape' | 'fill' | 'stroke' | 'radius'> => {
+  if (role === 'source') return { shape: 'ellipse', fill: 'E0F2FE', stroke: '0369A1', radius: 0 };
+  if (role === 'constraint') return { shape: 'diamond', fill: 'FEF3C7', stroke: 'B45309', radius: 0 };
+  if (role === 'result') return { shape: 'roundRect', fill: 'DCFCE7', stroke: '15803D', radius: 24 };
+  return { shape: 'roundRect', fill: 'FFF7ED', stroke: 'C2410C', radius: 24 };
+};
+
+const buildRelationshipDiagramElements = (
+  spec: SemanticSlideSpec,
+  sceneId: string,
+  title: string,
+  diagram: DiagramSlot,
+): SceneElement[] => {
+  const baseId = `${sceneId}-el`;
+  const contextItems = [
+    slotText(spec.slots.statement ?? spec.slots.body),
+    ...listItems(spec.slots.points),
+  ].map(clampText).filter(Boolean);
+  const contextText = contextItems.join('\n');
+  const criteriaText = asBulletText(uniqueTextItems([
+    ...listItems(spec.slots.successCriteria),
+    ...listItems(spec.slots.requirements),
+  ]));
+  const nodeFrames = buildRelationshipNodeFrames(diagram);
+  const orthogonalRoutes = buildRelationshipOrthogonalRoutes(diagram, nodeFrames);
+  const elements: SceneElement[] = [...makeTitleBand(baseId, title)];
+
+  if (contextText) {
+    elements.push(makeText(
+      `${baseId}-relationship-context`,
+      2,
+      { x: 92, y: 176, w: 1096, h: 76 },
+      contextText,
+      'body',
+      18,
+      { align: 'center', valign: 'middle' },
+    ));
+  }
+
+  diagram.edges.forEach((edge, index) => {
+    const fromFrame = nodeFrames.get(edge.from);
+    const toFrame = nodeFrames.get(edge.to);
+    if (!fromFrame || !toFrame) return;
+    const fromId = `${baseId}-node-${diagram.nodes.findIndex((node) => node.id === edge.from) + 1}`;
+    const toId = `${baseId}-node-${diagram.nodes.findIndex((node) => node.id === edge.to) + 1}`;
+    const route = orthogonalRoutes?.get(index);
+    if (route) {
+      route.points.slice(0, -1).forEach((point, segmentIndex) => {
+        const isFirst = segmentIndex === 0;
+        const isLast = segmentIndex === route.points.length - 2;
+        elements.push(makeConnectorSegment(
+          `${baseId}-edge-${index + 1}-segment-${segmentIndex + 1}`,
+          40 + index * 4 + segmentIndex,
+          point,
+          route.points[segmentIndex + 1],
+          fromId,
+          toId,
+          isFirst && edge.direction === 'both',
+          isLast && (edge.direction === 'forward' || edge.direction === 'both'),
+        ));
+      });
+      return;
+    }
+    const fromCenter = fromFrame.x + fromFrame.w / 2;
+    const toCenter = toFrame.x + toFrame.w / 2;
+    const leftFrame = fromCenter <= toCenter ? fromFrame : toFrame;
+    const rightFrame = fromCenter <= toCenter ? toFrame : fromFrame;
+    const startX = leftFrame.x + leftFrame.w;
+    const endX = rightFrame.x;
+    elements.push(makeConnector(
+      `${baseId}-edge-${index + 1}`,
+      40 + index,
+      {
+        x: startX,
+        y: Math.round(leftFrame.y + leftFrame.h / 2),
+        w: Math.max(4, endX - startX),
+        h: 4,
+      },
+      fromId,
+      toId,
+      edge.direction === 'both' || edge.direction === 'none' ? edge.direction : 'forward',
+      fromCenter > toCenter,
+    ));
+  });
+
+  diagram.nodes.forEach((node, index) => {
+    const frame = nodeFrames.get(node.id);
+    if (!frame) return;
+    const style = relationshipNodeStyle(node.role);
+    elements.push(makeShape(
+      `${baseId}-node-${index + 1}`,
+      10 + index * 2,
+      frame,
+      style.fill,
+      style.stroke,
+      style.shape,
+      style.radius,
+    ));
+    const text = [node.label, node.detail].map((value) => clampText(value ?? '')).filter(Boolean).join('\n');
+    elements.push(makeText(
+      `${baseId}-node-label-${index + 1}`,
+      11 + index * 2,
+      { x: frame.x + 14, y: frame.y + 24, w: frame.w - 28, h: frame.h - 48 },
+      text,
+      'label',
+      diagram.nodes.length > 4 ? 18 : 21,
+      { align: 'center', valign: 'middle', bold: !node.detail },
+    ));
+  });
+
+  diagram.edges.forEach((edge, index) => {
+    const label = clampText(edge.label ?? '');
+    if (!label) return;
+    const labelFrame = orthogonalRoutes?.get(index)?.labelFrame;
+    if (!labelFrame) return;
+    elements.push(makeText(
+      `${baseId}-edge-label-${index + 1}`,
+      30 + index,
+      labelFrame,
+      label,
+      'label',
+      14,
+      { align: 'center', valign: 'middle', color: '475569' },
+    ));
+  });
+
+  if (criteriaText) {
+    elements.push(makeText(
+      `${baseId}-relationship-criteria`,
+      50,
+      { x: 92, y: 610, w: 1096, h: 56 },
+      criteriaText,
+      'note',
+      16,
+      { align: 'center', valign: 'middle' },
+    ));
+  }
+
+  return elements;
+};
+
+type ComparisonPanel = { title: string; body: string };
+
+const comparisonPanelsFromSpec = (spec: SemanticSlideSpec): ComparisonPanel[] => {
+  const cardsSlot = spec.slots.cards?.kind === 'cards'
+    ? spec.slots.cards
+    : spec.slots.body?.kind === 'cards'
+      ? spec.slots.body
+      : undefined;
+  if (cardsSlot) {
+    return cardsSlot.cards.map((card) => ({
+      title: clampText(card.title),
+      body: clampText(card.body),
+    }));
+  }
+
+  const tableSlot = spec.slots.table?.kind === 'table'
+    ? spec.slots.table
+    : spec.slots.body?.kind === 'table'
+      ? spec.slots.body
+      : undefined;
+  if (tableSlot) {
+    return tableSlot.headers.map((header, columnIndex) => ({
+      title: clampText(header),
+      body: tableSlot.rows.map((row) => clampText(row[columnIndex] ?? '')).filter(Boolean).join('\n'),
+    }));
+  }
+
+  const diagramSlot = spec.slots.diagram?.kind === 'diagram' ? spec.slots.diagram : undefined;
+  if (diagramSlot) {
+    return diagramSlot.nodes.map((node) => ({
+      title: clampText(node.label),
+      body: [
+        clampText(node.detail ?? ''),
+        ...diagramSlot.edges
+          .filter((edge) => edge.from === node.id)
+          .map((edge) => clampText(edge.label ?? '')),
+      ].filter(Boolean).join('\n'),
+    }));
+  }
+
+  const items = listItems(spec.slots.body ?? spec.slots.points);
+  if (items.length === 0) return [];
+  const panelCount = Math.min(3, Math.max(1, Math.ceil(items.length / 2)));
+  const itemsPerPanel = Math.ceil(items.length / panelCount);
+  return Array.from({ length: panelCount }, (_, index) => ({
+    title: '',
+    body: items.slice(index * itemsPerPanel, (index + 1) * itemsPerPanel).join('\n'),
+  })).filter((panel) => panel.body);
+};
+
+const buildComparisonPanelElements = (
+  spec: SemanticSlideSpec,
+  sceneId: string,
+  title: string,
+): SceneElement[] => {
+  const baseId = `${sceneId}-el`;
+  const panels = comparisonPanelsFromSpec(spec);
+  const gap = 24;
+  const panelWidth = Math.floor((1136 - gap * Math.max(0, panels.length - 1)) / Math.max(1, panels.length));
+  const successText = asBulletText([
+    ...listItems(spec.slots.successCriteria),
+    ...listItems(spec.slots.requirements),
+  ]);
+  const panelHeight = successText ? 356 : 430;
+  const elements: SceneElement[] = [...makeTitleBand(baseId, title)];
+  const fills = ['EFF6FF', 'FFF7ED', 'F0FDF4'];
+  const strokes = ['93C5FD', 'FDBA74', '86EFAC'];
+
+  panels.forEach((panel, index) => {
+    const x = 72 + index * (panelWidth + gap);
+    elements.push(makeShape(
+      `${baseId}-panel-${index + 1}`,
+      10 + index * 3,
+      { x, y: 180, w: panelWidth, h: panelHeight },
+      fills[index % fills.length],
+      strokes[index % strokes.length],
+    ));
+    if (panel.title) {
+      elements.push(makeText(
+        `${baseId}-panel-title-${index + 1}`,
+        11 + index * 3,
+        { x: x + 28, y: 214, w: panelWidth - 56, h: 62 },
+        panel.title,
+        'subtitle',
+        23,
+        { bold: true },
+      ));
+    }
+    elements.push(makeText(
+      `${baseId}-panel-body-${index + 1}`,
+      12 + index * 3,
+      { x: x + 28, y: panel.title ? 294 : 226, w: panelWidth - 56, h: panel.title ? panelHeight - 138 : panelHeight - 84 },
+      panel.body,
+      'body',
+      21,
+    ));
+  });
+
+  if (successText) {
+    elements.push(makeText(
+      `${baseId}-criteria`,
+      30,
+      { x: 88, y: 566, w: 1104, h: 68 },
+      successText,
+      'note',
+      18,
+    ));
+  }
+  return elements;
+};
+
+const buildQuestionChoiceElements = (
+  spec: SemanticSlideSpec,
+  sceneId: string,
+  title: string,
+  question: QuestionSlot,
+): SceneElement[] => {
+  const baseId = `${sceneId}-el`;
+  const elements: SceneElement[] = [
+    ...makeTitleBand(baseId, title),
+    makeShape(`${baseId}-prompt-card`, 2, { x: 92, y: 170, w: 1096, h: 120 }, 'F8FAFC', 'CBD5E1'),
+    makeText(`${baseId}-prompt`, 3, { x: 124, y: 194, w: 1032, h: 72 }, question.prompt, 'prompt', 25, {
+      bold: true,
+      valign: 'middle',
+    }),
+  ];
+
+  question.choices.forEach((choice, index) => {
+    const column = index % 2;
+    const row = Math.floor(index / 2);
+    const x = 92 + column * 560;
+    const y = 320 + row * 150;
+    const label = `${String.fromCharCode(65 + index)}. ${clampText(choice.text)}`;
+    elements.push(makeShape(
+      `${baseId}-choice-card-${index + 1}`,
+      10 + index * 2,
+      { x, y, w: 536, h: 124 },
+      index % 2 === 0 ? 'EFF6FF' : 'F0FDFA',
+      index % 2 === 0 ? '93C5FD' : '5EEAD4',
+    ));
+    elements.push(makeText(
+      `${baseId}-choice-text-${index + 1}`,
+      11 + index * 2,
+      { x: x + 30, y: y + 22, w: 476, h: 80 },
+      label,
+      'label',
+      18,
+      { valign: 'middle' },
+    ));
+  });
+
+  const successText = asBulletText([
+    ...listItems(spec.slots.successCriteria),
+    ...listItems(spec.slots.requirements),
+  ]);
+  if (successText) {
+    elements.push(makeText(`${baseId}-criteria`, 30, { x: 92, y: 614, w: 1096, h: 52 }, successText, 'note', 18));
+  }
+  return elements;
+};
+
+const THESIS_DIAGRAM_ITEM_X = 754;
+const THESIS_DIAGRAM_ITEM_WIDTH = 300;
+const THESIS_ROUTE_LANES = [1068, 1084, 1100, 1116] as const;
+
+const buildThesisDiagramItemFrames = (diagram: DiagramSlot): Map<string, SceneFrame> => {
+  const itemGap = 18;
+  const itemRegionY = 180;
+  const itemRegionHeight = 430;
+  const itemHeight = Math.min(100, Math.floor((itemRegionHeight - itemGap * Math.max(0, diagram.nodes.length - 1)) / Math.max(1, diagram.nodes.length)));
+  const rightStartY = itemRegionY + Math.floor((itemRegionHeight - (itemHeight * diagram.nodes.length + itemGap * Math.max(0, diagram.nodes.length - 1))) / 2);
+  return new Map(diagram.nodes.map((node, index) => [
+    node.id,
+    { x: THESIS_DIAGRAM_ITEM_X, y: rightStartY + index * (itemHeight + itemGap), w: THESIS_DIAGRAM_ITEM_WIDTH, h: itemHeight },
+  ]));
+};
+
+const buildThesisOrthogonalRoutes = (
+  diagram: DiagramSlot,
+  itemFrames: ReadonlyMap<string, SceneFrame>,
+): Map<number, OrthogonalEdgeRoute> | null => {
+  const endpointPorts = new Map<string, number>();
+  diagram.nodes.forEach((node) => {
+    const frame = itemFrames.get(node.id);
+    if (!frame) return;
+    const incidentEdgeIndexes = diagram.edges.flatMap((edge, edgeIndex) => (
+      edge.from === node.id || edge.to === node.id ? [edgeIndex] : []
+    ));
+    incidentEdgeIndexes.forEach((edgeIndex, rank) => {
+      const offset = incidentEdgeIndexes.length <= 1
+        ? 0
+        : -frame.h / 3 + (rank * (frame.h * 2 / 3)) / (incidentEdgeIndexes.length - 1);
+      endpointPorts.set(`${edgeIndex}:${node.id}`, frame.y + frame.h / 2 + offset);
+    });
+  });
+
+  const candidatesByEdge = diagram.edges.map((edge, edgeIndex): OrthogonalEdgeRoute[] => {
+    const fromIndex = diagram.nodes.findIndex((node) => node.id === edge.from);
+    const toIndex = diagram.nodes.findIndex((node) => node.id === edge.to);
+    const fromFrame = itemFrames.get(edge.from);
+    const toFrame = itemFrames.get(edge.to);
+    if (!fromFrame || !toFrame) return [];
+    const label = clampText(edge.label ?? '');
+    if (Math.abs(fromIndex - toIndex) <= 1 && !label) {
+      const forwardOnCanvas = fromFrame.y <= toFrame.y;
+      return [{
+        edgeIndex,
+        points: [
+          { x: fromFrame.x + fromFrame.w / 2, y: forwardOnCanvas ? fromFrame.y + fromFrame.h : fromFrame.y },
+          { x: toFrame.x + toFrame.w / 2, y: forwardOnCanvas ? toFrame.y : toFrame.y + toFrame.h },
+        ],
+      }];
+    }
+    const fromPortY = endpointPorts.get(`${edgeIndex}:${edge.from}`) ?? fromFrame.y + fromFrame.h / 2;
+    const toPortY = endpointPorts.get(`${edgeIndex}:${edge.to}`) ?? toFrame.y + toFrame.h / 2;
+    const interval: [number, number] = [Math.min(fromPortY, toPortY), Math.max(fromPortY, toPortY)];
+    const candidates: OrthogonalEdgeRoute[] = [];
+    THESIS_ROUTE_LANES.forEach((laneX) => {
+      const labelYs = label
+        ? [0.5, 0.25, 0.75].map((factor) => Math.round(interval[0] + (interval[1] - interval[0] - 24) * factor))
+        : [undefined];
+      labelYs.forEach((labelY) => {
+        const route: OrthogonalEdgeRoute = {
+          edgeIndex,
+          points: [
+            { x: fromFrame.x + fromFrame.w, y: fromPortY },
+            { x: laneX, y: fromPortY },
+            { x: laneX, y: toPortY },
+            { x: toFrame.x + toFrame.w, y: toPortY },
+          ],
+          labelFrame: labelY === undefined
+            ? undefined
+            : { x: laneX + 8, y: labelY, w: 1208 - laneX - 8, h: 24 },
+        };
+        const nonEndFrames = diagram.nodes.flatMap((node) => (
+          node.id === edge.from || node.id === edge.to ? [] : [itemFrames.get(node.id)]
+        )).filter((frame): frame is SceneFrame => Boolean(frame));
+        const segments = routeSegmentFrames(route);
+        const routeFits = segments.every(frameIsOnCanvas)
+          && !segments.some((segment) => nonEndFrames.some((frame) => framesOverlap(segment, frame)))
+          && (!route.labelFrame || (
+            frameIsOnCanvas(route.labelFrame)
+            && !Array.from(itemFrames.values()).some((frame) => framesOverlap(route.labelFrame!, frame))
+          ));
+        if (routeFits) candidates.push(route);
+      });
+    });
+    return candidates;
+  });
+  if (candidatesByEdge.some((candidates) => candidates.length === 0)) return null;
+  const edgeOrder = diagram.edges.map((_, edgeIndex) => edgeIndex).sort((left, right) => {
+    const leftEdge = diagram.edges[left];
+    const rightEdge = diagram.edges[right];
+    const leftSpan = Math.abs(diagram.nodes.findIndex((node) => node.id === leftEdge.from) - diagram.nodes.findIndex((node) => node.id === leftEdge.to));
+    const rightSpan = Math.abs(diagram.nodes.findIndex((node) => node.id === rightEdge.from) - diagram.nodes.findIndex((node) => node.id === rightEdge.to));
+    return rightSpan - leftSpan || left - right;
+  });
+  let searchStates = 0;
+  const search = (orderIndex: number, accepted: OrthogonalEdgeRoute[]): OrthogonalEdgeRoute[] | null => {
+    searchStates += 1;
+    if (searchStates > 20_000) return null;
+    if (orderIndex >= edgeOrder.length) return accepted;
+    const edgeIndex = edgeOrder[orderIndex];
+    for (const candidate of candidatesByEdge[edgeIndex]) {
+      if (accepted.some((route) => routesCollide(candidate, route))) continue;
+      const result = search(orderIndex + 1, [...accepted, candidate]);
+      if (result) return result;
+    }
+    return null;
+  };
+  const routes = search(0, []);
+  return routes ? new Map(routes.map((route) => [route.edgeIndex, route])) : null;
+};
+
+const buildVisualThesisElements = (
+  spec: SemanticSlideSpec,
+  sceneId: string,
+  title: string,
+): SceneElement[] => {
+  const baseId = `${sceneId}-el`;
+  const statement = slotText(spec.slots.statement ?? spec.slots.body);
+  const points = listItems(spec.slots.points);
+  const diagram = spec.slots.diagram?.kind === 'diagram' ? spec.slots.diagram : undefined;
+  const supportText = asBulletText(uniqueTextItems([
+    ...listItems(spec.slots.successCriteria),
+    ...listItems(spec.slots.requirements),
+  ]));
+  const elements: SceneElement[] = [
+    ...makeTitleBand(baseId, title),
+    makeShape(`${baseId}-thesis-card`, 2, { x: 72, y: 180, w: 636, h: 430 }, 'EEF2FF', 'A5B4FC'),
+    makeText(`${baseId}-thesis-statement`, 3, { x: 112, y: 220, w: 556, h: diagram && points.length > 0 ? 126 : 338 }, statement, 'prompt', 28, {
+      bold: true,
+      valign: 'middle',
+    }),
+  ];
+
+  const rightItems = diagram?.nodes.map((node) => ({
+    id: node.id,
+    text: [node.label, node.detail].map((value) => clampText(value ?? '')).filter(Boolean).join('\n'),
+    role: node.role,
+  })) ?? points.map((point, index) => ({ id: `point-${index + 1}`, text: point, role: 'process' }));
+  const itemGap = 18;
+  const itemRegionY = 180;
+  const itemRegionHeight = 430;
+  const itemHeight = Math.min(100, Math.floor((itemRegionHeight - itemGap * Math.max(0, rightItems.length - 1)) / Math.max(1, rightItems.length)));
+  const rightStartY = itemRegionY + Math.floor((itemRegionHeight - (itemHeight * rightItems.length + itemGap * Math.max(0, rightItems.length - 1))) / 2);
+  const rightItemWidth = diagram ? THESIS_DIAGRAM_ITEM_WIDTH : 454;
+
+  if (diagram && points.length > 0) {
+    const pointHeight = Math.floor(220 / points.length);
+    points.forEach((point, index) => {
+      elements.push(makeText(
+        `${baseId}-thesis-point-${index + 1}`,
+        5 + index,
+        { x: 120, y: 364 + index * pointHeight, w: 540, h: pointHeight - 8 },
+        point,
+        'body',
+        18,
+        { valign: 'middle' },
+      ));
+    });
+  }
+
+  rightItems.forEach((item, index) => {
+    const y = rightStartY + index * (itemHeight + itemGap);
+    const style = relationshipNodeStyle(item.role);
+    elements.push(makeShape(
+      `${baseId}-thesis-item-${index + 1}`,
+      10 + index * 2,
+      { x: THESIS_DIAGRAM_ITEM_X, y, w: rightItemWidth, h: itemHeight },
+      style.fill,
+      style.stroke,
+      style.shape === 'ellipse' ? 'ellipse' : 'roundRect',
+      style.radius,
+    ));
+    elements.push(makeText(
+      `${baseId}-thesis-item-text-${index + 1}`,
+      11 + index * 2,
+      { x: THESIS_DIAGRAM_ITEM_X + 24, y: y + 12, w: rightItemWidth - 48, h: itemHeight - 24 },
+      item.text,
+      'body',
+      19,
+      { align: 'center', valign: 'middle' },
+    ));
+  });
+
+  if (diagram) {
+    const frameByNodeId = buildThesisDiagramItemFrames(diagram);
+    const orthogonalRoutes = buildThesisOrthogonalRoutes(diagram, frameByNodeId);
+    diagram.edges.forEach((edge, index) => {
+      const from = frameByNodeId.get(edge.from);
+      const to = frameByNodeId.get(edge.to);
+      if (!from || !to) return;
+      const fromId = `${baseId}-thesis-item-${diagram.nodes.findIndex((node) => node.id === edge.from) + 1}`;
+      const toId = `${baseId}-thesis-item-${diagram.nodes.findIndex((node) => node.id === edge.to) + 1}`;
+      const route = orthogonalRoutes?.get(index);
+      if (route) {
+        route.points.slice(0, -1).forEach((point, segmentIndex) => {
+          const isFirst = segmentIndex === 0;
+          const isLast = segmentIndex === route.points.length - 2;
+          elements.push(makeConnectorSegment(
+            `${baseId}-thesis-edge-${index + 1}-segment-${segmentIndex + 1}`,
+            30 + index * 4 + segmentIndex,
+            point,
+            route.points[segmentIndex + 1],
+            fromId,
+            toId,
+            isFirst && edge.direction === 'both',
+            isLast && (edge.direction === 'forward' || edge.direction === 'both'),
+          ));
+        });
+        if (route.labelFrame && edge.label) {
+          elements.push(makeText(
+            `${baseId}-thesis-edge-label-${index + 1}`,
+            50 + index,
+            route.labelFrame,
+            clampText(edge.label),
+            'label',
+            11,
+            { align: 'center', valign: 'middle', color: '475569' },
+          ));
+        }
+        return;
+      }
+      const upper = from.y <= to.y ? from : to;
+      const lower = from.y <= to.y ? to : from;
+      elements.unshift(makeConnector(
+        `${baseId}-thesis-edge-${index + 1}`,
+        30 + index,
+        { x: upper.x + upper.w / 2 - 2, y: upper.y + upper.h, w: 4, h: Math.max(4, lower.y - upper.y - upper.h) },
+        fromId,
+        toId,
+        edge.direction === 'both' || edge.direction === 'none' ? edge.direction : 'forward',
+        from.y > to.y,
+      ));
+    });
+  }
+
+  if (supportText) {
+    elements.push(makeText(
+      `${baseId}-thesis-support`,
+      60,
+      { x: 92, y: 620, w: 1096, h: 50 },
+      supportText,
+      'note',
+      16,
+      { align: 'center', valign: 'middle' },
+    ));
+  }
+
+  return elements;
+};
+
 const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): SceneElement[] => {
   const title = slotText(spec.slots.title) || spec.accessibility.slidePurpose;
-  const bodyItems = listItems(spec.slots.body);
+  const structuredFallbackSlots = ['statement', 'points', 'cards', 'steps', 'table', 'question', 'diagram']
+    .map((slotName) => spec.slots[slotName])
+    .filter((slot): slot is SlideSlotValue => Boolean(slot));
+  const bodyItems = spec.slots.body
+    ? listItems(spec.slots.body)
+    : structuredFallbackSlots.map(slotText).filter(Boolean);
   const successItems = listItems(spec.slots.successCriteria);
   const requirements = listItems(spec.slots.requirements);
   const bodyText = asBulletText(bodyItems);
   const successText = successItems.length > 0 ? asBulletText(successItems) : '';
   const baseId = `${sceneId}-el`;
 
+  if (spec.layoutId === 'relationship-diagram' && spec.slots.diagram?.kind === 'diagram') {
+    return buildRelationshipDiagramElements(spec, sceneId, title, spec.slots.diagram);
+  }
+
+  if (spec.layoutId === 'question-choices' && spec.slots.question?.kind === 'question') {
+    return buildQuestionChoiceElements(spec, sceneId, title, spec.slots.question);
+  }
+
+  if (spec.layoutId === 'comparison-panels') {
+    return buildComparisonPanelElements(spec, sceneId, title);
+  }
+
+  if (spec.layoutId === 'visual-thesis') {
+    return buildVisualThesisElements(spec, sceneId, title);
+  }
+
   if (spec.layoutId === 'evidence-capture-board' || spec.layoutId === 'exit-ticket-card') {
+    if (bodyItems.length > 0 && requirements.length > 0 && needsWideRequirementFrame(requirements)) {
+      return [
+        makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
+        makeText(`${baseId}-title`, 1, { x: 82, y: 72, w: 1116, h: 70 }, title, 'title', 34, { bold: true }),
+        makeText(`${baseId}-prompt`, 2, { x: 88, y: 160, w: 1066, h: 112 }, bodyText, 'prompt', 24),
+        makeShape(`${baseId}-requirement-card`, 3, { x: 86, y: 314, w: 1108, h: successText ? 206 : 278 }, 'F0FDFA', '99F6E4'),
+        makeText(
+          `${baseId}-requirements`,
+          4,
+          { x: 126, y: 344, w: 1028, h: successText ? 142 : 210 },
+          asBulletText(requirements),
+          'body',
+          20,
+        ),
+        ...(successText
+          ? [makeText(`${baseId}-criteria`, 5, { x: 96, y: 574, w: 1088, h: 66 }, successText, 'note', 18)]
+          : []),
+      ];
+    }
     if (bodyItems.length === 0 && successItems.length === 0) {
       const elements: SceneElement[] = [
         makeShape(`${baseId}-bg`, 0, { x: 36, y: 34, w: 1208, h: 652 }, 'F8FAFC'),
@@ -485,7 +1370,7 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
       const cardId = `${baseId}-step-card-${index + 1}`;
       elements.push(makeShape(cardId, 2 + index * 3, { x, y: 192, w: cardWidth, h: 300 }, 'FFF7ED', 'FDBA74'));
       elements.push(makeText(`${baseId}-step-label-${index + 1}`, 3 + index * 3, { x: x + 22, y: 218, w: cardWidth - 44, h: 44 }, `Step ${index + 1}`, 'label', 20, { bold: true, color: '9A3412' }));
-      elements.push(makeText(`${baseId}-step-text-${index + 1}`, 4 + index * 3, { x: x + 22, y: 280, w: cardWidth - 44, h: 172 }, step, 'body', 21));
+      elements.push(makeText(`${baseId}-step-text-${index + 1}`, 4 + index * 3, { x: x + 22, y: 280, w: cardWidth - 44, h: 172 }, step, 'label', 18));
       if (index > 0) {
         elements.push(makeConnector(`${baseId}-connector-${index}`, 20 + index, { x: x - 24, y: 328, w: 24, h: 4 }, `${baseId}-step-card-${index}`, cardId));
       }
@@ -538,9 +1423,66 @@ const buildBaseSceneElements = (spec: SemanticSlideSpec, sceneId: string): Scene
 const applyVisualSystemToElements = (
   elements: readonly SceneElement[],
   visualSystem?: DeckVisualSystem,
+  visualLayout = false,
 ): SceneElement[] => {
   if (!visualSystem) return [...elements];
   return elements.map((element) => {
+    if (
+      visualLayout
+      && element.kind === 'shape'
+      && (element.id.includes('-node-') || element.id.includes('-thesis-item-'))
+    ) {
+      const stroke = element.stroke === '0369A1'
+        ? visualSystem.palette.accentCool
+        : element.stroke === 'B45309'
+          ? visualSystem.palette.warning
+          : element.stroke === '15803D'
+            ? visualSystem.palette.success
+            : visualSystem.palette.accentWarm;
+      return { ...element, fill: visualSystem.palette.surface, stroke };
+    }
+    if (visualLayout && element.kind === 'shape' && element.id.endsWith('-prompt-card')) {
+      return {
+        ...element,
+        fill: visualSystem.palette.surfaceMuted,
+        stroke: visualSystem.palette.accentCool,
+      };
+    }
+    if (visualLayout && element.kind === 'shape' && element.id.includes('-choice-')) {
+      return {
+        ...element,
+        fill: visualSystem.palette.surface,
+        stroke: element.id.endsWith('-1') || element.id.endsWith('-3')
+          ? visualSystem.palette.accentCool
+          : visualSystem.palette.accentWarm,
+      };
+    }
+    if (visualLayout && element.kind === 'shape' && element.id.includes('-panel-')) {
+      const index = Number(element.id.match(/-panel-(\d+)$/)?.[1] ?? 1);
+      const colors = [
+        visualSystem.palette.accentCool,
+        visualSystem.palette.accentWarm,
+        visualSystem.palette.success,
+      ];
+      return {
+        ...element,
+        fill: visualSystem.palette.surface,
+        stroke: colors[(index - 1) % colors.length],
+      };
+    }
+    if (
+      visualLayout
+      && element.kind === 'shape'
+      && (element.id.endsWith('-thesis-card') || element.id.endsWith('-title-band'))
+    ) {
+      return {
+        ...element,
+        fill: visualSystem.palette.surface,
+        stroke: element.id.endsWith('-title-band')
+          ? visualSystem.palette.surfaceMuted
+          : visualSystem.palette.accentCool,
+      };
+    }
     if (element.kind === 'shape' && element.id.endsWith('-bg')) {
       return {
         ...element,
@@ -558,11 +1500,32 @@ const applyVisualSystemToElements = (
       };
     }
     if (element.kind === 'text') {
+      if (!visualLayout) {
+        return {
+          ...element,
+          runs: element.runs.map((run) => ({
+            ...run,
+            color: run.color ?? visualSystem.palette.ink,
+          })),
+        };
+      }
+      const roleSize = element.role === 'title'
+        ? visualSystem.typography.titleSize
+        : element.role === 'label' || element.role === 'note'
+          ? visualSystem.typography.labelSize
+          : visualSystem.typography.bodySize;
+      const fontSize = Math.max(roleSize, visualSystem.typography.minReadableSize);
       return {
         ...element,
+        fontSize,
+        lineHeight: Math.round(fontSize * 1.25),
         runs: element.runs.map((run) => ({
           ...run,
-          color: run.color ?? visualSystem.palette.ink,
+          color: !run.color || run.color === '111827'
+            ? visualSystem.palette.ink
+            : run.color === '475569'
+              ? visualSystem.palette.mutedInk
+              : run.color,
         })),
       };
     }
@@ -621,6 +1584,23 @@ const ASSET_FRAME_CANDIDATES: readonly SceneFrame[] = [
   { x: 968, y: 270, w: 214, h: 96 },
 ];
 
+const THESIS_ASSET_FRAME: SceneFrame = { x: 754, y: 180, w: 454, h: 430 };
+
+const assetFrameCandidatesForSpec = (spec: SemanticSlideSpec): readonly SceneFrame[] => {
+  if (spec.layoutId !== 'visual-thesis') return ASSET_FRAME_CANDIDATES;
+  const hasNativeDiagram = spec.slots.diagram?.kind === 'diagram' && spec.slots.diagram.nodes.length > 0;
+  const hasNativePoints = listItems(spec.slots.points).length > 0;
+  return hasNativeDiagram || hasNativePoints ? [] : [THESIS_ASSET_FRAME];
+};
+
+const occupiesAssetFrame = (element: SceneElement, visualLayout: boolean): boolean => {
+  if (!visualLayout) return element.kind === 'text' || element.kind === 'table';
+  if (element.kind === 'shape') {
+    return !element.id.endsWith('-bg') && !element.id.endsWith('-title-band');
+  }
+  return element.kind !== 'group';
+};
+
 const addResolvedAssetElements = (
   elements: readonly SceneElement[],
   spec: SemanticSlideSpec,
@@ -630,12 +1610,14 @@ const addResolvedAssetElements = (
   const renderedAssets = assets.filter(isRenderedImageAsset);
   if (renderedAssets.length === 0) return [...elements];
   const maxReadingOrder = elements.reduce((max, element) => Math.max(max, element.readingOrder), 0);
+  const visualLayout = VISUAL_LAYOUT_IDS.has(spec.layoutId);
   const occupiedFrames = elements
-    .filter((element) => element.kind === 'text' || element.kind === 'table')
+    .filter((element) => occupiesAssetFrame(element, visualLayout))
     .map((element) => element.frame);
+  const frameCandidates = assetFrameCandidatesForSpec(spec);
   const imageElements: SceneImageElement[] = [];
   for (const [index, asset] of renderedAssets.slice(0, 2).entries()) {
-    const frame = ASSET_FRAME_CANDIDATES.find((candidate) => (
+    const frame = frameCandidates.find((candidate) => (
       [...occupiedFrames, ...imageElements.map((element) => element.frame)]
         .every((occupied) => !framesOverlap(candidate, occupied))
     ));
@@ -653,7 +1635,11 @@ const buildSceneElements = (
   assets: readonly SceneResolvedAsset[] = [],
 ): SceneElement[] => (
   addResolvedAssetElements(
-    applyVisualSystemToElements(buildBaseSceneElements(spec, sceneId), visualSystem),
+    applyVisualSystemToElements(
+      buildBaseSceneElements(spec, sceneId),
+      visualSystem,
+      VISUAL_LAYOUT_IDS.has(spec.layoutId),
+    ),
     spec,
     sceneId,
     assets,
@@ -688,11 +1674,17 @@ const validateTextFit = (scene: CompiledSlideScene, element: SceneTextElement | 
       1,
       ...row.map((cell) => estimateWrappedLineCount(cell, columnWidth, element.fontSize)),
     ));
+    const rowCount = rowLineCounts.length;
+    const availableRowHeight = element.frame.h / rowCount;
+    const estimatedRowHeights = rowLineCounts.map((lineCount) => (
+      lineCount * element.fontSize * 1.35 + 16
+    ));
     const estimatedHeight = rowLineCounts.reduce(
       (height, lineCount) => height + lineCount * element.fontSize * 1.35 + 16,
       0,
     );
     return estimatedHeight > element.frame.h
+      || estimatedRowHeights.some((rowHeight) => rowHeight > availableRowHeight)
       ? [sceneDiagnostic('scene_text_overflow', `Table ${element.id} does not fit in its scene frame.`, { sceneId: scene.id, elementId: element.id })]
       : [];
   }
@@ -828,28 +1820,130 @@ const compileSpecToScene = (
   };
 };
 
-const slotItemCount = (slot: SlideSlotValue): number => {
+const slotItemCount = (slot: SlideSlotValue, expandStructuredVisuals: boolean): number => {
   if (slot.kind === 'list') return slot.items.length;
   if (slot.kind === 'cards') return slot.cards.length;
   if (slot.kind === 'table') return slot.rows.length;
   if (slot.kind === 'steps') return slot.steps.length;
+  if (slot.kind === 'question') return expandStructuredVisuals ? 1 + slot.choices.length : 1;
+  if (slot.kind === 'diagram') return expandStructuredVisuals ? slot.nodes.length : 1;
   return 1;
 };
+
+const VISUAL_LAYOUT_IDS: ReadonlySet<SemanticLayoutId> = new Set([
+  'visual-thesis',
+  'relationship-diagram',
+  'comparison-panels',
+  'question-choices',
+]);
 
 const validateSemanticSpecLayoutCapacity = (
   spec: SemanticSlideSpec,
   index: number,
 ): SceneValidationDiagnostic[] => {
   const layout = SEMANTIC_LAYOUT_DEFINITIONS.find((definition) => definition.id === spec.layoutId);
-  if (!layout || !Object.values(spec.slots).some((slot) => slotItemCount(slot) > layout.maxListItems)) {
-    return [];
-  }
   const sceneId = `scene-${String(index + 1).padStart(3, '0')}`;
-  return [sceneDiagnostic(
-    'scene_text_overflow',
-    `Semantic slide ${spec.id} exceeds the item capacity for layout ${spec.layoutId}.`,
-    { sceneId },
-  )];
+  if (!layout) return [];
+  const diagnostics: SceneValidationDiagnostic[] = [];
+  const visualLayout = VISUAL_LAYOUT_IDS.has(spec.layoutId);
+  const exceedsItemCapacity = Object.values(spec.slots)
+    .some((slot) => slotItemCount(slot, visualLayout) > layout.maxListItems);
+  if (exceedsItemCapacity) {
+    diagnostics.push(sceneDiagnostic(
+      'scene_text_overflow',
+      `Semantic slide ${spec.id} exceeds the item capacity for layout ${spec.layoutId}.`,
+      { sceneId },
+    ));
+  }
+
+  if (VISUAL_LAYOUT_IDS.has(spec.layoutId)) {
+    const textLength = Object.values(spec.slots).map(slotText).join(' ').length;
+    if (textLength > layout.maxTextChars) {
+      diagnostics.push(sceneDiagnostic(
+        'scene_text_overflow',
+        `Semantic slide ${spec.id} exceeds the text capacity for layout ${spec.layoutId}.`,
+        { sceneId },
+      ));
+    }
+  }
+
+  if (spec.layoutId === 'relationship-diagram') {
+    const diagram = spec.slots.diagram;
+    if (diagram?.kind !== 'diagram') {
+      diagnostics.push(sceneDiagnostic('scene_contract_invalid', `Semantic slide ${spec.id} requires a native relationship diagram.`, { sceneId }));
+    } else {
+      const nodeIds = new Set(diagram.nodes.map((node) => node.id));
+      if (diagram.nodes.length === 0 || diagram.nodes.length > 6 || diagram.edges.length > 8) {
+        diagnostics.push(sceneDiagnostic(
+          'scene_text_overflow',
+          `Semantic slide ${spec.id} exceeds the six-node, eight-edge relationship capacity.`,
+          { sceneId },
+        ));
+      }
+      if (
+        nodeIds.size !== diagram.nodes.length
+        || diagram.edges.some((edge) => edge.from === edge.to || !nodeIds.has(edge.from) || !nodeIds.has(edge.to))
+      ) {
+        diagnostics.push(sceneDiagnostic('scene_contract_invalid', `Semantic slide ${spec.id} has invalid relationship node references.`, { sceneId }));
+      } else if (!buildRelationshipOrthogonalRoutes(diagram, buildRelationshipNodeFrames(diagram))) {
+        diagnostics.push(sceneDiagnostic(
+          'scene_text_overflow',
+          `Semantic slide ${spec.id} has no collision-free bounded relationship route lanes.`,
+          { sceneId },
+        ));
+      }
+    }
+  }
+
+  if (spec.layoutId === 'question-choices') {
+    const question = spec.slots.question;
+    if (question?.kind !== 'question') {
+      diagnostics.push(sceneDiagnostic('scene_contract_invalid', `Semantic slide ${spec.id} requires a structured question.`, { sceneId }));
+    } else if (question.choices.length < 2 || question.choices.length > 4) {
+      diagnostics.push(sceneDiagnostic(
+        'scene_text_overflow',
+        `Semantic slide ${spec.id} exceeds the bounded two-by-two choice grid.`,
+        { sceneId },
+      ));
+    }
+  }
+
+  if (spec.layoutId === 'comparison-panels') {
+    const panelCount = comparisonPanelsFromSpec(spec).length;
+    if (panelCount < 2 || panelCount > 3) {
+      diagnostics.push(sceneDiagnostic(
+        'scene_text_overflow',
+        `Semantic slide ${spec.id} requires two or three bounded comparison panels.`,
+        { sceneId },
+      ));
+    }
+  }
+
+  if (spec.layoutId === 'visual-thesis' && spec.slots.diagram?.kind === 'diagram') {
+    const diagram = spec.slots.diagram;
+    const nodeIds = new Set(diagram.nodes.map((node) => node.id));
+    if (diagram.nodes.length > 4 || diagram.edges.length > 4) {
+      diagnostics.push(sceneDiagnostic(
+        'scene_text_overflow',
+        `Semantic slide ${spec.id} exceeds the bounded visual-thesis diagram capacity.`,
+        { sceneId },
+      ));
+    }
+    if (
+      nodeIds.size !== diagram.nodes.length
+      || diagram.edges.some((edge) => edge.from === edge.to || !nodeIds.has(edge.from) || !nodeIds.has(edge.to))
+    ) {
+      diagnostics.push(sceneDiagnostic('scene_contract_invalid', `Semantic slide ${spec.id} has invalid visual-thesis node references.`, { sceneId }));
+    } else if (!buildThesisOrthogonalRoutes(diagram, buildThesisDiagramItemFrames(diagram))) {
+      diagnostics.push(sceneDiagnostic(
+        'scene_text_overflow',
+        `Semantic slide ${spec.id} has no collision-free bounded visual-thesis route lanes.`,
+        { sceneId },
+      ));
+    }
+  }
+
+  return diagnostics;
 };
 
 export const doesSemanticSlideSpecFitScene = (spec: SemanticSlideSpec): boolean => {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { buildDeckVisualSystems } from '../../lib/deckVisualSystem.ts';
 import { compileSemanticSlideSpecsToScenes } from '../../lib/compiledSlideScene.ts';
 import { buildLessonSourceManifest } from '../../lib/lessonSourceManifest.ts';
+import { classifySourceContent } from '../../lib/sourceContentDisposition.ts';
 import {
   buildSceneAssetRequests,
   type SceneAssetRequest,
@@ -13,6 +14,8 @@ import {
 } from '../../lib/sceneAssetResolver.ts';
 import { buildSemanticSlideSpecs } from '../../lib/semanticSlideSpec.ts';
 import { buildTeachingStoryboard } from '../../lib/teachingStoryboard.ts';
+import { buildSemanticSlideSpecsFromVisualTeachingPlan } from '../../lib/visualTeachingSemanticBridge.ts';
+import { validateVisualTeachingPlan } from '../../lib/visualTeachingPlan.ts';
 import {
   DENSE_STORYBOARD_DOCUMENT,
   EVIDENCE_OUTPUT_DOCUMENT,
@@ -23,6 +26,7 @@ import {
   FIVE_SESSION_MATRIX_DOCUMENT,
   MULTI_OBJECTIVE_UNIT_DOCUMENT,
 } from './lessonSourceManifestFixtures.ts';
+import { validVisualPlanFixture } from './visualTeachingComposerFixtures.ts';
 
 const materializeFixture = async (document: Parameters<typeof buildLessonSourceManifest>[0]) => {
   const manifestResult = buildLessonSourceManifest(document);
@@ -87,6 +91,181 @@ export const buildFiveSessionEndToEndFixture = () => materializeFixture(FIVE_SES
 export const buildMultiObjectiveEndToEndFixture = () => materializeFixture(MULTI_OBJECTIVE_UNIT_DOCUMENT);
 export const buildDenseStoryboardEndToEndFixture = () => materializeFixture(DENSE_STORYBOARD_DOCUMENT);
 export const buildSourceBackedBlankTaskEndToEndFixture = () => materializeFixture(SOURCE_BACKED_BLANK_TASK_DOCUMENT);
+
+type VisualTeachingQualitySourceFixture = Pick<
+  ReturnType<typeof validVisualPlanFixture>,
+  'manifest' | 'storyboard' | 'dispositions' | 'plan'
+>;
+
+const materializeVisualTeachingQualityFixture = (fixture: VisualTeachingQualitySourceFixture) => {
+  const semanticResult = buildSemanticSlideSpecsFromVisualTeachingPlan({
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    dispositions: fixture.dispositions,
+    plan: fixture.plan,
+  });
+  assert.equal(semanticResult.ok, true);
+  if (!semanticResult.ok) throw new Error('visual teaching quality semantic fixture failed');
+
+  const visualResult = buildDeckVisualSystems(fixture.storyboard, semanticResult.specs);
+  assert.equal(visualResult.ok, true);
+  if (!visualResult.ok) throw new Error('visual teaching quality visual system fixture failed');
+
+  const requestsResult = buildSceneAssetRequests(
+    fixture.storyboard,
+    semanticResult.specs,
+    visualResult.bundle,
+  );
+  assert.equal(requestsResult.ok, true);
+  if (!requestsResult.ok) throw new Error('visual teaching quality asset request fixture failed');
+
+  const semanticSpecs = semanticResult.specs.map((spec) => ({
+    ...spec,
+    assetRequests: requestsResult.requests.filter((request) => request.semanticSlideSpecId === spec.id),
+  }));
+  const sceneResult = compileSemanticSlideSpecsToScenes(semanticSpecs, {
+    title: 'Sanitized Visual Teaching Quality Deck',
+    visualSystemsByUnitId: visualResult.bundle.systemsByUnitId,
+  });
+  assert.equal(sceneResult.ok, true);
+  if (!sceneResult.ok) throw new Error('visual teaching quality scene fixture failed');
+
+  return {
+    sourceManifest: fixture.manifest,
+    storyboard: fixture.storyboard,
+    semanticSpecs,
+    visualSystems: visualResult.bundle,
+    assetRequests: requestsResult.requests,
+    resolvedAssetsBySpecId: {},
+    presentation: sceneResult.presentation,
+    visualTeachingPlan: fixture.plan,
+  };
+};
+
+export const buildVisualTeachingQualityEndToEndFixture = () => (
+  materializeVisualTeachingQualityFixture(validVisualPlanFixture())
+);
+
+const sceneIdsForSource = (
+  plan: VisualTeachingQualitySourceFixture['plan'],
+  sourceId: string,
+): string[] => plan.scenes
+  .filter((scene) => (
+    scene.sourceStepIds.includes(sourceId)
+    || scene.sourceObjectiveIds.includes(sourceId)
+    || scene.sourceFieldIds.includes(sourceId)
+  ))
+  .map((scene) => scene.id);
+
+const reconcilePlanAccounting = (
+  fixture: Omit<VisualTeachingQualitySourceFixture, 'dispositions'>,
+): VisualTeachingQualitySourceFixture => {
+  const dispositionResult = classifySourceContent(fixture.manifest, fixture.storyboard);
+  assert.equal(dispositionResult.ok, true);
+  if (!dispositionResult.ok) throw new Error('visual teaching quality disposition fixture failed');
+  fixture.plan.sourceAccounting = dispositionResult.decisions.map((decision) => ({
+    ...decision,
+    sceneIds: sceneIdsForSource(fixture.plan, decision.sourceId),
+  }));
+  fixture.plan.provenance = {
+    ...fixture.plan.provenance,
+    sourceHash: fixture.manifest.provenance.sourceHash,
+    storyboardVersion: fixture.storyboard.contractVersion,
+    selectedUnitIds: [...fixture.storyboard.provenance.selectedUnitIds],
+  };
+  assert.deepEqual(validateVisualTeachingPlan(
+    fixture.plan,
+    fixture.manifest,
+    fixture.storyboard,
+    dispositionResult.decisions,
+  ), []);
+  return { ...fixture, dispositions: dispositionResult.decisions };
+};
+
+export const buildLearnerReferenceQualityEndToEndFixture = () => {
+  const base = validVisualPlanFixture();
+  const manifest = structuredClone(base.manifest);
+  const referenceStep = manifest.units[0].steps.find((step) => step.sourceLabel.startsWith('References'));
+  assert.ok(referenceStep);
+  referenceStep.rawBlocks = [
+    'Learners use the source-provided references to compare the two claims and cite the stronger evidence.',
+  ];
+  const storyboardResult = buildTeachingStoryboard(manifest);
+  assert.equal(storyboardResult.ok, true);
+  if (!storyboardResult.ok) throw new Error('learner reference storyboard fixture failed');
+  const referenceScreen = storyboardResult.storyboard.screens.find((screen) => (
+    screen.sourceStepIds.includes(referenceStep.id)
+  ));
+  assert.ok(referenceScreen);
+
+  const plan = structuredClone(base.plan);
+  plan.scenes.splice(1, 0, {
+    id: 'visual-scene-reference',
+    unitId: referenceStep.unitId,
+    sourceStepIds: [referenceStep.id],
+    sourceObjectiveIds: [],
+    sourceFieldIds: [],
+    storyboardScreenIds: [referenceScreen.id],
+    teachingMove: 'practice',
+    learnerTitle: 'Sources',
+    visibleContent: {
+      statement: referenceStep.rawBlocks[0],
+      points: [],
+      cards: [],
+      steps: [],
+    },
+    visualGrammar: 'activity-board',
+    teacherNotes: referenceScreen.teacherNotes,
+    requiredEvidence: [...referenceScreen.requiredEvidence],
+    requiredOutputs: [...referenceScreen.requiredOutputs],
+  });
+
+  return materializeVisualTeachingQualityFixture(reconcilePlanAccounting({
+    manifest,
+    storyboard: storyboardResult.storyboard,
+    plan,
+  }));
+};
+
+export const buildCloseReadingQualityEndToEndFixture = () => {
+  const base = validVisualPlanFixture();
+  const manifest = structuredClone(base.manifest);
+  const closeReadingStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Prediction');
+  assert.ok(closeReadingStep);
+  closeReadingStep.sourceLabel = 'Close Reading Passage';
+  closeReadingStep.rawBlocks = [
+    `Passage: ${'Source-backed passage sentence for careful evidence reading. '.repeat(12)}`,
+  ];
+  const storyboardResult = buildTeachingStoryboard(manifest);
+  assert.equal(storyboardResult.ok, true);
+  if (!storyboardResult.ok) throw new Error('close reading storyboard fixture failed');
+
+  const plan = structuredClone(base.plan);
+  const planScene = plan.scenes.find((scene) => scene.sourceStepIds.includes(closeReadingStep.id));
+  assert.ok(planScene);
+  const storyboardScreen = storyboardResult.storyboard.screens.find((screen) => (
+    screen.sourceStepIds.includes(closeReadingStep.id)
+  ));
+  assert.ok(storyboardScreen);
+  planScene.learnerTitle = 'Close Reading Passage';
+  const trustedScreens = planScene.storyboardScreenIds.map((screenId) => (
+    storyboardResult.storyboard.screens.find((screen) => screen.id === screenId)!
+  ));
+  planScene.storyboardScreenIds = trustedScreens.map((screen) => screen.id);
+  planScene.sourceStepIds = trustedScreens.flatMap((screen) => screen.sourceStepIds);
+  planScene.sourceObjectiveIds = trustedScreens.flatMap((screen) => screen.sourceObjectiveIds);
+  planScene.sourceFieldIds = trustedScreens.flatMap((screen) => screen.sourceFieldIds);
+  planScene.visibleContent.statement = 'Read the source-provided passage closely and identify two pieces of evidence.';
+  planScene.teacherNotes = trustedScreens.map((screen) => screen.teacherNotes).filter(Boolean).join('\n');
+  planScene.requiredEvidence = ['careful evidence reading'];
+  planScene.requiredOutputs = [...storyboardScreen.requiredOutputs];
+
+  return materializeVisualTeachingQualityFixture(reconcilePlanAccounting({
+    manifest,
+    storyboard: storyboardResult.storyboard,
+    plan,
+  }));
+};
 
 export const flattenResolvedAssets = (resolvedAssetsBySpecId: Record<string, SceneResolvedAsset[]>): SceneResolvedAsset[] => (
   Object.values(resolvedAssetsBySpecId).flat()

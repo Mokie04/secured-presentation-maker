@@ -34,7 +34,11 @@ import {
   type SemanticSlideDiagnostic,
   type SemanticSlideSpec,
 } from './semanticSlideSpec.ts';
+import type { LessonSourceManifest } from './lessonSourceManifest.ts';
+import type { SourceDispositionDecision } from './sourceContentDisposition.ts';
 import type { TeachingStoryboard } from './teachingStoryboard.ts';
+import { buildSemanticSlideSpecsFromVisualTeachingPlan } from './visualTeachingSemanticBridge.ts';
+import type { VisualTeachingPlan } from './visualTeachingPlan.ts';
 
 export type DeckVisualSceneBoundaryDiagnostic =
   | VisualSystemDiagnostic
@@ -48,6 +52,7 @@ export type DeckVisualSceneBoundaryArtifacts = {
   visualSystems: DeckVisualSystemBundle;
   assetRequests: SceneAssetRequest[];
   resolvedAssetsBySpecId: Record<string, SceneResolvedAsset[]>;
+  visualTeachingPlan?: VisualTeachingPlan;
 };
 
 export type DeckVisualSceneBoundary =
@@ -65,6 +70,11 @@ export type DeckVisualSceneBoundaryOptions = {
   budget?: SceneAssetBudget;
   adapters?: SceneAssetAdapters;
   includeValidationArtifacts?: boolean;
+  visualTeachingPlan?: VisualTeachingPlan;
+  visualTeachingSourceContext?: {
+    sourceManifest: LessonSourceManifest;
+    dispositions: readonly SourceDispositionDecision[];
+  };
 };
 
 const groupSpecsWithRequests = (
@@ -103,7 +113,23 @@ export const resolveDeckVisualScenePresentationForGeneration = async (
     };
   }
 
-  const specsResult = buildSemanticSlideSpecs(storyboard);
+  const specsResult = options.visualTeachingPlan
+    ? options.visualTeachingSourceContext
+      ? buildSemanticSlideSpecsFromVisualTeachingPlan({
+          sourceManifest: options.visualTeachingSourceContext.sourceManifest,
+          storyboard,
+          dispositions: options.visualTeachingSourceContext.dispositions,
+          plan: options.visualTeachingPlan,
+        })
+      : {
+          ok: false as const,
+          diagnostics: [{
+            code: 'semantic_spec_contract_invalid' as const,
+            severity: 'blocking' as const,
+            message: 'Visual teaching semantic compilation requires validated source context.',
+          }],
+        }
+    : buildSemanticSlideSpecs(storyboard);
   if (specsResult.ok === false) {
     return {
       ok: false,
@@ -178,6 +204,9 @@ export const resolveDeckVisualScenePresentationForGeneration = async (
       visualSystems: visualSystemsResult.bundle,
       assetRequests: requestsResult.requests,
       resolvedAssetsBySpecId,
+      ...(options.visualTeachingPlan
+        ? { visualTeachingPlan: options.visualTeachingPlan }
+        : {}),
     },
   };
 };

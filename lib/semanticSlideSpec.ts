@@ -1,4 +1,5 @@
 import type { K12GenerationRoutePolicy } from './k12GenerationRoutePolicy.ts';
+import type { LessonSourceManifest } from './lessonSourceManifest.ts';
 import type { SceneAssetRequest } from './sceneAssetRequests.ts';
 import {
   compileSemanticSlideSpecsToScenes,
@@ -7,10 +8,20 @@ import {
   type CompiledScenePresentation,
   type SceneValidationDiagnostic,
 } from './compiledSlideScene.ts';
+import {
+  classifySourceContent,
+  type SourceDispositionDecision,
+} from './sourceContentDisposition.ts';
 import type {
   StoryboardScreen,
   TeachingStoryboard,
 } from './teachingStoryboard.ts';
+import {
+  validateVisualTeachingPlan,
+  type VisualGrammar,
+  type VisualTeachingPlan,
+  type VisualTeachingScene,
+} from './visualTeachingPlan.ts';
 
 export const SEMANTIC_SLIDE_SPEC_VERSION = 'semantic-slide-spec-v1';
 
@@ -20,6 +31,7 @@ export type SemanticSlideDiagnosticCode =
   | 'semantic_spec_contract_invalid'
   | 'semantic_spec_storyboard_mapping_invalid'
   | 'semantic_spec_source_step_mismatch'
+  | 'semantic_spec_source_field_mismatch'
   | 'semantic_spec_objective_mismatch'
   | 'semantic_spec_layout_unsupported'
   | 'semantic_spec_generic_layout_coverage_low'
@@ -51,24 +63,39 @@ export type SemanticLayoutId =
   | 'process-flow-horizontal'
   | 'question-reveal-pair'
   | 'exit-ticket-card'
-  | 'generic-bullets';
+  | 'generic-bullets'
+  | 'visual-thesis'
+  | 'relationship-diagram'
+  | 'comparison-panels'
+  | 'question-choices';
 
 export type SlideSlotValue =
   | { kind: 'text'; text: string }
   | { kind: 'list'; items: string[] }
   | { kind: 'cards'; cards: Array<{ id: string; title: string; body: string }> }
   | { kind: 'table'; headers: string[]; rows: string[][] }
-  | { kind: 'steps'; steps: Array<{ id: string; label: string; body: string }> };
+  | { kind: 'steps'; steps: Array<{ id: string; label: string; body: string }> }
+  | { kind: 'question'; prompt: string; choices: Array<{ id: string; text: string }>; answerId?: string }
+  | {
+      kind: 'diagram';
+      nodes: Array<{ id: string; label: string; detail?: string; role: string }>;
+      edges: Array<{ from: string; to: string; label?: string; direction: string }>;
+    };
 
 export type SemanticSlideSpec = {
   contractVersion: typeof SEMANTIC_SLIDE_SPEC_VERSION;
   id: string;
   unitId: string;
   storyboardScreenId: string;
+  storyboardScreenIds: string[];
   sourceStepIds: string[];
   sourceObjectiveIds: string[];
+  sourceFieldIds: string[];
+  visualTeachingSceneId?: string;
   intent: SemanticSlideIntent;
   layoutId: SemanticLayoutId;
+  visualGrammar?: VisualGrammar;
+  visualAssetBrief?: VisualTeachingScene['assetBrief'];
   slots: Record<string, SlideSlotValue>;
   assetRequests: SceneAssetRequest[];
   speakerNotes: string;
@@ -90,6 +117,16 @@ export type SemanticSlideSpecResult =
   | { ok: true; specs: SemanticSlideSpec[] }
   | { ok: false; diagnostics: SemanticSlideDiagnostic[] };
 
+export type VisualTeachingSemanticValidationContext = {
+  sourceManifest: LessonSourceManifest;
+  dispositions: readonly SourceDispositionDecision[];
+  visualTeachingPlan: VisualTeachingPlan;
+};
+
+export type RevalidatedVisualTeachingSemanticContext =
+  | { ok: true; visualTeachingPlan: VisualTeachingPlan }
+  | { ok: false; diagnostics: SemanticSlideDiagnostic[] };
+
 export type SemanticScenePresentationBoundary =
   | { ok: true; presentation: CompiledScenePresentation | null }
   | { ok: false; message: string; diagnostics: Array<SemanticSlideDiagnostic | SceneValidationDiagnostic> };
@@ -106,6 +143,10 @@ const SEMANTIC_LAYOUT_IDS: ReadonlySet<SemanticLayoutId> = new Set([
   'question-reveal-pair',
   'exit-ticket-card',
   'generic-bullets',
+  'visual-thesis',
+  'relationship-diagram',
+  'comparison-panels',
+  'question-choices',
 ]);
 
 const semanticDiagnostic = (
@@ -122,6 +163,65 @@ const semanticDiagnostic = (
 const arraysEqual = (a: readonly string[], b: readonly string[]): boolean => (
   a.length === b.length && a.every((value, index) => value === b[index])
 );
+
+const dispositionDecisionsEqual = (
+  left: readonly SourceDispositionDecision[],
+  right: readonly SourceDispositionDecision[],
+): boolean => left.length === right.length && left.every((item, index) => {
+  const expected = right[index];
+  return Boolean(
+    expected
+    && item.sourceKind === expected.sourceKind
+    && item.sourceId === expected.sourceId
+    && item.unitId === expected.unitId
+    && item.sourceOrder === expected.sourceOrder
+    && item.sourceLabel === expected.sourceLabel
+    && item.disposition === expected.disposition
+    && item.reason === expected.reason
+  );
+});
+
+export const revalidateVisualTeachingSemanticContext = (
+  context: VisualTeachingSemanticValidationContext,
+  storyboard: TeachingStoryboard,
+): RevalidatedVisualTeachingSemanticContext => {
+  const deterministicDispositions = classifySourceContent(context.sourceManifest, storyboard);
+  if (deterministicDispositions.ok === false) {
+    return {
+      ok: false,
+      diagnostics: [semanticDiagnostic(
+        'semantic_spec_contract_invalid',
+        `Source disposition validation failed before semantic authorization: ${deterministicDispositions.diagnostics.map((item) => item.code).join(', ')}.`,
+      )],
+    };
+  }
+  if (!dispositionDecisionsEqual(context.dispositions, deterministicDispositions.decisions)) {
+    return {
+      ok: false,
+      diagnostics: [semanticDiagnostic(
+        'semantic_spec_contract_invalid',
+        'Visual teaching semantic context does not match deterministic source dispositions.',
+      )],
+    };
+  }
+
+  const planDiagnostics = validateVisualTeachingPlan(
+    context.visualTeachingPlan,
+    context.sourceManifest,
+    storyboard,
+    deterministicDispositions.decisions,
+  );
+  if (planDiagnostics.length > 0) {
+    return {
+      ok: false,
+      diagnostics: [semanticDiagnostic(
+        'semantic_spec_contract_invalid',
+        `Visual teaching plan validation failed before semantic authorization: ${planDiagnostics.map((item) => item.code).join(', ')}.`,
+      )],
+    };
+  }
+  return { ok: true, visualTeachingPlan: context.visualTeachingPlan };
+};
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
@@ -381,27 +481,83 @@ const splitDenseSemanticSpec = (
 export const validateSemanticSlideSpecs = (
   specs: readonly SemanticSlideSpec[],
   storyboard: TeachingStoryboard,
+  visualTeachingContext?: VisualTeachingSemanticValidationContext,
 ): SemanticSlideDiagnostic[] => {
   const diagnostics: SemanticSlideDiagnostic[] = [];
   const screensById = new Map(storyboard.screens.map((screen) => [screen.id, screen] as const));
   const screenOrder = new Map(storyboard.screens.map((screen, index) => [screen.id, index] as const));
   const coveredScreenIds = new Set<string>();
+  const coveredVisualSceneIds = new Set<string>();
   let previousScreenIndex = -1;
-  let previousScreenId: string | null = null;
+  let previousScreenIds: string[] | null = null;
+  let validatedVisualTeachingPlan: VisualTeachingPlan | null = null;
+  if (visualTeachingContext) {
+    const contextResult = revalidateVisualTeachingSemanticContext(visualTeachingContext, storyboard);
+    if (contextResult.ok === true) {
+      validatedVisualTeachingPlan = contextResult.visualTeachingPlan;
+    } else {
+      diagnostics.push(...contextResult.diagnostics);
+    }
+  }
+  const visualSceneById = new Map(
+    validatedVisualTeachingPlan?.scenes.map((scene) => [scene.id, scene] as const) ?? [],
+  );
+  const planAccounting = new Map(
+    validatedVisualTeachingPlan?.sourceAccounting.map((entry) => [entry.sourceId, entry] as const) ?? [],
+  );
+  const isAuthorizedNonLearnerScreen = (screen: StoryboardScreen): boolean => Boolean(
+    validatedVisualTeachingPlan
+    && screen.sourceObjectiveIds.length === 0
+    && [...screen.sourceStepIds, ...screen.sourceFieldIds].length > 0
+    && [...screen.sourceStepIds, ...screen.sourceFieldIds].every((sourceId) => {
+      const entry = planAccounting.get(sourceId);
+      return Boolean(entry && entry.disposition !== 'learner-visible' && entry.sceneIds.length === 0);
+    }),
+  );
 
   for (const spec of specs) {
-    const screen = screensById.get(spec.storyboardScreenId);
-    const currentScreenIndex = screenOrder.get(spec.storyboardScreenId);
-    if (!screen || typeof currentScreenIndex !== 'number') {
+    const storyboardScreenIds = spec.storyboardScreenIds;
+    const referencedScreens = storyboardScreenIds
+      .map((screenId) => screensById.get(screenId))
+      .filter((screen): screen is StoryboardScreen => Boolean(screen));
+    const screenIndices = storyboardScreenIds
+      .map((screenId) => screenOrder.get(screenId))
+      .filter((index): index is number => typeof index === 'number');
+    const screen = referencedScreens[0];
+    const currentScreenIndex = screenIndices[0];
+    const hasUniqueScreenIds = new Set(storyboardScreenIds).size === storyboardScreenIds.length;
+    const isContiguous = referencedScreens.length === storyboardScreenIds.length
+      && screenIndices.every((index, position) => {
+        if (position === 0) return true;
+        const previousIndex = screenIndices[position - 1];
+        const previousScreen = referencedScreens[position - 1];
+        const currentScreen = referencedScreens[position];
+        if (index <= previousIndex || previousScreen.unitId !== currentScreen.unitId) return false;
+        if (index === previousIndex + 1) return true;
+        return storyboard.screens.slice(previousIndex + 1, index).every((interveningScreen) => (
+          interveningScreen.unitId === currentScreen.unitId
+          && isAuthorizedNonLearnerScreen(interveningScreen)
+        ));
+      });
+    if (
+      storyboardScreenIds.length === 0
+      || spec.storyboardScreenId !== storyboardScreenIds[0]
+      || referencedScreens.length !== storyboardScreenIds.length
+      || screenIndices.length !== storyboardScreenIds.length
+      || !hasUniqueScreenIds
+      || !isContiguous
+      || !screen
+      || typeof currentScreenIndex !== 'number'
+    ) {
       diagnostics.push(semanticDiagnostic(
         'semantic_spec_storyboard_mapping_invalid',
-        `Semantic slide ${spec.id} references a storyboard screen that does not exist.`,
+        `Semantic slide ${spec.id} must reference existing contiguous storyboard screens with its primary screen first.`,
         { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
       ));
       continue;
     }
 
-    if (currentScreenIndex < previousScreenIndex) {
+    if (currentScreenIndex <= previousScreenIndex && !arraysEqual(storyboardScreenIds, previousScreenIds ?? [])) {
       diagnostics.push(semanticDiagnostic(
         'semantic_spec_storyboard_mapping_invalid',
         `Semantic slide ${spec.id} appears out of storyboard screen order.`,
@@ -409,30 +565,75 @@ export const validateSemanticSlideSpecs = (
       ));
     }
 
-    if (currentScreenIndex === previousScreenIndex && previousScreenId !== spec.storyboardScreenId) {
+    previousScreenIndex = Math.max(previousScreenIndex, screenIndices.at(-1) ?? currentScreenIndex);
+    previousScreenIds = storyboardScreenIds;
+    storyboardScreenIds.forEach((screenId) => coveredScreenIds.add(screenId));
+
+    if (spec.visualTeachingSceneId || visualTeachingContext) {
+      const visualScene = spec.visualTeachingSceneId
+        ? visualSceneById.get(spec.visualTeachingSceneId)
+        : undefined;
+      if (
+        !visualScene
+        || !spec.visualTeachingSceneId
+        || coveredVisualSceneIds.has(spec.visualTeachingSceneId)
+        || visualScene.unitId !== spec.unitId
+        || !arraysEqual(visualScene.storyboardScreenIds, spec.storyboardScreenIds)
+      ) {
+        diagnostics.push(semanticDiagnostic(
+          'semantic_spec_contract_invalid',
+          `Semantic slide ${spec.id} is not uniquely bound to its exact validated visual teaching scene.`,
+          { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
+        ));
+      } else {
+        coveredVisualSceneIds.add(spec.visualTeachingSceneId);
+        if (!arraysEqual(spec.sourceStepIds, visualScene.sourceStepIds)) {
+          diagnostics.push(semanticDiagnostic(
+            'semantic_spec_source_step_mismatch',
+            `Semantic slide ${spec.id} changes source-step provenance from visual scene ${visualScene.id}.`,
+            { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
+          ));
+        }
+        if (!arraysEqual(spec.sourceObjectiveIds, visualScene.sourceObjectiveIds)) {
+          diagnostics.push(semanticDiagnostic(
+            'semantic_spec_objective_mismatch',
+            `Semantic slide ${spec.id} changes objective provenance from visual scene ${visualScene.id}.`,
+            { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
+          ));
+        }
+        if (!arraysEqual(spec.sourceFieldIds, visualScene.sourceFieldIds)) {
+          diagnostics.push(semanticDiagnostic(
+            'semantic_spec_source_field_mismatch',
+            `Semantic slide ${spec.id} changes source-field provenance from visual scene ${visualScene.id}.`,
+            { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
+          ));
+        }
+      }
+    }
+
+    if (referencedScreens.some((referencedScreen) => referencedScreen.unitId !== spec.unitId)) {
       diagnostics.push(semanticDiagnostic(
         'semantic_spec_storyboard_mapping_invalid',
-        `Semantic slide ${spec.id} duplicates a non-adjacent storyboard screen mapping.`,
+        `Semantic slide ${spec.id} crosses storyboard unit ownership.`,
         { specId: spec.id, storyboardScreenId: spec.storyboardScreenId },
       ));
     }
 
-    previousScreenIndex = Math.max(previousScreenIndex, currentScreenIndex);
-    previousScreenId = spec.storyboardScreenId;
-    coveredScreenIds.add(spec.storyboardScreenId);
+    const expectedStepIds = uniqueNormalized(referencedScreens.flatMap((referencedScreen) => referencedScreen.sourceStepIds));
+    const expectedObjectiveIds = uniqueNormalized(referencedScreens.flatMap((referencedScreen) => referencedScreen.sourceObjectiveIds));
 
-    if (!arraysEqual(spec.sourceStepIds, screen.sourceStepIds)) {
+    if (!arraysEqual(spec.sourceStepIds, expectedStepIds)) {
       diagnostics.push(semanticDiagnostic(
         'semantic_spec_source_step_mismatch',
-        `Semantic slide ${spec.id} does not preserve source-step ownership from storyboard screen ${screen.id}.`,
+        `Semantic slide ${spec.id} does not preserve combined source-step ownership from its storyboard screens.`,
         { specId: spec.id, storyboardScreenId: screen.id },
       ));
     }
 
-    if (!arraysEqual(spec.sourceObjectiveIds, screen.sourceObjectiveIds)) {
+    if (!arraysEqual(spec.sourceObjectiveIds, expectedObjectiveIds)) {
       diagnostics.push(semanticDiagnostic(
         'semantic_spec_objective_mismatch',
-        `Semantic slide ${spec.id} does not preserve source-objective ownership from storyboard screen ${screen.id}.`,
+        `Semantic slide ${spec.id} does not preserve combined source-objective ownership from its storyboard screens.`,
         { specId: spec.id, storyboardScreenId: screen.id },
       ));
     }
@@ -447,8 +648,19 @@ export const validateSemanticSlideSpecs = (
 
   }
 
+  if (validatedVisualTeachingPlan) {
+    for (const scene of validatedVisualTeachingPlan.scenes) {
+      if (!coveredVisualSceneIds.has(scene.id)) {
+        diagnostics.push(semanticDiagnostic(
+          'semantic_spec_contract_invalid',
+          `Validated visual teaching scene ${scene.id} is not represented exactly once by semantic specs.`,
+        ));
+      }
+    }
+  }
+
   for (const screen of storyboard.screens) {
-    if (!coveredScreenIds.has(screen.id)) {
+    if (!coveredScreenIds.has(screen.id) && !isAuthorizedNonLearnerScreen(screen)) {
       diagnostics.push(semanticDiagnostic(
         'semantic_spec_storyboard_mapping_invalid',
         `Storyboard screen ${screen.id} is not represented by a semantic slide spec.`,
@@ -480,8 +692,10 @@ export const buildSemanticSlideSpecs = (storyboard: TeachingStoryboard): Semanti
       id: 'semslide-pending',
       unitId: screen.unitId,
       storyboardScreenId: screen.id,
+      storyboardScreenIds: [screen.id],
       sourceStepIds: [...screen.sourceStepIds],
       sourceObjectiveIds: [...screen.sourceObjectiveIds],
+      sourceFieldIds: [...screen.sourceFieldIds],
       intent,
       layoutId: selectLayoutId(intent, screen),
       slots: buildSlotsForScreen(screen),

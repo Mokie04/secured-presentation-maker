@@ -21,9 +21,11 @@ import { buildTeachingStoryboard, resolveTeachingStoryboardForGeneration } from 
 import CompiledSlideSceneView from './components/CompiledSlideSceneView';
 import { COMPILED_SLIDE_SCENE_VERSION, type CompiledScenePresentation, type CompiledSlideScene } from './lib/compiledSlideScene';
 import { compilePptxSceneOperations } from './lib/compiledScenePptx';
-import { resolveEndToEndValidatedScenePresentationForGeneration } from './lib/endToEndSceneBoundary';
+import { resolveEndToEndValidatedScenePresentationForGeneration, shouldRunVisualTeachingComposer } from './lib/endToEndSceneBoundary';
 import { buildSourcePrimarySceneTelemetryEvent } from './lib/sourcePrimarySceneTelemetry';
 import { resolveSourcePrimarySceneRolloutForGeneration, shouldRunSourcePrimaryScenePreflight } from './lib/sourcePrimarySceneRollout';
+import { SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION, resolveSourcePrimaryWeeklyBlueprintForGeneration } from './lib/sourcePrimaryWeeklyBlueprint';
+import { composeVisualTeachingPlanWithProvider } from './services/visualTeachingComposerService';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -113,6 +115,7 @@ const SOURCE_PRIMARY_PRODUCTION_ARMED_FLAG = import.meta.env.VITE_SOURCE_PRIMARY
 const SEMANTIC_SLIDES_V1_FLAG = import.meta.env.VITE_SEMANTIC_SLIDES_V1;
 const DECK_VISUAL_SYSTEM_V1_FLAG = import.meta.env.VITE_DECK_VISUAL_SYSTEM_V1;
 const END_TO_END_VALIDATION_V1_FLAG = import.meta.env.VITE_END_TO_END_VALIDATION_V1;
+const VISUAL_TEACHING_COMPOSER_V1_FLAG = import.meta.env.VITE_VISUAL_TEACHING_COMPOSER_V1;
 const IS_PRODUCTION_BUILD = import.meta.env.PROD === true;
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
@@ -3856,6 +3859,7 @@ const App: React.FC = () => {
     const generationLanguage = getPresentationLanguageForGeneration(content);
     setIsLoading(true);
     let shouldRollbackGeneration = false;
+    let visualComposerGenerationReserved = false;
 
     try {
         // College Flow
@@ -3923,6 +3927,13 @@ const App: React.FC = () => {
             );
             const routePolicy = rolloutDecision.effectiveRoutePolicy;
             const runSourcePrimaryScenePreflight = shouldRunSourcePrimaryScenePreflight(rolloutDecision);
+            const useSourcePrimaryWeeklyBlueprint = runSourcePrimaryScenePreflight && shouldRunVisualTeachingComposer(
+              routePolicy,
+              VISUAL_TEACHING_COMPOSER_V1_FLAG,
+              SEMANTIC_SLIDES_V1_FLAG,
+              DECK_VISUAL_SYSTEM_V1_FLAG,
+              END_TO_END_VALIDATION_V1_FLAG,
+            );
             void buildSourcePrimarySceneTelemetryEvent({
               decision: rolloutDecision,
               sourceHash: lessonSourceManifestResult?.ok === true
@@ -3970,6 +3981,22 @@ const App: React.FC = () => {
                     {
                       title: sourceManifestBoundary.manifest?.units.map((unit) => unit.sourceLabel).join(' / ') || 'Source-Aligned Lesson',
                       selectedUnitLabel: sourceManifestBoundary.manifest?.units[0]?.sourceLabel,
+                      visualComposer: {
+                        flagValue: VISUAL_TEACHING_COMPOSER_V1_FLAG,
+                        language: generationLanguage,
+                        compose: composeVisualTeachingPlanWithProvider,
+                        authorizeGeneration: () => {
+                          if (adminGenerationLimitBypassed) return true;
+                          visualComposerGenerationReserved = tryIncrementCount('generations');
+                          return visualComposerGenerationReserved;
+                        },
+                        releaseGeneration: () => {
+                          if (adminGenerationLimitBypassed || !visualComposerGenerationReserved) return;
+                          visualComposerGenerationReserved = false;
+                          decrementCount('generations');
+                        },
+                        authorizationFailureMessage: t.presentation.errorGenerationLimit,
+                      },
                     },
                   );
                   void buildSourcePrimarySceneTelemetryEvent({
@@ -3985,7 +4012,7 @@ const App: React.FC = () => {
                     return;
                   }
                   if (semanticSceneBoundary.presentation) {
-                    const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+                    const hasQuota = visualComposerGenerationReserved || adminGenerationLimitBypassed || tryIncrementCount('generations');
                     if (!hasQuota) {
                       setIsLoading(false);
                       setError(t.presentation.errorGenerationLimit);
@@ -4051,6 +4078,7 @@ const App: React.FC = () => {
                 const cacheKey = await buildGenerationCacheKey('k12-lesson-plan', [
                   GENERATION_CACHE_VERSION,
                   ...routePolicy.cacheKeyParts,
+                  ...(useSourcePrimaryWeeklyBlueprint ? [SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION] : []),
                   content,
                   DEFAULT_LESSON_FORMAT,
                   generationLanguage,
@@ -4106,6 +4134,48 @@ const App: React.FC = () => {
                   return;
                 }
 
+                if (useSourcePrimaryWeeklyBlueprint) {
+                  const weeklyBlueprintBoundary = resolveSourcePrimaryWeeklyBlueprintForGeneration(
+                    routePolicy,
+                    sourceManifestBoundary.manifest,
+                    generationLanguage,
+                  );
+                  if (weeklyBlueprintBoundary.ok === false) {
+                    setError(weeklyBlueprintBoundary.message);
+                    setIsLoading(false);
+                    return;
+                  }
+
+                  if (weeklyBlueprintBoundary.blueprint) {
+                    const blueprintWithStatus = resetBlueprintStatus(weeklyBlueprintBoundary.blueprint);
+                    const imageSemanticScope = buildK12ImageSemanticScope(weeklyBlueprintBoundary.blueprint);
+                    setLessonBlueprint(blueprintWithStatus);
+
+                    const initialSlides = buildK12InitialSlides(weeklyBlueprintBoundary.blueprint, generationLanguage);
+                    const processedInitialSlides = await processSlidesForImages(
+                      initialSlides,
+                      generationLanguage,
+                      { muteProgress: true, imageCacheScope: cacheKey, imageSemanticScope },
+                    );
+                    const initialPresentation = {
+                        title: weeklyBlueprintBoundary.blueprint.mainTitle,
+                        slides: processedInitialSlides
+                    };
+
+                    setCompiledScenePresentation(null);
+                    setPresentation(initialPresentation);
+                    await setCachedGeneration(cacheKey, {
+                      blueprint: blueprintWithStatus,
+                      initialPresentation,
+                    });
+
+                    await finishLoadingProgress(setLoadingProgress);
+                    setAppStep('planning');
+                    shouldRollbackGeneration = false;
+                    return;
+                  }
+                }
+
                 const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, generationLanguage);
                 const blueprintWithStatus = resetBlueprintStatus(blueprint);
                 const imageSemanticScope = buildK12ImageSemanticScope(blueprint);
@@ -4153,6 +4223,7 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     let shouldRollbackGeneration = false;
+    let visualComposerGenerationReserved = false;
     
     try {
         const dayToGenerate = lessonBlueprint.days[dayIndex];
@@ -4242,6 +4313,22 @@ const App: React.FC = () => {
             {
               title: planUnitPresentationTitle,
               selectedUnitLabel: sourceManifestBoundary.manifest?.units[dayIndex]?.sourceLabel,
+              visualComposer: {
+                flagValue: VISUAL_TEACHING_COMPOSER_V1_FLAG,
+                language: getPresentationLanguageForGeneration(content),
+                compose: composeVisualTeachingPlanWithProvider,
+                authorizeGeneration: () => {
+                  if (adminGenerationLimitBypassed) return true;
+                  visualComposerGenerationReserved = tryIncrementCount('generations');
+                  return visualComposerGenerationReserved;
+                },
+                releaseGeneration: () => {
+                  if (adminGenerationLimitBypassed || !visualComposerGenerationReserved) return;
+                  visualComposerGenerationReserved = false;
+                  decrementCount('generations');
+                },
+                authorizationFailureMessage: t.presentation.errorGenerationLimit,
+              },
             },
           );
           void buildSourcePrimarySceneTelemetryEvent({
@@ -4263,7 +4350,7 @@ const App: React.FC = () => {
             return;
           }
           if (semanticSceneBoundary.presentation) {
-            const hasQuota = adminGenerationLimitBypassed || tryIncrementCount('generations');
+            const hasQuota = visualComposerGenerationReserved || adminGenerationLimitBypassed || tryIncrementCount('generations');
             if (!hasQuota) {
               setError(t.presentation.errorGenerationLimit);
               setLessonBlueprint(prev => {

@@ -13,14 +13,23 @@ import type {
   SourceUnit,
 } from './lessonSourceManifest.ts';
 import type { SemanticSlideSpec } from './semanticSlideSpec.ts';
+import { classifySourceContent } from './sourceContentDisposition.ts';
 import {
   detectVisibleTeacherScript,
   type StoryboardScreen,
 } from './teachingStoryboard.ts';
+import {
+  validateVisualTeachingPlan,
+  type VisualTeachingPlan,
+} from './visualTeachingPlan.ts';
 
 export type SourceAlignmentValidationResult = {
   summary: SourceAlignmentSummary;
   diagnostics: EndToEndDiagnostic[];
+};
+
+export type SourceAlignmentValidationInput = EndToEndValidationInput & {
+  visualTeachingPlan?: VisualTeachingPlan;
 };
 
 type InstructionCategory = {
@@ -44,6 +53,13 @@ const BLANK_FIELD_VISIBLE_PATTERNS: readonly RegExp[] = [
   /\bmissing\b/i,
   /\bnot\s+provided\b/i,
 ];
+
+const NON_LEARNER_DISPOSITIONS = new Set([
+  'speaker-notes',
+  'deck-metadata',
+  'merge-context',
+  'omit-administrative',
+]);
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
@@ -176,11 +192,12 @@ const countDiagnostics = (
 ): number => diagnostics.filter((diagnosticItem) => diagnosticItem.code === code).length;
 
 const validateSourceStepCoverage = (
-  input: EndToEndValidationInput,
+  input: SourceAlignmentValidationInput,
   selectedSteps: readonly SourceStep[],
   selectedStepIds: ReadonlySet<string>,
   diagnostics: EndToEndDiagnostic[],
   seenDiagnostics: Set<string>,
+  validatedVisualTeachingPlan: VisualTeachingPlan | null,
 ): number => {
   const sceneStepIds = new Set(input.presentation.scenes.flatMap((scene) => scene.sourceStepIds));
   const specStepIds = new Set(input.semanticSpecs.flatMap((spec) => spec.sourceStepIds));
@@ -194,11 +211,26 @@ const validateSourceStepCoverage = (
     }
 
     const accounting = input.storyboard.sourceStepAccounting.find((entry) => entry.sourceStepId === step.id);
+    const planAccounting = validatedVisualTeachingPlan?.sourceAccounting.find((entry) => (
+      entry.sourceKind === 'step'
+      && entry.sourceId === step.id
+      && entry.unitId === step.unitId
+    ));
+    const isAuthorizedNonLearnerDisposition = Boolean(
+      planAccounting
+      && NON_LEARNER_DISPOSITIONS.has(planAccounting.disposition)
+      && planAccounting.sceneIds.length === 0,
+    );
     const stepCovered = Boolean(
       accounting
       && accountedSteps.has(step.id)
-      && (accounting.status === 'teacher-notes' || sceneStepIds.has(step.id))
-      && specStepIds.has(step.id),
+      && (
+        isAuthorizedNonLearnerDisposition
+        || (
+          (accounting.status === 'teacher-notes' || sceneStepIds.has(step.id))
+          && specStepIds.has(step.id)
+        )
+      ),
     );
 
     if (stepCovered) {
@@ -267,12 +299,15 @@ const validateObjectivePreservation = (
   }
 
   for (const spec of input.semanticSpecs) {
-    const screen = screenById.get(spec.storyboardScreenId);
-    if (screen && !arraysEqual(spec.sourceObjectiveIds, screen.sourceObjectiveIds)) {
+    const screens = spec.storyboardScreenIds
+      .map((screenId) => screenById.get(screenId))
+      .filter((screen): screen is StoryboardScreen => Boolean(screen));
+    const expectedObjectiveIds = uniqueInOrder(screens.flatMap((screen) => screen.sourceObjectiveIds));
+    if (screens.length > 0 && !arraysEqual(spec.sourceObjectiveIds, expectedObjectiveIds)) {
       pushOnce(diagnostics, seenDiagnostics, diagnostic(
         'e2e_objective_preservation_failed',
-        `Semantic slide ${spec.id} does not preserve objective ownership from storyboard screen ${screen.id}.`,
-        { semanticSlideSpecId: spec.id, storyboardScreenId: screen.id },
+        `Semantic slide ${spec.id} does not preserve combined objective ownership from its storyboard screens.`,
+        { semanticSlideSpecId: spec.id, storyboardScreenId: spec.storyboardScreenId },
       ));
     }
 
@@ -416,7 +451,7 @@ const validateVisibleContent = (
 };
 
 export const validateSourceAlignment = (
-  input: EndToEndValidationInput,
+  input: SourceAlignmentValidationInput,
 ): SourceAlignmentValidationResult => {
   const diagnostics: EndToEndDiagnostic[] = [];
   const seenDiagnostics = new Set<string>();
@@ -429,6 +464,21 @@ export const validateSourceAlignment = (
   const stepById = new Map(selectedSteps.map((step) => [step.id, step] as const));
   const objectiveById = new Map(selectedObjectives.map((objective) => [objective.id, objective] as const));
   const screenById = new Map(input.storyboard.screens.map((screen) => [screen.id, screen] as const));
+  let validatedVisualTeachingPlan: VisualTeachingPlan | null = null;
+  if (input.visualTeachingPlan) {
+    const dispositionResult = classifySourceContent(input.sourceManifest, input.storyboard);
+    if (dispositionResult.ok) {
+      const planDiagnostics = validateVisualTeachingPlan(
+        input.visualTeachingPlan,
+        input.sourceManifest,
+        input.storyboard,
+        dispositionResult.decisions,
+      );
+      if (!planDiagnostics.some((item) => item.severity === 'blocking')) {
+        validatedVisualTeachingPlan = input.visualTeachingPlan;
+      }
+    }
+  }
 
   const sourceStepCoverageRatio = validateSourceStepCoverage(
     input,
@@ -436,6 +486,7 @@ export const validateSourceAlignment = (
     selectedStepIds,
     diagnostics,
     seenDiagnostics,
+    validatedVisualTeachingPlan,
   );
   const objectiveCoverageRatio = validateObjectivePreservation(
     input,

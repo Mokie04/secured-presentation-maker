@@ -11,7 +11,9 @@ import { resolveEndToEndValidatedScenePresentationForGeneration } from '../lib/e
 import {
   buildDenseStoryboardEndToEndFixture,
   buildEvidenceOutputEndToEndFixture,
+  buildVisualTeachingQualityEndToEndFixture,
 } from './fixtures/endToEndValidationFixtures.ts';
+import { validVisualPlanFixture } from './fixtures/visualTeachingComposerFixtures.ts';
 
 test('accepts only documented true-like Gate 5 flag values', () => {
   for (const value of ['1', 'true', 'TRUE', ' yes ', 'On']) {
@@ -33,6 +35,122 @@ test('builds a passing end-to-end validation report for a valid source-primary s
   assert.equal(result.report.scenes.fullSlideRasterCount, 0);
   assert.equal(result.report.cacheSafety.mayDeliverPresentation, true);
   assert.equal(result.report.cacheSafety.mayWriteSuccessCache, true);
+  assert.equal('presentationQuality' in result.report, false);
+});
+
+test('includes a passing presentation quality report when a visual teaching plan exists', () => {
+  const fixture = buildVisualTeachingQualityEndToEndFixture();
+  const result = validateEndToEndScenePresentation(fixture);
+
+  assert.equal(result.ok, true);
+  assert.ok(result.report.presentationQuality);
+  assert.equal(result.report.presentationQuality.contractVersion, 'presentation-quality-v1');
+  assert.equal(result.report.presentationQuality.meaningfulVisualGrammarRatio >= 0.75, true);
+  assert.equal(result.report.presentationQuality.explanatoryStructureRatio >= 0.40, true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, true);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, true);
+});
+
+test('blocks delivery and success-cache writes when visual presentation quality fails', () => {
+  const fixture = buildVisualTeachingQualityEndToEndFixture();
+  const presentation = structuredClone(fixture.presentation);
+  for (const [index, title] of ['Learning Task 1', 'Learning Task (continued)'].entries()) {
+    const titleElement = presentation.scenes[index].elements.find((element) => (
+      element.kind === 'text' && element.role === 'title'
+    ));
+    assert.ok(titleElement?.kind === 'text');
+    titleElement.runs = [{ text: title }];
+  }
+
+  const result = validateEndToEndScenePresentation({ ...fixture, presentation });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.report.presentationQuality);
+  assert.equal(result.report.presentationQuality.repeatedGenericTitleCount, 1);
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'e2e_presentation_quality_failed'
+  )), true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
+});
+
+test('blocks delivery and cache when rich metadata points to stripped title-and-body scenes', () => {
+  const fixture = buildVisualTeachingQualityEndToEndFixture();
+  const presentation = structuredClone(fixture.presentation);
+  for (const scene of presentation.scenes.slice(0, 4)) {
+    const title = scene.elements.find((element) => element.kind === 'text' && element.role === 'title');
+    const body = scene.elements.find((element) => element.kind === 'text' && element.role !== 'title');
+    assert.ok(title);
+    assert.ok(body);
+    scene.elements = [title, body];
+    scene.readingOrder = [title.id, body.id];
+  }
+
+  const result = validateEndToEndScenePresentation({ ...fixture, presentation });
+
+  assert.equal(result.ok, false);
+  assert.ok(result.report.presentationQuality);
+  assert.equal(result.report.presentationQuality.meaningfulVisualGrammarRatio < 0.75, true);
+  assert.equal(result.report.presentationQuality.plainTitleBodyRatio > 0.25, true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
+});
+
+test('blocks an invalid visual plan explicitly before delivery and cache success', () => {
+  const fixture = buildVisualTeachingQualityEndToEndFixture();
+  const visualTeachingPlan = structuredClone(fixture.visualTeachingPlan);
+  const accounting = visualTeachingPlan.sourceAccounting.find((entry) => (
+    entry.disposition === 'learner-visible' && entry.sceneIds.length > 0
+  ));
+  assert.ok(accounting);
+  accounting.sceneIds = [];
+
+  const result = validateEndToEndScenePresentation({ ...fixture, visualTeachingPlan });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'e2e_visual_teaching_plan_invalid'
+  )), true);
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'e2e_presentation_quality_failed'
+  )), true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
+});
+
+test('blocks delivery and cache when a scene would export a clipped overflowing table', async () => {
+  const fixture = await buildEvidenceOutputEndToEndFixture();
+  const presentation = structuredClone(fixture.presentation);
+  const scene = presentation.scenes[0];
+  assert.ok(scene);
+  const clippedTable = {
+    id: 'dense-single-row-table',
+    kind: 'table' as const,
+    frame: { x: 648, y: 158, w: 506, h: 340 },
+    editable: true,
+    readingOrder: 99,
+    headers: ['#', 'Required evidence or output'],
+    rows: [[
+      '1',
+      'This source-backed row needs several wrapped lines in one table cell while the table still has frame height.',
+    ]],
+    fontSize: 21,
+    headerFill: '0F766E',
+    cellFill: 'ECFDF5',
+    textColor: '111827',
+  };
+  scene.elements = [...scene.elements, clippedTable];
+  scene.readingOrder = [...scene.readingOrder, clippedTable.id];
+
+  const result = validateEndToEndScenePresentation({ ...fixture, presentation });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.report.scenes.overflowCount >= 1, true);
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'e2e_scene_render_invalid' && diagnostic.severity === 'blocking'
+  )), true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
 });
 
 test('preserves complete source coverage across dense continuation scenes', async () => {
@@ -151,4 +269,44 @@ test('topic-only Gate 5 remains unchanged', async () => {
   );
 
   assert.deepEqual(result, { ok: true, presentation: null });
+});
+
+test('composed visual-plan quality failure blocks delivery and cache success', async () => {
+  const fixture = validVisualPlanFixture();
+  const policy = resolveK12GenerationRoutePolicy('uploaded source text', 'true');
+  const plan = structuredClone(fixture.plan);
+  for (const [index, title] of ['Learning Task 1', 'Learning Task (continued)'].entries()) {
+    plan.scenes[index].learnerTitle = title;
+  }
+  let releaseCalls = 0;
+
+  const result = await resolveEndToEndValidatedScenePresentationForGeneration(
+    policy,
+    'true',
+    'true',
+    'true',
+    fixture.manifest,
+    fixture.storyboard,
+    {
+      title: 'Sanitized Fixture Deck',
+      visualComposer: {
+        flagValue: 'true',
+        language: 'EN',
+        compose: async () => ({ ok: true as const, plan }),
+        authorizeGeneration: () => true,
+        releaseGeneration: () => {
+          releaseCalls += 1;
+        },
+        authorizationFailureMessage: 'Synthetic generation authorization failure.',
+      },
+    },
+  );
+
+  assert.equal(result.ok, false);
+  if (result.ok) return;
+  assert.ok(result.validationReport?.presentationQuality);
+  assert.equal(result.validationReport.presentationQuality.repeatedGenericTitleCount, 1);
+  assert.equal(result.validationReport.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.validationReport.cacheSafety.mayWriteSuccessCache, false);
+  assert.equal(releaseCalls, 1);
 });
