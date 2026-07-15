@@ -540,6 +540,47 @@ test('compacts long source-owned requirements to exact bounded source phrases', 
   assert.doesNotMatch(compacted, /the teacher/i);
 });
 
+test('moves assessment metadata requirements to teacher notes instead of learner-visible requirements', async () => {
+  const fixture = visualComposerFixture();
+  const questionScene = fixture.providerPlan.scenes.find((scene) => scene.visualGrammar === 'question-choices');
+  assert.ok(questionScene);
+  const questionScreenIds = new Set(questionScene.storyboardScreenIds);
+  const assessmentMetadata = 'Type: Multiple ChoiceDirections: Choose the best answer.';
+  const input = {
+    ...fixture.input,
+    storyboard: {
+      ...fixture.input.storyboard,
+      screens: fixture.input.storyboard.screens.map((screen) => questionScreenIds.has(screen.id)
+        ? {
+            ...screen,
+            requiredEvidence: [assessmentMetadata],
+            requiredOutputs: [assessmentMetadata],
+          }
+        : screen),
+    },
+  };
+
+  const result = await composeVisualTeachingPlanWithProvider(input, async () => ({
+    value: fixture.providerPlan,
+    provider: 'fixture',
+    model: 'fixture-model',
+  }));
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const reconciledQuestionScenes = result.plan.scenes.filter((scene) => scene.id.startsWith(questionScene.id));
+  assert.equal(reconciledQuestionScenes.length > 0, true);
+  const visibleRequirements = reconciledQuestionScenes.flatMap((scene) => [
+    ...scene.requiredEvidence,
+    ...scene.requiredOutputs,
+  ]).join(' ');
+  assert.doesNotMatch(visibleRequirements, /multiple choice|directions/i);
+  assert.equal(
+    reconciledQuestionScenes.some((scene) => scene.teacherNotes.includes(assessmentMetadata)),
+    true,
+  );
+});
+
 test('uses version-isolated prompts and recursively strict object schemas', async () => {
   const fixture = visualComposerFixture();
   const calls: StructuredComposerRequest[] = [];

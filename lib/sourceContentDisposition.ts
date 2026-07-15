@@ -38,6 +38,10 @@ const ADMINISTRATIVE_LABEL_PREFIX =
   /^(?:references?(?:\s*\([^)]*\))?|declaration of ai use|teacher preparation|administrative notes?)/i;
 const PLANNING_CONTEXT_LABEL_PREFIX =
   /^(?:learner context|observations? of learners|ways forward|intentions?)/i;
+const ASSESSMENT_METADATA_LABEL_PREFIX =
+  /^(?:(?:assessment|check|test|quiz)\s+)?(?:type|format|directions?|instructions?)/i;
+const ASSESSMENT_METADATA_VALUE =
+  /\b(?:multiple\s+choice|true\s*(?:or|\/)\s*false|matching\s+type|short\s+answer|essay|choose\s+(?:the\s+)?best\s+answer|select\s+(?:the\s+)?best\s+answer)\b/i;
 const LEARNER_REFERENCE_ACTION =
   /\b(?:learners?|students?)\s+(?:use|consult|compare|evaluate|cite)\b|\b(?:use|consult|compare|evaluate|cite)\s+(?:the\s+)?(?:reference|source)/i;
 
@@ -63,8 +67,16 @@ const compareCodePoints = (left: string, right: string): number => {
   return leftPoints.length - rightPoints.length;
 };
 
+const isAssessmentMetadata = (label: string, value: string): boolean => (
+  matchesAllowlistedLabelBoundary(label, ASSESSMENT_METADATA_LABEL_PREFIX)
+  && ASSESSMENT_METADATA_VALUE.test(`${label} ${value}`.replace(/([a-z])([A-Z])/g, '$1 $2'))
+);
+
 const dispositionForStep = (step: SourceStep): Pick<SourceDispositionDecision, 'disposition' | 'reason'> => {
   const sourceText = step.rawBlocks.join(' ');
+  if (isAssessmentMetadata(step.sourceLabel, sourceText)) {
+    return { disposition: 'speaker-notes', reason: 'planning-context-notes' };
+  }
   if (matchesAllowlistedLabelBoundary(step.sourceLabel, ADMINISTRATIVE_LABEL_PREFIX) && !LEARNER_REFERENCE_ACTION.test(sourceText)) {
     return { disposition: 'omit-administrative', reason: 'administrative-omission' };
   }
@@ -75,6 +87,9 @@ const dispositionForStep = (step: SourceStep): Pick<SourceDispositionDecision, '
 };
 
 const dispositionForField = (field: SourceField): Pick<SourceDispositionDecision, 'disposition' | 'reason'> => {
+  if (isAssessmentMetadata(field.label, field.value)) {
+    return { disposition: 'speaker-notes', reason: 'planning-context-notes' };
+  }
   if (matchesAllowlistedLabelBoundary(field.label, ADMINISTRATIVE_LABEL_PREFIX)) {
     if (LEARNER_REFERENCE_ACTION.test(field.value)) {
       return { disposition: 'learner-visible', reason: 'instructional-step-visible' };

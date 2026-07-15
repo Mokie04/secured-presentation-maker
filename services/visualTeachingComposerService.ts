@@ -2,6 +2,8 @@ import type { LessonSourceManifest } from '../lib/lessonSourceManifest.ts';
 import type { SourceDispositionDecision } from '../lib/sourceContentDisposition.ts';
 import type { TeachingStoryboard } from '../lib/teachingStoryboard.ts';
 import {
+  isAssessmentMetadataRequirement,
+  learnerVisibleRequirements,
   validateVisualTeachingPlan,
   VISUAL_TEACHING_PLAN_VERSION,
   type VisualTeachingPlan,
@@ -690,6 +692,12 @@ const canonicalizeProviderProvenance = (
         [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
           .some((sourceId) => dispositionById.get(sourceId)?.disposition === 'learner-visible')
       ));
+      const learnerVisibleEvidence = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence));
+      const learnerVisibleOutputs = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs));
+      const assessmentMetadataNotes = uniqueInOrder([
+        ...learnerVisibleEvidence,
+        ...learnerVisibleOutputs,
+      ].filter(isAssessmentMetadataRequirement));
       const canonicalScene = {
         ...scene,
         storyboardScreenIds: orderedScreenIds,
@@ -699,11 +707,12 @@ const canonicalizeProviderProvenance = (
         sourceFieldIds,
         teacherNotes: [
           ...trustedScreens.map((screen) => screen.teacherNotes),
+          ...assessmentMetadataNotes.map((requirement) => `Assessment metadata: ${requirement}`),
           ...speakerNoteFields.map((field) => `Source field (${field.label}): ${field.value}`),
         ].filter(Boolean).join('\n'),
-        requiredEvidence: uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence))
+        requiredEvidence: learnerVisibleRequirements(learnerVisibleEvidence)
           .map((requirement) => compactSourceRequirement(requirement, 'evidence')),
-        requiredOutputs: uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs))
+        requiredOutputs: learnerVisibleRequirements(learnerVisibleOutputs)
           .map((requirement) => compactSourceRequirement(requirement, 'output')),
       };
       return {

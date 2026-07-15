@@ -15,7 +15,10 @@ import type {
   VisualTeachingPlan,
   VisualTeachingScene,
 } from './visualTeachingPlan.ts';
-import { validateVisualTeachingPlan } from './visualTeachingPlan.ts';
+import {
+  isAssessmentMetadataRequirement,
+  validateVisualTeachingPlan,
+} from './visualTeachingPlan.ts';
 
 export const PRESENTATION_QUALITY_VERSION = 'presentation-quality-v1';
 
@@ -389,7 +392,8 @@ export const validatePresentationQuality = (
       const planningLabelText = normalizePlanningLabelPunctuation(unit.text);
       const referenceLabelVisible = REFERENCE_LABEL_PATTERN.test(planningLabelText);
       const administrativeLabelVisible = ADMINISTRATIVE_LABEL_PATTERN.test(planningLabelText);
-      if (administrativeLabelVisible || (referenceLabelVisible && !referencesAuthorized)) {
+      const assessmentMetadataVisible = isAssessmentMetadataRequirement(planningLabelText);
+      if (administrativeLabelVisible || assessmentMetadataVisible || (referenceLabelVisible && !referencesAuthorized)) {
         planningLabelViolationCount += 1;
         diagnostics.push(diagnostic(
           'quality_planning_label_visible',

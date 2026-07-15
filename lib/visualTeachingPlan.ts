@@ -116,6 +116,8 @@ const SUPPORTED_VISUAL_GRAMMARS = new Set<VisualGrammar>([
 
 const STRUCTURED_MULTIPLE_CHOICE = /(?:^|\s)A\.\s+.+?(?:\s)B\.\s+.+?(?:\s)C\.\s+.+?(?:\s)D\.\s+/i;
 const TRUE_LIKE_COMPOSER_FLAGS = new Set(['1', 'true', 'yes', 'on']);
+const ASSESSMENT_METADATA_TYPE = /\b(?:assessment\s+)?type\s*:\s*(?:multiple\s+choice|true\s*(?:or|\/)\s*false|matching\s+type|short\s+answer|essay)\b/i;
+const ASSESSMENT_METADATA_DIRECTIONS = /\bdirections?\s*:\s*(?:choose|select)\s+(?:the\s+)?best\s+answer\b/i;
 
 const diagnostic = (
   code: VisualTeachingPlanDiagnostic['code'],
@@ -137,6 +139,25 @@ const uniqueInOrder = (values: readonly string[]): string[] => {
 };
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim().toLowerCase();
+
+const normalizeMetadataText = (value: string): string => value
+  .normalize('NFKC')
+  .replace(/([a-z])([A-Z])/g, '$1 $2')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+export const isAssessmentMetadataRequirement = (value: string): boolean => {
+  const normalized = normalizeMetadataText(value);
+  return ASSESSMENT_METADATA_TYPE.test(normalized) || ASSESSMENT_METADATA_DIRECTIONS.test(normalized);
+};
+
+export const learnerVisibleRequirements = (requirements: readonly string[]): string[] => (
+  requirements.filter((requirement) => !isAssessmentMetadataRequirement(requirement))
+);
+
+const requirementNoteMetadata = (requirements: readonly string[]): string[] => (
+  uniqueInOrder(requirements.filter(isAssessmentMetadataRequirement))
+);
 
 const requirementsPreserveSource = (
   actual: readonly string[],
@@ -300,8 +321,18 @@ export const validateVisualTeachingPlan = (
         [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
           .some((sourceId) => dispositionById.get(sourceId)?.disposition === 'learner-visible')
       ));
-      const expectedEvidence = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence));
-      const expectedOutputs = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs));
+      const expectedEvidence = learnerVisibleRequirements(uniqueInOrder(
+        learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence),
+      ));
+      const expectedOutputs = learnerVisibleRequirements(uniqueInOrder(
+        learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs),
+      ));
+      const expectedRequirementNotes = requirementNoteMetadata(uniqueInOrder(
+        learnerVisibleScreens.flatMap((screen) => [
+          ...screen.requiredEvidence,
+          ...screen.requiredOutputs,
+        ]),
+      ));
       const speakerNoteFields = scene.sourceFieldIds
         .filter((sourceFieldId) => dispositionById.get(sourceFieldId)?.disposition === 'speaker-notes')
         .flatMap((sourceFieldId) => {
@@ -310,6 +341,7 @@ export const validateVisualTeachingPlan = (
         });
       const expectedTeacherNotes = normalizeText([
         ...referencedScreens.map((screen) => screen.teacherNotes),
+        ...expectedRequirementNotes.map((requirement) => `Assessment metadata: ${requirement}`),
         ...speakerNoteFields.map((field) => `Source field (${field.label}): ${field.value}`),
       ].filter(Boolean).join(' '));
       if (
@@ -435,8 +467,8 @@ export const validateVisualTeachingPlan = (
     [...screen.sourceObjectiveIds, ...screen.sourceStepIds, ...screen.sourceFieldIds]
       .some((sourceId) => dispositionById.get(sourceId)?.disposition === 'learner-visible')
   ));
-  const expectedEvidence = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence));
-  const expectedOutputs = uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs));
+  const expectedEvidence = learnerVisibleRequirements(uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredEvidence)));
+  const expectedOutputs = learnerVisibleRequirements(uniqueInOrder(learnerVisibleScreens.flatMap((screen) => screen.requiredOutputs)));
   const actualEvidence = uniqueInOrder(plan.scenes.flatMap((scene) => scene.requiredEvidence));
   const actualOutputs = uniqueInOrder(plan.scenes.flatMap((scene) => scene.requiredOutputs));
   if (

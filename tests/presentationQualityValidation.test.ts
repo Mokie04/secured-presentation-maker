@@ -183,6 +183,16 @@ test('blocks concatenated multiple-choice text inside one editable visible eleme
   assert.equal(result.diagnostics.some((item) => item.code === 'quality_assessment_unparsed'), true);
 });
 
+test('blocks visible assessment metadata scaffolds in learner-facing text', () => {
+  const result = validatePresentationQuality(withRawAssessmentText(
+    passingQualityFixture(),
+    'Evidence / output: Type: Multiple ChoiceDirections: Choose the best answer.',
+  ));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostics.some((item) => item.code === 'quality_planning_label_visible'), true);
+});
+
 test('treats lowercase ordered choice markers as an unparsed assessment', () => {
   const result = validatePresentationQuality(withRawAssessmentText(
     passingQualityFixture(),

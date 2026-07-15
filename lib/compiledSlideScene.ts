@@ -1649,11 +1649,17 @@ const validateTextFit = (scene: CompiledSlideScene, element: SceneTextElement | 
       1,
       ...row.map((cell) => estimateWrappedLineCount(cell, columnWidth, element.fontSize)),
     ));
+    const rowCount = rowLineCounts.length;
+    const availableRowHeight = element.frame.h / rowCount;
+    const estimatedRowHeights = rowLineCounts.map((lineCount) => (
+      lineCount * element.fontSize * 1.35 + 16
+    ));
     const estimatedHeight = rowLineCounts.reduce(
       (height, lineCount) => height + lineCount * element.fontSize * 1.35 + 16,
       0,
     );
     return estimatedHeight > element.frame.h
+      || estimatedRowHeights.some((rowHeight) => rowHeight > availableRowHeight)
       ? [sceneDiagnostic('scene_text_overflow', `Table ${element.id} does not fit in its scene frame.`, { sceneId: scene.id, elementId: element.id })]
       : [];
   }

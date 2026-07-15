@@ -99,6 +99,55 @@ test('recognizes browser-flattened planning labels separated by a space and uppe
   assert.equal(result.decisions.find((item) => item.sourceId === planningStep.id)?.disposition, 'speaker-notes');
 });
 
+test('classifies assessment format scaffolds as speaker notes without hiding ordinary directions', () => {
+  const { manifest, storyboard } = scienceFixture();
+  const checkStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Check');
+  const activityStep = manifest.units[0].steps.find((step) => step.sourceLabel === 'Prediction');
+  assert.ok(checkStep);
+  assert.ok(activityStep);
+
+  const assessmentTypeStep = {
+    ...checkStep,
+    id: 'step-assessment-type',
+    sourceOrder: checkStep.sourceOrder + 0.1,
+    sourceLabel: 'Type',
+    rawBlocks: ['Multiple Choice'],
+  };
+  const assessmentDirectionsStep = {
+    ...checkStep,
+    id: 'step-assessment-directions',
+    sourceOrder: checkStep.sourceOrder + 0.2,
+    sourceLabel: 'Directions',
+    rawBlocks: ['Choose the best answer.'],
+  };
+  const ordinaryDirectionsStep = {
+    ...activityStep,
+    id: 'step-ordinary-directions',
+    sourceOrder: activityStep.sourceOrder + 0.1,
+    sourceLabel: 'Directions',
+    rawBlocks: ['Work with a partner to compare the supplied observations.'],
+  };
+  const mutatedManifest = {
+    ...manifest,
+    units: [{
+      ...manifest.units[0],
+      steps: [
+        ...manifest.units[0].steps,
+        assessmentTypeStep,
+        assessmentDirectionsStep,
+        ordinaryDirectionsStep,
+      ],
+    }],
+  };
+
+  const result = classifySourceContent(mutatedManifest, storyboard);
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(result.decisions.find((item) => item.sourceId === assessmentTypeStep.id)?.disposition, 'speaker-notes');
+  assert.equal(result.decisions.find((item) => item.sourceId === assessmentDirectionsStep.id)?.disposition, 'speaker-notes');
+  assert.equal(result.decisions.find((item) => item.sourceId === ordinaryDirectionsStep.id)?.disposition, 'learner-visible');
+});
+
 test('classifies subject-neutral humanities steps as learner-visible', () => {
   const manifestResult = buildLessonSourceManifest(VISUAL_COMPOSER_HUMANITIES_DOCUMENT);
   assert.equal(manifestResult.ok, true);

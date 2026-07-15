@@ -399,6 +399,37 @@ test('accounts for preview cell padding when estimating table text fit', () => {
   assert.equal(doesSemanticSlideSpecFitScene(paddedWrap), false);
 });
 
+test('rejects table cells that exceed their PPTX row frame even when total table height fits', () => {
+  const result = compileSemanticSlideSpecsToScenes(specsFrom(), { title: 'Fixture Deck' });
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const scene = result.presentation.scenes[0];
+  const table = {
+    id: 'dense-single-row-table',
+    kind: 'table' as const,
+    frame: { x: 648, y: 158, w: 506, h: 340 },
+    editable: true,
+    readingOrder: 99,
+    headers: ['#', 'Required evidence or output'],
+    rows: [[
+      '1',
+      'This source-backed row needs several wrapped lines in one table cell while the table still has frame height.',
+    ]],
+    fontSize: 21,
+    headerFill: '0F766E',
+    cellFill: 'ECFDF5',
+    textColor: '111827',
+  };
+  const denseSingleRow = {
+    ...scene,
+    elements: [...scene.elements, table],
+    readingOrder: [...scene.readingOrder, table.id],
+  };
+
+  const diagnostics = validateCompiledSlideScene(denseSingleRow);
+  assert.equal(diagnostics.some((diagnostic) => diagnostic.code === 'scene_text_overflow'), true);
+});
+
 test('does not emit image or full-slide raster elements in Gate 3', () => {
   const specsResult = buildSemanticSlideSpecs(FIVE_SESSION_STORYBOARD);
   assert.equal(specsResult.ok, true);
