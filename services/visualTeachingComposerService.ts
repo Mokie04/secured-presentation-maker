@@ -491,6 +491,7 @@ const chunkValues = <T>(values: readonly T[], size: number): T[][] => (
 );
 
 const QUESTION_LEAD = /^\s*(?:\d+[.)]\s*)?(.+?\?)\s*A[.)]\s*(.+)$/i;
+const QUESTION_ONLY_LEAD = /^\s*\d+[.)]\s*(.+?\?)\s*$/i;
 const CHOICE_LEAD = /^\s*[A-H][.)]\s*/i;
 
 const conciseQuestionTitle = (prompt: string, index: number): string => {
@@ -504,31 +505,47 @@ const conciseQuestionTitle = (prompt: string, index: number): string => {
 const splitQuestionChoices = (
   question: NonNullable<VisualTeachingPlan['scenes'][number]['visibleContent']['question']>,
 ): Array<NonNullable<VisualTeachingPlan['scenes'][number]['visibleContent']['question']>> => {
-  const grouped: typeof question.choices[] = [];
+  const grouped: Array<{
+    prompt?: string;
+    choices: typeof question.choices;
+  }> = [];
+  let currentPrompt: string | undefined;
   let current: typeof question.choices = [];
-  for (const choice of question.choices) {
-    if (QUESTION_LEAD.test(choice.text) && current.length > 0) {
-      grouped.push(current);
-      current = [];
-    }
-    current.push(choice);
-  }
-  if (current.length > 0) grouped.push(current);
+  const pushCurrent = (): void => {
+    if (!currentPrompt && current.length === 0) return;
+    grouped.push({ prompt: currentPrompt, choices: current });
+    currentPrompt = undefined;
+    current = [];
+  };
 
-  const chunks = grouped.flatMap((group) => chunkValues(group, 4));
-  return chunks.map((choices, index) => {
-    const firstMatch = choices[0]?.text.match(QUESTION_LEAD);
-    const prompt = firstMatch?.[1]?.trim() || question.prompt;
-    const normalizedChoices = choices.map((choice, choiceIndex) => ({
-      ...choice,
-      text: choiceIndex === 0 && firstMatch
-        ? firstMatch[2].trim()
-        : choice.text.replace(CHOICE_LEAD, '').trim(),
-    }));
+  for (const choice of question.choices) {
+    const questionWithFirstChoice = choice.text.match(QUESTION_LEAD);
+    if (questionWithFirstChoice) {
+      pushCurrent();
+      currentPrompt = questionWithFirstChoice[1].trim();
+      current.push({ ...choice, text: questionWithFirstChoice[2].trim() });
+      continue;
+    }
+
+    const questionOnly = choice.text.match(QUESTION_ONLY_LEAD);
+    if (questionOnly && !CHOICE_LEAD.test(choice.text)) {
+      pushCurrent();
+      currentPrompt = questionOnly[1].trim();
+      continue;
+    }
+
+    current.push({ ...choice, text: choice.text.replace(CHOICE_LEAD, '').trim() });
+  }
+  pushCurrent();
+
+  const chunks = grouped.flatMap((group) => (
+    chunkValues(group.choices, 4).map((choices) => ({ prompt: group.prompt, choices }))
+  ));
+  return chunks.map(({ prompt, choices }, index) => {
     return {
-      prompt: chunks.length > 1 && !firstMatch ? `${prompt} (${index + 1})` : prompt,
-      choices: normalizedChoices,
-      ...(question.answerId && normalizedChoices.some((choice) => choice.id === question.answerId)
+      prompt: prompt ?? (chunks.length > 1 ? `${question.prompt} (${index + 1})` : question.prompt),
+      choices,
+      ...(question.answerId && choices.some((choice) => choice.id === question.answerId)
         ? { answerId: question.answerId }
         : {}),
     };

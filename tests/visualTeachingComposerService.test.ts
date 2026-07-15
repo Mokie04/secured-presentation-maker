@@ -449,6 +449,62 @@ test('splits over-capacity process cards and structured questions into bounded v
   );
 });
 
+test('parses provider question rows that separate the prompt from its choices', async () => {
+  const fixture = visualComposerFixture();
+  const questionScene = fixture.providerPlan.scenes.find((scene) => scene.visualGrammar === 'question-choices');
+  assert.ok(questionScene?.visibleContent.question);
+  const separatedQuestionRows = [
+    { id: 'q1', text: '1. Which source-backed pattern is supported?' },
+    { id: 'q1a', text: 'A. Pattern alpha' },
+    { id: 'q1b', text: 'B. Pattern beta' },
+    { id: 'q1c', text: 'C. Pattern gamma' },
+    { id: 'q1d', text: 'D. Pattern delta' },
+    { id: 'q2', text: '2. Which observation is the strongest evidence?' },
+    { id: 'q2a', text: 'A. Observation alpha' },
+    { id: 'q2b', text: 'B. Observation beta' },
+    { id: 'q2c', text: 'C. Observation gamma' },
+    { id: 'q2d', text: 'D. Observation delta' },
+  ];
+  const providerPlan = {
+    ...fixture.providerPlan,
+    scenes: fixture.providerPlan.scenes.map((scene) => scene.id === questionScene.id
+      ? {
+          ...scene,
+          visibleContent: {
+            ...scene.visibleContent,
+            question: {
+              prompt: 'Choose the best answer for each question.',
+              choices: separatedQuestionRows,
+              answerId: 'q1a',
+            },
+          },
+        }
+      : scene),
+  };
+
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => ({
+    value: providerPlan,
+    provider: 'fixture',
+    model: 'fixture-model',
+  }));
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const questionScenes = result.plan.scenes.filter((scene) => scene.id.startsWith(questionScene.id));
+  assert.equal(questionScenes.length, 2);
+  assert.deepEqual(
+    questionScenes.map((scene) => scene.visibleContent.question?.prompt),
+    ['Which source-backed pattern is supported?', 'Which observation is the strongest evidence?'],
+  );
+  assert.deepEqual(
+    questionScenes.map((scene) => scene.visibleContent.question?.choices.map((choice) => choice.text)),
+    [
+      ['Pattern alpha', 'Pattern beta', 'Pattern gamma', 'Pattern delta'],
+      ['Observation alpha', 'Observation beta', 'Observation gamma', 'Observation delta'],
+    ],
+  );
+});
+
 test('compacts long source-owned requirements to exact bounded source phrases', async () => {
   const fixture = visualComposerFixture();
   const targetScene = fixture.providerPlan.scenes.find((scene) => scene.requiredEvidence.length > 0);
