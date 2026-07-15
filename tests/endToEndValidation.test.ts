@@ -118,6 +118,41 @@ test('blocks an invalid visual plan explicitly before delivery and cache success
   assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
 });
 
+test('blocks delivery and cache when a scene would export a clipped overflowing table', async () => {
+  const fixture = await buildEvidenceOutputEndToEndFixture();
+  const presentation = structuredClone(fixture.presentation);
+  const scene = presentation.scenes[0];
+  assert.ok(scene);
+  const clippedTable = {
+    id: 'dense-single-row-table',
+    kind: 'table' as const,
+    frame: { x: 648, y: 158, w: 506, h: 340 },
+    editable: true,
+    readingOrder: 99,
+    headers: ['#', 'Required evidence or output'],
+    rows: [[
+      '1',
+      'This source-backed row needs several wrapped lines in one table cell while the table still has frame height.',
+    ]],
+    fontSize: 21,
+    headerFill: '0F766E',
+    cellFill: 'ECFDF5',
+    textColor: '111827',
+  };
+  scene.elements = [...scene.elements, clippedTable];
+  scene.readingOrder = [...scene.readingOrder, clippedTable.id];
+
+  const result = validateEndToEndScenePresentation({ ...fixture, presentation });
+
+  assert.equal(result.ok, false);
+  assert.equal(result.report.scenes.overflowCount >= 1, true);
+  assert.equal(result.diagnostics.some((diagnostic) => (
+    diagnostic.code === 'e2e_scene_render_invalid' && diagnostic.severity === 'blocking'
+  )), true);
+  assert.equal(result.report.cacheSafety.mayDeliverPresentation, false);
+  assert.equal(result.report.cacheSafety.mayWriteSuccessCache, false);
+});
+
 test('preserves complete source coverage across dense continuation scenes', async () => {
   const fixture = await buildDenseStoryboardEndToEndFixture();
   const result = validateEndToEndScenePresentation(fixture);
