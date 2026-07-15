@@ -121,6 +121,9 @@ const REFERENCE_SOURCE_PATTERN = /\b(?:references?|resources?|materials?|books?|
 const REFERENCE_ACTION_PATTERN = /\b(?:use|consult|compare|evaluate|analy[sz]e|examine|read|cite|verify|select|review|refer\s+to|gamitin|sumangguni|ihambing|suriin|sipiin)\b/i;
 const CLOSE_READING_SOURCE_PATTERN = /\b(?:close\s+reading|passage|quotation|quote|excerpt|primary\s+source|source\s+text|text\s+selection)\b/i;
 const RELATIONSHIP_SOURCE_PATTERN = /\b(?:relationship|cause|effect|compare|contrast|sequence|process|flow|cycle|depends?|increase|decrease|change)\b/i;
+const EXPLICIT_RELATIONSHIP_TEXT_PATTERN = /\brelationships?\s+(?:among|between)\b/i;
+const VISIBLE_TEACHER_ACTION_PATTERN =
+  /\b(?:the\s+)?teacher\s+(?:asks?|checks?|clarifies|demonstrates|discusses|explains|facilitates|guides|introduces|models|presents|prompts|restates|reviews|shows|supports)\b/i;
 
 const normalizeText = (value: string): string => value.replace(/\s+/g, ' ').trim();
 
@@ -176,6 +179,26 @@ const sourceLabelsForScene = (
   return dispositions
     .filter((entry) => sourceIds.has(entry.sourceId) && entry.disposition === 'learner-visible')
     .map((entry) => entry.sourceLabel);
+};
+
+const sourceTextById = (manifest: LessonSourceManifest): Map<string, string> => new Map([
+  ...manifest.objectives.map((objective) => [objective.id, objective.rawText] as const),
+  ...manifest.units.flatMap((unit) => unit.steps.map((step) => [step.id, step.rawBlocks.join(' ')] as const)),
+  ...manifest.units.flatMap((unit) => Object.values(unit.fields).map((field) => [field.id, field.value] as const)),
+]);
+
+const relationshipTextsForScene = (
+  manifest: LessonSourceManifest,
+  dispositions: readonly SourceDispositionDecision[],
+  scene: VisualTeachingScene | undefined,
+): string[] => {
+  if (!scene) return [];
+  const textById = sourceTextById(manifest);
+  const sourceIds = new Set(sourceIdsForScene(scene));
+  return dispositions
+    .filter((entry) => sourceIds.has(entry.sourceId) && entry.disposition === 'learner-visible')
+    .map((entry) => textById.get(entry.sourceId) ?? '')
+    .filter(Boolean);
 };
 
 const buildInstructionalSlides = (input: PresentationQualityValidationInput): InstructionalSlide[] => {
@@ -393,7 +416,13 @@ export const validatePresentationQuality = (
       const referenceLabelVisible = REFERENCE_LABEL_PATTERN.test(planningLabelText);
       const administrativeLabelVisible = ADMINISTRATIVE_LABEL_PATTERN.test(planningLabelText);
       const assessmentMetadataVisible = isAssessmentMetadataRequirement(planningLabelText);
-      if (administrativeLabelVisible || assessmentMetadataVisible || (referenceLabelVisible && !referencesAuthorized)) {
+      const teacherActionVisible = VISIBLE_TEACHER_ACTION_PATTERN.test(planningLabelText);
+      if (
+        administrativeLabelVisible
+        || assessmentMetadataVisible
+        || teacherActionVisible
+        || (referenceLabelVisible && !referencesAuthorized)
+      ) {
         planningLabelViolationCount += 1;
         diagnostics.push(diagnostic(
           'quality_planning_label_visible',
@@ -472,7 +501,11 @@ export const validatePresentationQuality = (
 
   const proseOnlyRelationshipSlides = slides.filter((slide) => {
     const sourceLabels = sourceLabelsForScene(trustedDispositions, slide.planScene);
-    return sourceLabels.some((label) => RELATIONSHIP_SOURCE_PATTERN.test(label))
+    const sourceTexts = relationshipTextsForScene(input.sourceManifest, trustedDispositions, slide.planScene);
+    return (
+      sourceLabels.some((label) => RELATIONSHIP_SOURCE_PATTERN.test(label))
+      || sourceTexts.some((text) => EXPLICIT_RELATIONSHIP_TEXT_PATTERN.test(text))
+    )
       && (!slide.grammar
         || !EXPLANATORY_GRAMMARS.has(slide.grammar)
         || !hasConcreteGrammarStructure(slide));

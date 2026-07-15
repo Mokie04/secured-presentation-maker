@@ -460,6 +460,47 @@ const uniqueInOrder = (values: readonly string[]): string[] => {
 
 const REQUIREMENT_DISPLAY_MAX_CHARS = 150;
 const TEACHER_ONLY_REQUIREMENT = /\b(?:the\s+)?(?:teacher|instructor|facilitator)\b/i;
+const PROVIDER_VISIBLE_TEACHER_ACTIONS: Record<string, string> = {
+  asks: 'Ask',
+  checks: 'Check',
+  clarifies: 'Clarify',
+  demonstrates: 'Inspect',
+  discusses: 'Discuss',
+  explains: 'Explain',
+  facilitates: 'Work through',
+  guides: 'Complete',
+  introduces: 'Explore',
+  models: 'Explain',
+  presents: 'Inspect',
+  prompts: 'Respond to',
+  restates: 'Restate',
+  reviews: 'Review',
+  shows: 'Inspect',
+  supports: 'Use',
+};
+const PROVIDER_VISIBLE_TEACHER_ACTION_PATTERN =
+  /\b(?:the\s+)?teacher\s+(asks|checks|clarifies|demonstrates|discusses|explains|facilitates|guides|introduces|models|presents|prompts|restates|reviews|shows|supports)\s+([^.!?]+)([.!?]?)/gi;
+const RELATIONSHIP_CONCEPT_LIST_PATTERN =
+  /\brelationships?\s+(?:among|between)\s+([^.!?;]+)/i;
+
+const compactToWordBoundary = (value: string): string => {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (normalized.length <= REQUIREMENT_DISPLAY_MAX_CHARS) return normalized;
+  const prefix = normalized.slice(0, REQUIREMENT_DISPLAY_MAX_CHARS + 1);
+  const lastBoundary = prefix.lastIndexOf(' ');
+  return (lastBoundary >= 80 ? prefix.slice(0, lastBoundary) : prefix.slice(0, REQUIREMENT_DISPLAY_MAX_CHARS))
+    .replace(/[,;:\s]+$/g, '')
+    .trim();
+};
+
+const compactRelationshipRequirement = (value: string): string | null => {
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  const relationshipPhrase = normalized.match(/\brelationships?\s+(?:among|between)\s+[^.!?;]+/i)?.[0]
+    ?? normalized.match(
+    /\b(?:identify|explain|compare|state|describe|show)\b[^.!?;]{0,140}\brelationships?\s+(?:among|between)\s+[^.!?;]+/i,
+  )?.[0];
+  return relationshipPhrase ? compactToWordBoundary(relationshipPhrase) : null;
+};
 
 const compactSourceRequirement = (value: string, purpose: 'evidence' | 'output'): string => {
   const normalized = value.replace(/\s+/g, ' ').trim();
@@ -479,11 +520,140 @@ const compactSourceRequirement = (value: string, purpose: 'evidence' | 'output')
   if (selected) return selected;
 
   const fallback = fragments.find((fragment) => purposePattern.test(fragment)) ?? fragments[0] ?? normalized;
+  const relationshipRequirement = compactRelationshipRequirement(fallback);
+  if (relationshipRequirement && purposePattern.test(fallback)) return relationshipRequirement;
   const clauses = fallback
-    .split(/[:,]+/)
+    .split(/[:]+/)
     .map((fragment) => fragment.trim())
     .filter((fragment) => fragment.length >= 12 && fragment.length <= REQUIREMENT_DISPLAY_MAX_CHARS);
-  return clauses.find((fragment) => purposePattern.test(fragment)) ?? clauses[0] ?? fallback;
+  const selectedClause = clauses.find((fragment) => purposePattern.test(fragment)) ?? clauses[0];
+  return selectedClause ?? compactToWordBoundary(fallback);
+};
+
+const normalizeProviderVisibleText = (value: string | undefined): string | undefined => {
+  if (value === undefined) return undefined;
+  let normalized = value.replace(/\s+/g, ' ').trim();
+  if (!normalized) return normalized;
+  normalized = normalized
+    .replace(/^the\s+teacher\s+will\s+ask\s+(?:learners|students)\s+to\s+/i, '')
+    .replace(/^the\s+teacher\s+asks?\s+(?:learners|students)\s+to\s+/i, '')
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+(?:ask|guide|instruct|direct|prompt|invite|have|let|tell|support|encourage)\s+(?:the\s+)?(?:learners|students|class)\s+to\s+/i, '')
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+(?:model|show|demonstrate)\s+how\s+(?:the\s+)?(?:learners|students)\s+/i, '')
+    .replace(/^(?:the\s+)?teacher\s+(?:will|shall)\s+/i, '')
+    .replace(/^ask\s+(?:the\s+)?(?:learners|students)\s+to\s+/i, '')
+    .replace(/^(?:the\s+)?learners\s+will\s+/i, '')
+    .replace(/^(?:the\s+)?students\s+will\s+/i, '')
+    .replace(/\b(?:the\s+)?(?:learners|students)\s+will\s+/gi, 'you will ')
+    .replace(
+      PROVIDER_VISIBLE_TEACHER_ACTION_PATTERN,
+      (_match, verb: string, rest: string, punctuation: string) => {
+        const learnerVerb = PROVIDER_VISIBLE_TEACHER_ACTIONS[verb.toLowerCase()] ?? 'Complete';
+        return `${learnerVerb} ${rest}${punctuation}`;
+      },
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : normalized;
+};
+
+const sanitizeProviderVisibleContent = (
+  visibleContent: VisualTeachingPlan['scenes'][number]['visibleContent'],
+): VisualTeachingPlan['scenes'][number]['visibleContent'] => ({
+  ...visibleContent,
+  statement: normalizeProviderVisibleText(visibleContent.statement),
+  points: visibleContent.points.map((point) => normalizeProviderVisibleText(point) ?? ''),
+  cards: visibleContent.cards.map((card) => ({
+    ...card,
+    title: normalizeProviderVisibleText(card.title) ?? '',
+    body: normalizeProviderVisibleText(card.body) ?? '',
+  })),
+  steps: visibleContent.steps.map((step) => ({
+    ...step,
+    label: normalizeProviderVisibleText(step.label) ?? '',
+    body: normalizeProviderVisibleText(step.body) ?? '',
+  })),
+  ...(visibleContent.table
+    ? {
+        table: {
+          headers: visibleContent.table.headers.map((header) => normalizeProviderVisibleText(header) ?? ''),
+          rows: visibleContent.table.rows.map((row) => row.map((cell) => normalizeProviderVisibleText(cell) ?? '')),
+        },
+      }
+    : {}),
+  ...(visibleContent.question
+    ? {
+        question: {
+          ...visibleContent.question,
+          prompt: normalizeProviderVisibleText(visibleContent.question.prompt) ?? '',
+          choices: visibleContent.question.choices.map((choice) => ({
+            ...choice,
+            text: normalizeProviderVisibleText(choice.text) ?? '',
+          })),
+        },
+      }
+    : {}),
+  ...(visibleContent.diagram
+    ? {
+        diagram: {
+          nodes: visibleContent.diagram.nodes.map((node) => ({
+            ...node,
+            label: normalizeProviderVisibleText(node.label) ?? '',
+            detail: normalizeProviderVisibleText(node.detail),
+          })),
+          edges: visibleContent.diagram.edges.map((edge) => ({
+            ...edge,
+            label: normalizeProviderVisibleText(edge.label),
+          })),
+        },
+      }
+    : {}),
+});
+
+const titleCaseConcept = (value: string): string => value
+  .replace(/\s+/g, ' ')
+  .trim()
+  .replace(/^(?:the|a|an)\s+/i, '')
+  .replace(/\s+\b(?:in|during|through|using|with|from|for)\b.+$/i, '')
+  .replace(/[^\p{L}\p{N}\s-]/gu, '')
+  .trim()
+  .replace(/\b\p{L}/gu, (letter) => letter.toUpperCase());
+
+const extractRelationshipConcepts = (value: string): string[] => {
+  const match = value.replace(/\s+/g, ' ').trim().match(RELATIONSHIP_CONCEPT_LIST_PATTERN);
+  if (!match) return [];
+  const conceptList = match[1].replace(/\s+\b(?:in|during|through|using|with|from|for)\b.+$/i, '');
+  const concepts = conceptList
+    .replace(/\b(?:and|or)\b/gi, ',')
+    .split(/[,/&+]+/)
+    .map(titleCaseConcept)
+    .filter((concept) => concept.length >= 2 && concept.length <= 32 && !/\brelationship/i.test(concept));
+  return uniqueInOrder(concepts).slice(0, 4);
+};
+
+const buildRelationshipDiagramFromTexts = (
+  texts: readonly string[],
+): NonNullable<VisualTeachingPlan['scenes'][number]['visibleContent']['diagram']> | null => {
+  const concepts = texts.flatMap(extractRelationshipConcepts);
+  const uniqueConcepts = uniqueInOrder(concepts);
+  if (uniqueConcepts.length < 2) return null;
+  const nodes = uniqueConcepts.map((concept, index) => ({
+    id: `relationship-node-${index + 1}`,
+    label: concept,
+    role: (index === 0
+      ? 'source'
+      : index === uniqueConcepts.length - 1
+        ? 'result'
+        : 'process') as 'source' | 'process' | 'constraint' | 'result',
+  }));
+  return {
+    nodes,
+    edges: nodes.slice(1).map((node, index) => ({
+      from: nodes[index].id,
+      to: node.id,
+      label: 'relates to',
+      direction: 'both' as const,
+    })),
+  };
 };
 
 const chunkValues = <T>(values: readonly T[], size: number): T[][] => (
@@ -638,6 +808,13 @@ const canonicalizeProviderProvenance = (
   const screenById = new Map(input.storyboard.screens.map((screen) => [screen.id, screen]));
   const screenOrderById = new Map(input.storyboard.screens.map((screen, index) => [screen.id, index]));
   const dispositionById = new Map(input.dispositions.map((item) => [item.sourceId, item]));
+  const objectiveTextById = new Map(input.manifest.objectives.map((objective) => [objective.id, objective.rawText]));
+  const stepTextById = new Map(input.manifest.units.flatMap((unit) => (
+    unit.steps.map((step) => [step.id, step.rawBlocks.join(' ')] as const)
+  )));
+  const fieldTextById = new Map(input.manifest.units.flatMap((unit) => (
+    Object.values(unit.fields).map((field) => [field.id, field.value] as const)
+  )));
   const learnerVisibleSourceIds = new Set(input.dispositions
     .filter((item) => item.disposition === 'learner-visible')
     .map((item) => item.sourceId));
@@ -700,6 +877,8 @@ const canonicalizeProviderProvenance = (
       ].filter(isAssessmentMetadataRequirement));
       const canonicalScene = {
         ...scene,
+        learnerTitle: normalizeProviderVisibleText(scene.learnerTitle) ?? '',
+        visibleContent: sanitizeProviderVisibleContent(scene.visibleContent),
         storyboardScreenIds: orderedScreenIds,
         ...(unitIds.size === 1 ? { unitId: trustedUnitId } : {}),
         sourceStepIds: uniqueInOrder(trustedScreens.flatMap((screen) => screen.sourceStepIds)),
@@ -715,10 +894,32 @@ const canonicalizeProviderProvenance = (
         requiredOutputs: learnerVisibleRequirements(learnerVisibleOutputs)
           .map((requirement) => compactSourceRequirement(requirement, 'output')),
       };
+      const relationshipTexts = uniqueInOrder([
+        ...canonicalScene.sourceObjectiveIds.map((sourceId) => objectiveTextById.get(sourceId) ?? ''),
+        ...canonicalScene.sourceStepIds.map((sourceId) => stepTextById.get(sourceId) ?? ''),
+        ...canonicalScene.sourceFieldIds.map((sourceId) => fieldTextById.get(sourceId) ?? ''),
+        canonicalScene.learnerTitle,
+        canonicalScene.visibleContent.statement ?? '',
+        ...canonicalScene.visibleContent.points,
+      ].filter(Boolean));
+      const relationshipDiagram = canonicalScene.visibleContent.diagram
+        ?? buildRelationshipDiagramFromTexts(relationshipTexts);
+      const relationshipScene = relationshipDiagram && !canonicalScene.visibleContent.question
+        ? {
+            ...canonicalScene,
+            visualGrammar: 'relationship-diagram' as const,
+            visibleContent: {
+              ...canonicalScene.visibleContent,
+              diagram: relationshipDiagram,
+            },
+          }
+        : canonicalScene;
       return {
         scene: {
-          ...canonicalScene,
-          visualGrammar: canonicalizeMinimalVisualGrammar(canonicalScene),
+          ...relationshipScene,
+          visualGrammar: relationshipScene.visualGrammar === 'relationship-diagram'
+            ? 'relationship-diagram'
+            : canonicalizeMinimalVisualGrammar(relationshipScene),
         },
         earliestScreenOrder: screenOrderById.get(orderedScreenIds[0])!,
       };

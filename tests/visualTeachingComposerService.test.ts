@@ -540,6 +540,93 @@ test('compacts long source-owned requirements to exact bounded source phrases', 
   assert.doesNotMatch(compacted, /the teacher/i);
 });
 
+test('preserves comma-separated relationship concepts when compacting evidence requirements', async () => {
+  const fixture = visualComposerFixture();
+  const targetScene = fixture.providerPlan.scenes.find((scene) => scene.requiredEvidence.length > 0);
+  assert.ok(targetScene);
+  const targetScreenId = targetScene.storyboardScreenIds[0];
+  const longRequirement = [
+    'Evidence: learners tabulate and compare the source-safe ammeter and voltmeter readings from the investigation record',
+    'to identify the numeric relationship between current, voltage, and resistance.',
+    'The teacher records a planning-only note after class.',
+  ].join(' ');
+  const input = {
+    ...fixture.input,
+    storyboard: {
+      ...fixture.input.storyboard,
+      screens: fixture.input.storyboard.screens.map((screen) => screen.id === targetScreenId
+        ? { ...screen, requiredEvidence: [longRequirement], requiredOutputs: [] }
+        : screen),
+    },
+  };
+
+  const result = await composeVisualTeachingPlanWithProvider(input, async () => ({
+    value: fixture.providerPlan,
+    provider: 'fixture',
+    model: 'fixture-model',
+  }));
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const compacted = result.plan.scenes.find((scene) => scene.id === targetScene.id)?.requiredEvidence[0];
+  assert.ok(compacted);
+  assert.equal(compacted.length <= 160, true);
+  assert.match(compacted, /current, voltage, and resistance/i);
+  assert.doesNotMatch(compacted, /\bcurrent$/i);
+  assert.equal(longRequirement.toLowerCase().includes(compacted.toLowerCase()), true);
+});
+
+test('normalizes provider-visible teacher actions while preserving trusted teacher notes', async () => {
+  const fixture = visualComposerFixture();
+  const processScene = fixture.providerPlan.scenes.find((scene) => (
+    scene.sourceStepIds.length > 0 && scene.visualGrammar !== 'question-choices'
+  ));
+  assert.ok(processScene);
+  const trustedNotes = processScene.storyboardScreenIds
+    .map((screenId) => fixture.input.storyboard.screens.find((screen) => screen.id === screenId)?.teacherNotes)
+    .filter(Boolean)
+    .join('\n');
+  const providerPlan = {
+    ...fixture.providerPlan,
+    scenes: fixture.providerPlan.scenes.map((scene) => scene.id === processScene.id
+      ? {
+          ...scene,
+          learnerTitle: 'Teacher checks the evidence pattern',
+          visibleContent: {
+            ...scene.visibleContent,
+            statement: 'The teacher reviews the source-safe pattern before learners respond.',
+            points: ['Teacher checks each observation against the source-safe evidence.'],
+            cards: [
+              {
+                id: 'teacher-card',
+                title: 'Teacher presents the relationship setup',
+                body: 'Teacher checks each observation before learners compare it.',
+              },
+            ],
+          },
+        }
+      : scene),
+  };
+
+  const result = await composeVisualTeachingPlanWithProvider(fixture.input, async () => ({
+    value: providerPlan,
+    provider: 'fixture',
+    model: 'fixture-model',
+  }));
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const reconciledScene = result.plan.scenes.find((scene) => scene.id === processScene.id);
+  assert.ok(reconciledScene);
+  const visible = JSON.stringify([
+    reconciledScene.learnerTitle,
+    reconciledScene.visibleContent,
+  ]);
+  assert.doesNotMatch(visible, /\bteacher\s+(?:checks|presents|reviews)\b/i);
+  assert.match(visible, /Check each observation/i);
+  assert.equal(reconciledScene.teacherNotes, trustedNotes);
+});
+
 test('moves assessment metadata requirements to teacher notes instead of learner-visible requirements', async () => {
   const fixture = visualComposerFixture();
   const questionScene = fixture.providerPlan.scenes.find((scene) => scene.visualGrammar === 'question-choices');
@@ -979,6 +1066,59 @@ test('upgrades only compatible minimal statements to concrete native grammars', 
     result.plan.scenes.map((scene) => scene.visualGrammar),
     fixture.providerPlan.scenes.map((scene) => scene.visualGrammar),
   );
+});
+
+test('upgrades explicit relationship objectives to a native relationship diagram when the provider returns prose', async () => {
+  const fixture = visualComposerFixture();
+  const objectiveId = fixture.input.storyboard.objectives[0].sourceObjectiveId;
+  const objectiveScene = fixture.providerPlan.scenes.find((scene) => scene.sourceObjectiveIds.includes(objectiveId));
+  assert.ok(objectiveScene);
+  const providerPlan = {
+    ...fixture.providerPlan,
+    scenes: fixture.providerPlan.scenes.map((scene) => scene.id === objectiveScene.id
+      ? {
+          ...scene,
+          visualGrammar: 'visual-thesis' as const,
+          learnerTitle: 'Learning Competency',
+          visibleContent: {
+            statement: 'Infer relationships among current, voltage, and resistance in a source-safe setup.',
+            points: ['Use source-backed readings to explain the relationship.'],
+            cards: [],
+            steps: [],
+          },
+        }
+      : scene),
+  };
+  const input = {
+    ...fixture.input,
+    manifest: {
+      ...fixture.input.manifest,
+      objectives: fixture.input.manifest.objectives.map((objective) => objective.id === objectiveId
+        ? {
+            ...objective,
+            rawText: 'Infer relationships among current, voltage, and resistance in a source-safe setup.',
+          }
+        : objective),
+    },
+  };
+
+  const result = await composeVisualTeachingPlanWithProvider(input, async () => ({
+    value: providerPlan,
+    provider: 'fixture',
+    model: 'fixture-model',
+  }));
+
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  const reconciledScene = result.plan.scenes.find((scene) => scene.id === objectiveScene.id);
+  assert.ok(reconciledScene);
+  assert.equal(reconciledScene.visualGrammar, 'relationship-diagram');
+  assert.deepEqual(
+    reconciledScene.visibleContent.diagram?.nodes.map((node) => node.label),
+    ['Current', 'Voltage', 'Resistance'],
+  );
+  assert.equal(reconciledScene.visibleContent.diagram?.edges.length, 2);
+  assert.deepEqual(reconciledScene.sourceObjectiveIds, [objectiveId]);
 });
 
 test('keeps empty, duplicate, foreign, and mixed-unit storyboard references fail-closed after repair', async () => {

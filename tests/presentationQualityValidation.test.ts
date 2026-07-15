@@ -172,6 +172,16 @@ test('blocks paragraph dumps and repeated normalized generic titles', () => {
   assert.equal(result.diagnostics.some((item) => item.code === 'quality_generic_title_repeated'), true);
 });
 
+test('blocks visible teacher-action prose reintroduced after storyboard normalization', () => {
+  const result = validatePresentationQuality(withRawAssessmentText(
+    passingQualityFixture(),
+    'Teacher checks each observation against the source-safe evidence before learners compare it.',
+  ));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.diagnostics.some((item) => item.code === 'quality_planning_label_visible'), true);
+});
+
 test('blocks concatenated multiple-choice text inside one editable visible element', () => {
   const result = validatePresentationQuality(withRawAssessmentText(
     passingQualityFixture(),
@@ -263,6 +273,33 @@ test('blocks a source-required relationship rendered as prose only', () => {
 
   assert.equal(result.ok, false);
   assert.equal(result.report.proseOnlyRelationshipCount, 1);
+  assert.equal(result.diagnostics.some((item) => item.code === 'quality_relationship_prose_only'), true);
+});
+
+test('uses source objective text when deciding whether a relationship visual is required', () => {
+  const mutated = cloneFixture(passingQualityFixture());
+  const objectiveScene = mutated.visualTeachingPlan.scenes.find((scene) => scene.sourceObjectiveIds.length > 0);
+  assert.ok(objectiveScene);
+  mutated.sourceManifest.objectives = mutated.sourceManifest.objectives.map((objective) => (
+    objective.id === objectiveScene.sourceObjectiveIds[0]
+      ? {
+          ...objective,
+          rawText: 'Infer relationships among current, voltage, and resistance in a source-safe setup.',
+        }
+      : objective
+  ));
+  objectiveScene.visualGrammar = 'visual-thesis';
+  const spec = mutated.semanticSpecs.find((candidate) => candidate.visualTeachingSceneId === objectiveScene.id);
+  assert.ok(spec);
+  spec.visualGrammar = 'visual-thesis';
+  spec.layoutId = 'visual-thesis';
+  const compiledScene = mutated.presentation.scenes.find((candidate) => candidate.semanticSlideSpecId === spec.id);
+  assert.ok(compiledScene);
+  asPlainTitleBody(compiledScene);
+
+  const result = validatePresentationQuality(mutated);
+
+  assert.equal(result.ok, false);
   assert.equal(result.diagnostics.some((item) => item.code === 'quality_relationship_prose_only'), true);
 });
 
