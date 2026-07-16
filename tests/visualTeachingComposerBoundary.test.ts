@@ -450,8 +450,25 @@ test('App preserves the Gate 0 through Gate 6 weekly blueprint path when the com
 
   assert.match(
     appSource,
-    /const useSourcePrimaryWeeklyBlueprint\s*=\s*runSourcePrimaryScenePreflight\s*&&\s*shouldRunVisualTeachingComposer\(/,
+    /const composerEligible\s*=\s*runSourcePrimaryScenePreflight\s*&&\s*shouldRunVisualTeachingComposer\(/,
   );
+  assert.match(appSource, /const useSourcePrimaryWeeklyBlueprint\s*=\s*composerEligible;/);
   assert.equal((appSource.match(/useSourcePrimaryWeeklyBlueprint\s*\?\s*\[SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION\]/g) ?? []).length, 1);
   assert.equal((appSource.match(/if \(useSourcePrimaryWeeklyBlueprint\)/g) ?? []).length, 1);
+});
+
+test('App exposes a query-gated sanitized source-primary debug snapshot', () => {
+  const appSource = readFileSync(new URL('../App.tsx', import.meta.url), 'utf8');
+  const debugPanelSource = appSource.slice(
+    appSource.indexOf('{sourcePrimaryDebugSnapshot &&'),
+    appSource.indexOf('<Footer />'),
+  );
+
+  assert.match(appSource, /isSourcePrimaryDebugEnabled\(window\.location\.search\)/);
+  assert.match(appSource, /SOURCE_PRIMARY_DEBUG_CONSOLE_LABEL/);
+  assert.match(appSource, /SOURCE_PRIMARY_DEBUG_SNAPSHOT/);
+  assert.match(appSource, /source-primary visual composer/);
+  assert.match(appSource, /source-primary deterministic scenes/);
+  assert.match(appSource, /finalDeckPath:\s*'legacy'/);
+  assert.doesNotMatch(debugPanelSource, /fileName|dllContent|topicContext|objectivesContext/);
 });

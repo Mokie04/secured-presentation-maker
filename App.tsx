@@ -26,6 +26,14 @@ import { buildSourcePrimarySceneTelemetryEvent } from './lib/sourcePrimarySceneT
 import { resolveSourcePrimarySceneRolloutForGeneration, shouldRunSourcePrimaryScenePreflight } from './lib/sourcePrimarySceneRollout';
 import { SOURCE_PRIMARY_WEEKLY_BLUEPRINT_VERSION, resolveSourcePrimaryWeeklyBlueprintForGeneration } from './lib/sourcePrimaryWeeklyBlueprint';
 import { composeVisualTeachingPlanWithProvider } from './services/visualTeachingComposerService';
+import {
+  buildSourcePrimaryDebugSnapshot,
+  isSourcePrimaryDebugEnabled,
+  SOURCE_PRIMARY_DEBUG_CONSOLE_LABEL,
+  type SourcePrimaryDebugDeckPath,
+  type SourcePrimaryDebugSnapshot,
+  type SourcePrimaryDebugSnapshotInput,
+} from './lib/sourcePrimaryDebugSnapshot';
 
 
 type AppStep = 'input' | 'planning' | 'presenting';
@@ -117,6 +125,15 @@ const DECK_VISUAL_SYSTEM_V1_FLAG = import.meta.env.VITE_DECK_VISUAL_SYSTEM_V1;
 const END_TO_END_VALIDATION_V1_FLAG = import.meta.env.VITE_END_TO_END_VALIDATION_V1;
 const VISUAL_TEACHING_COMPOSER_V1_FLAG = import.meta.env.VITE_VISUAL_TEACHING_COMPOSER_V1;
 const IS_PRODUCTION_BUILD = import.meta.env.PROD === true;
+const SOURCE_PRIMARY_DEBUG_FLAG_VALUES = {
+  VITE_SOURCE_PRIMARY_ROUTING_V1: SOURCE_PRIMARY_ROUTING_V1_FLAG,
+  VITE_SOURCE_PRIMARY_SCENE_ROLLOUT_V1: SOURCE_PRIMARY_SCENE_ROLLOUT_V1_FLAG,
+  VITE_SOURCE_PRIMARY_PRODUCTION_ARMED: SOURCE_PRIMARY_PRODUCTION_ARMED_FLAG,
+  VITE_SEMANTIC_SLIDES_V1: SEMANTIC_SLIDES_V1_FLAG,
+  VITE_DECK_VISUAL_SYSTEM_V1: DECK_VISUAL_SYSTEM_V1_FLAG,
+  VITE_END_TO_END_VALIDATION_V1: END_TO_END_VALIDATION_V1_FLAG,
+  VITE_VISUAL_TEACHING_COMPOSER_V1: VISUAL_TEACHING_COMPOSER_V1_FLAG,
+} satisfies SourcePrimaryDebugSnapshotInput['flags'];
 const CACHE_HIT_LOADING_DELAY_MS = 1400;
 const REUSABLE_GENERATION_LOADING_DELAY_MS = 2600;
 const ADMIN_IMAGE_BATCH_LIMIT = 12;
@@ -164,6 +181,31 @@ const UPLOADED_FILIPINO_LANGUAGE_PATTERNS: Array<[RegExp, number]> = [
   [/\bpanalangin\b/, 1],
   [/\bmga\s+(?:mag[- ]?aaral|kagamitan|layunin|gawain)\b/, 1],
 ];
+
+const isTrueLikeDebugFlag = (value: unknown): boolean => (
+  ['1', 'true', 'yes', 'on'].includes(String(value ?? '').trim().toLowerCase())
+);
+
+const isBrowserSourcePrimaryDebugEnabled = (): boolean => (
+  typeof window !== 'undefined' && isSourcePrimaryDebugEnabled(window.location.search)
+);
+
+const buildInitialSourcePrimaryDebugSnapshot = (): SourcePrimaryDebugSnapshot => buildSourcePrimaryDebugSnapshot({
+  flags: SOURCE_PRIMARY_DEBUG_FLAG_VALUES,
+  flow: 'none',
+  originalRouteMode: 'unknown',
+  effectiveRouteMode: 'unknown',
+  manifestBuiltValid: null,
+  storyboardBuiltValid: null,
+  gate3SemanticEnabled: isTrueLikeDebugFlag(SEMANTIC_SLIDES_V1_FLAG),
+  gate4VisualSystemEnabled: isTrueLikeDebugFlag(DECK_VISUAL_SYSTEM_V1_FLAG),
+  gate5ValidationEnabled: isTrueLikeDebugFlag(END_TO_END_VALIDATION_V1_FLAG),
+  composerEligible: false,
+  composerAttempted: false,
+  composerStatus: 'skipped',
+  composerReason: 'waiting for generation',
+  finalDeckPath: 'unknown',
+});
 const CURATED_STATIC_IMAGE_ASSET_VERSION = '20260604-week1-approved-v7';
 const CURATED_STATIC_IMAGE_BASE_PATH_BY_COLLECTION: Record<string, string> = {
   'values-education': '/curated-images/values-education',
@@ -3210,6 +3252,7 @@ const getPptxContentTypography = (slide: Slide, hasImage: boolean, isEvidenceLay
 
 
 const App: React.FC = () => {
+  const sourcePrimaryDebugEnabled = isBrowserSourcePrimaryDebugEnabled();
   const [dllContent, setDllContent] = useState<string>('');
   const [lessonSourceManifestResult, setLessonSourceManifestResult] = useState<LessonSourceManifestResult | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
@@ -3240,6 +3283,9 @@ const App: React.FC = () => {
   const [authState, setAuthState] = useState<AuthState>('checking');
   const [authError, setAuthError] = useState<string>('');
   const [sessionUser, setSessionUser] = useState<SessionUser | null>(null);
+  const [sourcePrimaryDebugSnapshot, setSourcePrimaryDebugSnapshot] = useState<SourcePrimaryDebugSnapshot | null>(() => (
+    sourcePrimaryDebugEnabled ? buildInitialSourcePrimaryDebugSnapshot() : null
+  ));
   const regeneratingImageIndexesRef = useRef<Set<number>>(new Set());
 
   const { theme } = useTheme();
@@ -3263,11 +3309,59 @@ const App: React.FC = () => {
   const adminGenerationLimitBypassed = adminUsageLimitBypassed;
   const adminImageLimitBypassed = adminUsageLimitBypassed;
 
+  const publishSourcePrimaryDebugSnapshot = useCallback((input: Omit<SourcePrimaryDebugSnapshotInput, 'flags'>) => {
+    if (!sourcePrimaryDebugEnabled) return;
+    const snapshot = buildSourcePrimaryDebugSnapshot({
+      ...input,
+      flags: SOURCE_PRIMARY_DEBUG_FLAG_VALUES,
+    });
+    setSourcePrimaryDebugSnapshot(snapshot);
+    console.info(SOURCE_PRIMARY_DEBUG_CONSOLE_LABEL, snapshot);
+  }, [sourcePrimaryDebugEnabled]);
+
+  const publishSourcePrimaryGenerationDebug = useCallback((input: {
+    flow: SourcePrimaryDebugSnapshotInput['flow'];
+    originalRouteMode: SourcePrimaryDebugSnapshotInput['originalRouteMode'];
+    effectiveRouteMode: SourcePrimaryDebugSnapshotInput['effectiveRouteMode'];
+    manifestBuiltValid: boolean | null;
+    storyboardBuiltValid: boolean | null;
+    composerEligible: boolean;
+    composerAttempted: boolean;
+    composerStatus: SourcePrimaryDebugSnapshotInput['composerStatus'];
+    composerReason: unknown;
+    finalDeckPath: SourcePrimaryDebugDeckPath;
+  }) => {
+    publishSourcePrimaryDebugSnapshot({
+      ...input,
+      gate3SemanticEnabled: isTrueLikeDebugFlag(SEMANTIC_SLIDES_V1_FLAG),
+      gate4VisualSystemEnabled: isTrueLikeDebugFlag(DECK_VISUAL_SYSTEM_V1_FLAG),
+      gate5ValidationEnabled: isTrueLikeDebugFlag(END_TO_END_VALIDATION_V1_FLAG),
+    });
+  }, [publishSourcePrimaryDebugSnapshot]);
+
   useEffect(() => {
     if (presentationLanguageSource === 'interface' && presentationLanguage !== language) {
       setPresentationLanguage(language);
     }
   }, [language, presentationLanguage, presentationLanguageSource]);
+
+  useEffect(() => {
+    publishSourcePrimaryDebugSnapshot({
+      flow: 'none',
+      originalRouteMode: 'unknown',
+      effectiveRouteMode: 'unknown',
+      manifestBuiltValid: lessonSourceManifestResult ? lessonSourceManifestResult.ok : null,
+      storyboardBuiltValid: null,
+      gate3SemanticEnabled: isTrueLikeDebugFlag(SEMANTIC_SLIDES_V1_FLAG),
+      gate4VisualSystemEnabled: isTrueLikeDebugFlag(DECK_VISUAL_SYSTEM_V1_FLAG),
+      gate5ValidationEnabled: isTrueLikeDebugFlag(END_TO_END_VALIDATION_V1_FLAG),
+      composerEligible: false,
+      composerAttempted: false,
+      composerStatus: 'skipped',
+      composerReason: lessonSourceManifestResult ? 'manifest parsed after upload' : 'waiting for generation',
+      finalDeckPath: 'unknown',
+    });
+  }, [lessonSourceManifestResult, publishSourcePrimaryDebugSnapshot]);
 
   const handlePresentationLanguageChange = useCallback((nextLanguage: AppLanguage) => {
     setPresentationLanguage(nextLanguage);
@@ -3927,13 +4021,33 @@ const App: React.FC = () => {
             );
             const routePolicy = rolloutDecision.effectiveRoutePolicy;
             const runSourcePrimaryScenePreflight = shouldRunSourcePrimaryScenePreflight(rolloutDecision);
-            const useSourcePrimaryWeeklyBlueprint = runSourcePrimaryScenePreflight && shouldRunVisualTeachingComposer(
+            const composerEligible = runSourcePrimaryScenePreflight && shouldRunVisualTeachingComposer(
               routePolicy,
               VISUAL_TEACHING_COMPOSER_V1_FLAG,
               SEMANTIC_SLIDES_V1_FLAG,
               DECK_VISUAL_SYSTEM_V1_FLAG,
               END_TO_END_VALIDATION_V1_FLAG,
             );
+            const useSourcePrimaryWeeklyBlueprint = composerEligible;
+            let sourcePrimaryComposerAttempted = false;
+            const publishK12Debug = (input: {
+              manifestBuiltValid: boolean | null;
+              storyboardBuiltValid: boolean | null;
+              composerStatus?: SourcePrimaryDebugSnapshotInput['composerStatus'];
+              composerReason: unknown;
+              finalDeckPath?: SourcePrimaryDebugDeckPath;
+            }) => publishSourcePrimaryGenerationDebug({
+              flow: rolloutDecision.flow,
+              originalRouteMode: originalRoutePolicy.mode,
+              effectiveRouteMode: routePolicy.mode,
+              manifestBuiltValid: input.manifestBuiltValid,
+              storyboardBuiltValid: input.storyboardBuiltValid,
+              composerEligible,
+              composerAttempted: sourcePrimaryComposerAttempted,
+              composerStatus: input.composerStatus ?? 'skipped',
+              composerReason: input.composerReason,
+              finalDeckPath: input.finalDeckPath ?? 'unknown',
+            });
             void buildSourcePrimarySceneTelemetryEvent({
               decision: rolloutDecision,
               sourceHash: lessonSourceManifestResult?.ok === true
@@ -3947,10 +4061,23 @@ const App: React.FC = () => {
                 )
               : { ok: true as const, manifest: null };
             if (sourceManifestBoundary.ok === false) {
+              publishK12Debug({
+                manifestBuiltValid: false,
+                storyboardBuiltValid: null,
+                composerReason: 'manifest invalid',
+              });
               setError(sourceManifestBoundary.message);
               setIsLoading(false);
               return;
             }
+            publishK12Debug({
+              manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+              storyboardBuiltValid: null,
+              composerReason: runSourcePrimaryScenePreflight
+                ? 'manifest valid'
+                : `rollout ${rolloutDecision.reason}`,
+              finalDeckPath: runSourcePrimaryScenePreflight ? 'unknown' : 'legacy',
+            });
             const teachingStoryboardResult = runSourcePrimaryScenePreflight && sourceManifestBoundary.manifest
               ? buildTeachingStoryboard(sourceManifestBoundary.manifest)
               : null;
@@ -3962,10 +4089,23 @@ const App: React.FC = () => {
                 )
               : { ok: true as const, storyboard: null };
             if (teachingStoryboardBoundary.ok === false) {
+              publishK12Debug({
+                manifestBuiltValid: true,
+                storyboardBuiltValid: false,
+                composerReason: 'storyboard invalid',
+              });
               setError(teachingStoryboardBoundary.message);
               setIsLoading(false);
               return;
             }
+            publishK12Debug({
+              manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+              storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+              composerReason: runSourcePrimaryScenePreflight
+                ? 'storyboard valid'
+                : `rollout ${rolloutDecision.reason}`,
+              finalDeckPath: runSourcePrimaryScenePreflight ? 'unknown' : 'legacy',
+            });
             // DepEd Single Lesson Flow
             if (depEdMode === 'single') {
                 setLoadingDuration(40);
@@ -3984,7 +4124,10 @@ const App: React.FC = () => {
                       visualComposer: {
                         flagValue: VISUAL_TEACHING_COMPOSER_V1_FLAG,
                         language: generationLanguage,
-                        compose: composeVisualTeachingPlanWithProvider,
+                        compose: async (input) => {
+                          sourcePrimaryComposerAttempted = true;
+                          return composeVisualTeachingPlanWithProvider(input);
+                        },
                         authorizeGeneration: () => {
                           if (adminGenerationLimitBypassed) return true;
                           visualComposerGenerationReserved = tryIncrementCount('generations');
@@ -4007,6 +4150,14 @@ const App: React.FC = () => {
                       : undefined,
                   });
                   if (semanticSceneBoundary.ok === false) {
+                    publishK12Debug({
+                      manifestBuiltValid: true,
+                      storyboardBuiltValid: true,
+                      composerStatus: sourcePrimaryComposerAttempted ? 'failure' : 'skipped',
+                      composerReason: sourcePrimaryComposerAttempted
+                        ? 'visual composer failed before delivery'
+                        : 'source-primary scene boundary blocked before composer provider call',
+                    });
                     setError(semanticSceneBoundary.message);
                     setIsLoading(false);
                     return;
@@ -4014,11 +4165,28 @@ const App: React.FC = () => {
                   if (semanticSceneBoundary.presentation) {
                     const hasQuota = visualComposerGenerationReserved || adminGenerationLimitBypassed || tryIncrementCount('generations');
                     if (!hasQuota) {
+                      publishK12Debug({
+                        manifestBuiltValid: true,
+                        storyboardBuiltValid: true,
+                        composerStatus: sourcePrimaryComposerAttempted ? 'success' : 'skipped',
+                        composerReason: 'compiled scene presentation built but quota blocked delivery',
+                      });
                       setIsLoading(false);
                       setError(t.presentation.errorGenerationLimit);
                       return;
                     }
                     shouldRollbackGeneration = !adminGenerationLimitBypassed;
+                    publishK12Debug({
+                      manifestBuiltValid: true,
+                      storyboardBuiltValid: true,
+                      composerStatus: sourcePrimaryComposerAttempted ? 'success' : 'skipped',
+                      composerReason: sourcePrimaryComposerAttempted
+                        ? 'visual composer delivered compiled scenes'
+                        : 'deterministic source-primary scenes delivered',
+                      finalDeckPath: sourcePrimaryComposerAttempted
+                        ? 'source-primary visual composer'
+                        : 'source-primary deterministic scenes',
+                    });
                     setCompiledScenePresentation(semanticSceneBoundary.presentation);
                     setPresentation(null);
                     setCurrentSlide(0);
@@ -4028,6 +4196,15 @@ const App: React.FC = () => {
                     return;
                   }
                 }
+                publishK12Debug({
+                  manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                  storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                  composerStatus: sourcePrimaryComposerAttempted ? 'failure' : 'skipped',
+                  composerReason: runSourcePrimaryScenePreflight
+                    ? 'source-primary scene boundary returned no presentation; legacy fallback continues'
+                    : `rollout ${rolloutDecision.reason}`,
+                  finalDeckPath: 'legacy',
+                });
                 const cacheKey = await buildGenerationCacheKey('k12-single-presentation', [
                   GENERATION_CACHE_VERSION,
                   ...routePolicy.cacheKeyParts,
@@ -4045,6 +4222,13 @@ const App: React.FC = () => {
                   setCurrentSlide(0);
                   await finishLoadingProgress(setLoadingProgress);
                   setAppStep('presenting');
+                  publishK12Debug({
+                    manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                    storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                    composerStatus: 'skipped',
+                    composerReason: 'legacy cache hit',
+                    finalDeckPath: 'legacy',
+                  });
                   return;
                 }
 
@@ -4070,6 +4254,13 @@ const App: React.FC = () => {
                 setCurrentSlide(0);
                 await finishLoadingProgress(setLoadingProgress);
                 setAppStep('presenting');
+                publishK12Debug({
+                  manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                  storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                  composerStatus: 'skipped',
+                  composerReason: 'legacy generation delivered',
+                  finalDeckPath: 'legacy',
+                });
             }
             // DepEd Weekly Plan Flow (default)
             else if (depEdMode === 'weekly') {
@@ -4112,11 +4303,18 @@ const App: React.FC = () => {
                     initialPresentation,
                   });
 
-                  await finishLoadingProgress(setLoadingProgress);
-                  setAppStep('planning');
-                  shouldRollbackGeneration = false;
-                  return;
-                }
+                    await finishLoadingProgress(setLoadingProgress);
+                    setAppStep('planning');
+                    shouldRollbackGeneration = false;
+                    publishK12Debug({
+                      manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                      storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                      composerStatus: 'skipped',
+                      composerReason: 'legacy reusable weekly plan delivered',
+                      finalDeckPath: 'legacy',
+                    });
+                    return;
+                  }
 
                 const cachedPlan = await getCachedGeneration<CachedLessonPlan>(cacheKey);
                 if (cachedPlan) {
@@ -4128,11 +4326,18 @@ const App: React.FC = () => {
                   setLessonBlueprint(shouldTreatAsComplete ? completeBlueprintStatus(cachedPlan.blueprint) : resetBlueprintStatus(cachedPlan.blueprint));
                   setCompiledScenePresentation(null);
                   setPresentation({ ...cachedPlan.initialPresentation, slides: refreshedInitialSlides });
-                  await finishLoadingProgress(setLoadingProgress);
-                  setAppStep(shouldTreatAsComplete ? 'presenting' : 'planning');
-                  shouldRollbackGeneration = false;
-                  return;
-                }
+                    await finishLoadingProgress(setLoadingProgress);
+                    setAppStep(shouldTreatAsComplete ? 'presenting' : 'planning');
+                    shouldRollbackGeneration = false;
+                    publishK12Debug({
+                      manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                      storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                      composerStatus: 'skipped',
+                      composerReason: 'legacy weekly plan cache hit',
+                      finalDeckPath: 'legacy',
+                    });
+                    return;
+                  }
 
                 if (useSourcePrimaryWeeklyBlueprint) {
                   const weeklyBlueprintBoundary = resolveSourcePrimaryWeeklyBlueprintForGeneration(
@@ -4169,12 +4374,19 @@ const App: React.FC = () => {
                       initialPresentation,
                     });
 
-                    await finishLoadingProgress(setLoadingProgress);
-                    setAppStep('planning');
-                    shouldRollbackGeneration = false;
-                    return;
+                      await finishLoadingProgress(setLoadingProgress);
+                      setAppStep('planning');
+                      shouldRollbackGeneration = false;
+                      publishK12Debug({
+                        manifestBuiltValid: true,
+                        storyboardBuiltValid: true,
+                        composerStatus: 'skipped',
+                        composerReason: 'source-primary weekly blueprint delivered; generate a session for final scene path',
+                        finalDeckPath: 'legacy',
+                      });
+                      return;
+                    }
                   }
-                }
 
                 const blueprint = await createK12LessonBlueprint(content, DEFAULT_LESSON_FORMAT, generationLanguage);
                 const blueprintWithStatus = resetBlueprintStatus(blueprint);
@@ -4193,9 +4405,16 @@ const App: React.FC = () => {
                 setPresentation(initialPresentation);
                 await setCachedGeneration(cacheKey, { blueprint, initialPresentation });
 
-                await finishLoadingProgress(setLoadingProgress);
-                setAppStep('planning');
-            }
+                  await finishLoadingProgress(setLoadingProgress);
+                  setAppStep('planning');
+                  publishK12Debug({
+                    manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                    storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                    composerStatus: 'skipped',
+                    composerReason: 'legacy weekly plan generation delivered',
+                    finalDeckPath: 'legacy',
+                  });
+              }
         }
         shouldRollbackGeneration = false;
     } catch (e) {
@@ -4248,6 +4467,32 @@ const App: React.FC = () => {
         );
         const routePolicy = rolloutDecision.effectiveRoutePolicy;
         const runSourcePrimaryScenePreflight = shouldRunSourcePrimaryScenePreflight(rolloutDecision);
+        const composerEligible = runSourcePrimaryScenePreflight && shouldRunVisualTeachingComposer(
+          routePolicy,
+          VISUAL_TEACHING_COMPOSER_V1_FLAG,
+          SEMANTIC_SLIDES_V1_FLAG,
+          DECK_VISUAL_SYSTEM_V1_FLAG,
+          END_TO_END_VALIDATION_V1_FLAG,
+        );
+        let sourcePrimaryComposerAttempted = false;
+        const publishDailyDebug = (input: {
+          manifestBuiltValid: boolean | null;
+          storyboardBuiltValid: boolean | null;
+          composerStatus?: SourcePrimaryDebugSnapshotInput['composerStatus'];
+          composerReason: unknown;
+          finalDeckPath?: SourcePrimaryDebugDeckPath;
+        }) => publishSourcePrimaryGenerationDebug({
+          flow: rolloutDecision.flow,
+          originalRouteMode: originalRoutePolicy.mode,
+          effectiveRouteMode: routePolicy.mode,
+          manifestBuiltValid: input.manifestBuiltValid,
+          storyboardBuiltValid: input.storyboardBuiltValid,
+          composerEligible,
+          composerAttempted: sourcePrimaryComposerAttempted,
+          composerStatus: input.composerStatus ?? 'skipped',
+          composerReason: input.composerReason,
+          finalDeckPath: input.finalDeckPath ?? 'unknown',
+        });
         void buildSourcePrimarySceneTelemetryEvent({
           decision: rolloutDecision,
           sourceHash: lessonSourceManifestResult?.ok === true
@@ -4261,6 +4506,11 @@ const App: React.FC = () => {
             )
           : { ok: true as const, manifest: null };
         if (sourceManifestBoundary.ok === false) {
+          publishDailyDebug({
+            manifestBuiltValid: false,
+            storyboardBuiltValid: null,
+            composerReason: 'manifest invalid',
+          });
           setError(sourceManifestBoundary.message);
           setLessonBlueprint(prev => {
               if (!prev) return null;
@@ -4271,6 +4521,14 @@ const App: React.FC = () => {
           setIsLoading(false);
           return;
         }
+        publishDailyDebug({
+          manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+          storyboardBuiltValid: null,
+          composerReason: runSourcePrimaryScenePreflight
+            ? 'manifest valid'
+            : `rollout ${rolloutDecision.reason}`,
+          finalDeckPath: runSourcePrimaryScenePreflight ? 'unknown' : 'legacy',
+        });
         const selectedSourceUnitId = sourceManifestBoundary.manifest?.units[dayIndex]?.id;
         const teachingStoryboardResult = runSourcePrimaryScenePreflight && sourceManifestBoundary.manifest
           ? buildTeachingStoryboard(
@@ -4286,6 +4544,11 @@ const App: React.FC = () => {
             )
           : { ok: true as const, storyboard: null };
         if (teachingStoryboardBoundary.ok === false) {
+          publishDailyDebug({
+            manifestBuiltValid: true,
+            storyboardBuiltValid: false,
+            composerReason: 'storyboard invalid',
+          });
           setError(teachingStoryboardBoundary.message);
           setLessonBlueprint(prev => {
               if (!prev) return null;
@@ -4296,6 +4559,14 @@ const App: React.FC = () => {
           setIsLoading(false);
           return;
         }
+        publishDailyDebug({
+          manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+          storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+          composerReason: runSourcePrimaryScenePreflight
+            ? 'storyboard valid'
+            : `rollout ${rolloutDecision.reason}`,
+          finalDeckPath: runSourcePrimaryScenePreflight ? 'unknown' : 'legacy',
+        });
         setLoadingMessage(
           t.presentation.loadingDailySlides
             .replace('{unitLabel}', unitLabel)
@@ -4316,7 +4587,10 @@ const App: React.FC = () => {
               visualComposer: {
                 flagValue: VISUAL_TEACHING_COMPOSER_V1_FLAG,
                 language: getPresentationLanguageForGeneration(content),
-                compose: composeVisualTeachingPlanWithProvider,
+                compose: async (input) => {
+                  sourcePrimaryComposerAttempted = true;
+                  return composeVisualTeachingPlanWithProvider(input);
+                },
                 authorizeGeneration: () => {
                   if (adminGenerationLimitBypassed) return true;
                   visualComposerGenerationReserved = tryIncrementCount('generations');
@@ -4339,6 +4613,14 @@ const App: React.FC = () => {
               : undefined,
           });
           if (semanticSceneBoundary.ok === false) {
+            publishDailyDebug({
+              manifestBuiltValid: true,
+              storyboardBuiltValid: true,
+              composerStatus: sourcePrimaryComposerAttempted ? 'failure' : 'skipped',
+              composerReason: sourcePrimaryComposerAttempted
+                ? 'visual composer failed before delivery'
+                : 'source-primary scene boundary blocked before composer provider call',
+            });
             setError(semanticSceneBoundary.message);
             setLessonBlueprint(prev => {
                 if (!prev) return null;
@@ -4352,6 +4634,12 @@ const App: React.FC = () => {
           if (semanticSceneBoundary.presentation) {
             const hasQuota = visualComposerGenerationReserved || adminGenerationLimitBypassed || tryIncrementCount('generations');
             if (!hasQuota) {
+              publishDailyDebug({
+                manifestBuiltValid: true,
+                storyboardBuiltValid: true,
+                composerStatus: sourcePrimaryComposerAttempted ? 'success' : 'skipped',
+                composerReason: 'compiled scene presentation built but quota blocked delivery',
+              });
               setError(t.presentation.errorGenerationLimit);
               setLessonBlueprint(prev => {
                   if (!prev) return null;
@@ -4363,6 +4651,17 @@ const App: React.FC = () => {
             }
 
             shouldRollbackGeneration = !adminGenerationLimitBypassed;
+            publishDailyDebug({
+              manifestBuiltValid: true,
+              storyboardBuiltValid: true,
+              composerStatus: sourcePrimaryComposerAttempted ? 'success' : 'skipped',
+              composerReason: sourcePrimaryComposerAttempted
+                ? 'visual composer delivered compiled scenes'
+                : 'deterministic source-primary scenes delivered',
+              finalDeckPath: sourcePrimaryComposerAttempted
+                ? 'source-primary visual composer'
+                : 'source-primary deterministic scenes',
+            });
             const sceneIndexOfNewDay = isStandalonePlanUnitDeck ? 0 : (compiledScenePresentation?.scenes.length ?? 0);
             setGeneratedPlanUnitSceneSlidesByDay(prev => ({
                 ...prev,
@@ -4395,7 +4694,16 @@ const App: React.FC = () => {
             return;
           }
         }
-        const generationLanguage = getPresentationLanguageForGeneration(content);
+        publishDailyDebug({
+          manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+          storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+          composerStatus: sourcePrimaryComposerAttempted ? 'failure' : 'skipped',
+          composerReason: runSourcePrimaryScenePreflight
+            ? 'source-primary scene boundary returned no presentation; legacy fallback continues'
+            : `rollout ${rolloutDecision.reason}`,
+          finalDeckPath: 'legacy',
+        });
+          const generationLanguage = getPresentationLanguageForGeneration(content);
         const cacheKey = await buildGenerationCacheKey('k12-plan-unit-slides', [
           GENERATION_CACHE_VERSION,
           ...routePolicy.cacheKeyParts,
@@ -4462,12 +4770,19 @@ const App: React.FC = () => {
                 return {...prev, days: newDays};
             });
 
-            setCurrentSlide(slideIndexOfNewDay);
-            await finishLoadingProgress(setLoadingProgress);
-            setAppStep('presenting');
-            shouldRollbackGeneration = false;
-            return;
-        }
+              setCurrentSlide(slideIndexOfNewDay);
+              await finishLoadingProgress(setLoadingProgress);
+              setAppStep('presenting');
+              shouldRollbackGeneration = false;
+              publishDailyDebug({
+                manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                composerStatus: 'skipped',
+                composerReason: 'legacy session cache hit',
+                finalDeckPath: 'legacy',
+              });
+              return;
+          }
 
         const reusableSlides = await loadReusableSeedWhenAllowed(routePolicy, async () => {
           const { getReusableK12PlanUnitSlidesSeed } = await loadReusableLessonSeeds();
@@ -4509,12 +4824,19 @@ const App: React.FC = () => {
                 return {...prev, days: newDays};
             });
 
-            setCurrentSlide(slideIndexOfNewDay);
-            await finishLoadingProgress(setLoadingProgress);
-            setAppStep('presenting');
-            shouldRollbackGeneration = false;
-            return;
-        }
+              setCurrentSlide(slideIndexOfNewDay);
+              await finishLoadingProgress(setLoadingProgress);
+              setAppStep('presenting');
+              shouldRollbackGeneration = false;
+              publishDailyDebug({
+                manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+                composerStatus: 'skipped',
+                composerReason: 'legacy reusable session delivered',
+                finalDeckPath: 'legacy',
+              });
+              return;
+          }
 
         const dailySlides = assertSlidesGenerated(
             await generateK12SlidesForDay(dayToGenerate, lessonBlueprint, content, DEFAULT_LESSON_FORMAT, generationLanguage),
@@ -4552,12 +4874,19 @@ const App: React.FC = () => {
             return {...prev, days: newDays};
         });
 
-        setCurrentSlide(slideIndexOfNewDay);
-        await finishLoadingProgress(setLoadingProgress);
-        setAppStep('presenting');
-        shouldRollbackGeneration = false;
+          setCurrentSlide(slideIndexOfNewDay);
+          await finishLoadingProgress(setLoadingProgress);
+          setAppStep('presenting');
+          shouldRollbackGeneration = false;
+          publishDailyDebug({
+            manifestBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+            storyboardBuiltValid: runSourcePrimaryScenePreflight ? true : null,
+            composerStatus: 'skipped',
+            composerReason: 'legacy session generation delivered',
+            finalDeckPath: 'legacy',
+          });
 
-    } catch (e) {
+      } catch (e) {
         if (shouldRollbackGeneration) {
             decrementCount('generations');
         }
@@ -5515,13 +5844,13 @@ const App: React.FC = () => {
                                 <span className="text-xs font-semibold text-brand">{unitLabel.toUpperCase()}</span>
                                 <span className="text-xl font-bold text-brand">{day.dayNumber}</span>
                             </div>
-	                            <div>
-	                                <h3 className="text-lg font-semibold text-primary">{day.title}</h3>
-	                                {shouldShowPlanUnitFocus(day.focus, unitLabel, day.dayNumber) && (
-	                                  <p className="text-base text-secondary">{day.focus}</p>
-	                                )}
-	                            </div>
-	                        </div>
+                              <div>
+                                  <h3 className="text-lg font-semibold text-primary">{day.title}</h3>
+                                  {shouldShowPlanUnitFocus(day.focus, unitLabel, day.dayNumber) && (
+                                    <p className="text-base text-secondary">{day.focus}</p>
+                                  )}
+                              </div>
+                          </div>
                         
                         {day.generationStatus === 'pending' && (
                             <button 
@@ -6004,12 +6333,26 @@ const App: React.FC = () => {
           <div className="absolute bottom-[-8rem] left-1/3 w-[22rem] h-[22rem] rounded-full opacity-15" style={{ background: 'radial-gradient(circle, var(--shadow-dark) 0%, transparent 72%)' }} />
         </div>
         <Header usage={{ generations, images, limits, generationLimitBypassed: adminGenerationLimitBypassed, imageLimitBypassed: adminImageLimitBypassed }} />
-        <main className="w-full max-w-7xl mx-auto px-4 md:px-6 pb-6 pt-6 flex justify-center items-start flex-grow relative z-10">
-          {renderContent()}
-        </main>
-        <Footer />
-    </div>
-  );
+          <main className="w-full max-w-7xl mx-auto px-4 md:px-6 pb-6 pt-6 flex justify-center items-start flex-grow relative z-10">
+            {renderContent()}
+          </main>
+          {sourcePrimaryDebugSnapshot && (
+            <aside
+              aria-label="Source-primary debug snapshot"
+              className="fixed bottom-4 right-4 z-50 w-[min(92vw,32rem)] max-h-[70vh] overflow-auto rounded-2xl border border-themed bg-surface/95 p-4 text-xs text-primary shadow-neumorphic-outset backdrop-blur"
+            >
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <p className="font-extrabold tracking-wide text-primary">SOURCE_PRIMARY_DEBUG_SNAPSHOT</p>
+                <p className="text-[0.68rem] uppercase text-secondary">query-gated</p>
+              </div>
+              <pre className="whitespace-pre-wrap break-words font-mono leading-relaxed text-secondary">
+                {JSON.stringify(sourcePrimaryDebugSnapshot, null, 2)}
+              </pre>
+            </aside>
+          )}
+          <Footer />
+      </div>
+    );
 };
 
 export default App;
